@@ -70,8 +70,8 @@ boke/
 ├── db/             # schema.sql(基线) + seed.sql + migrations/00N_*.sql(增量)
 ├── frontend/       # Next.js 15.4（src/app 页面 + components + lib + themes + types）
 ├── scripts/        # 全部启停/构建/测试脚本（Windows 兼容）
-├── docs/           # 正式文档（架构设计/插件开发手册）
 ├── discuss/        # 讨论与验收文档（需求/MVP/开发流程/阶段验收报告/状态清单）
+│                   # 注：docs/（架构设计/插件开发手册）为内部文档，不随开源仓库分发
 └── data/media/     # 本地媒体存储（gitignore）
 ```
 
@@ -98,11 +98,10 @@ boke/
 
 | 文档 | 位置 |
 |---|---|
-| 架构设计 | `docs/architecture.md` |
-| 插件开发手册 | `docs/plugin-dev-guide.md` |
 | 需求文档 / MVP 规划 / 开发流程 | `discuss/`（评审稿） |
 | 阶段验收报告 | `discuss/M1.1~M1.7-验收报告.md` |
 | 开发状态清单（交接） | `discuss/开发状态清单.md` |
+| 架构设计 / 插件开发手册 | 内部文档（`docs/`，不随开源仓库分发） |
 
 ## 📝 说明
 
