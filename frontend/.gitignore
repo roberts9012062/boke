@@ -1,0 +1,10 @@
+# 月言博客前端 .gitignore
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+.DS_Store
+*.log
+.env
+.env.local

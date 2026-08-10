@@ -1,0 +1,81 @@
+// internal/casbin/casbin.go
+// 权限策略（Casbin RBAC，MVP 两级角色：admin / user，架构文档 9.1）。
+//
+// 设计说明：
+//   - 策略存内存（g, admin, admin：用户名 admin 的用户为管理员角色）
+//   - 登录时由 auth service 查询角色并写入 JWT claims（鉴权中间件直接读 claims）
+//   - M2 完整 RBAC 时切换 gorm adapter（策略落库、后台可编辑），对外接口不变
+package casbin
+
+import (
+	"github.com/casbin/casbin/v2"
+	"github.com/casbin/casbin/v2/model"
+)
+
+// 角色常量（与 JWT claims.role 对应）。
+const (
+	RoleAdmin = "admin" // 管理员
+	RoleUser  = "user"  // 普通用户
+)
+
+// modelText RBAC 模型（标准 model.conf 内容，内嵌避免外部文件依赖）。
+const modelText = `
+[request_definition]
+r = sub, obj, act
+
+[policy_definition]
+p = sub, obj, act
+
+[role_definition]
+g = _, _
+
+[policy_effect]
+e = some(where (p.eft == allow))
+
+[matchers]
+m = g(r.sub, p.sub) && (r.obj == p.obj || p.obj == "*") && r.act == p.act
+`
+
+// Enforcer 权限执行器（连接器类，持有 Casbin 实例）。
+type Enforcer struct {
+	engine *casbin.Enforcer
+}
+
+// NewEnforcer 创建权限执行器并加载初始策略。
+// 返回：执行器；初始化失败时返回错误。
+func NewEnforcer() (*Enforcer, error) {
+	// 从文本构建 RBAC 模型（NewEnforcer 直接传字符串会被当作文件路径）
+	rbacModel, err := model.NewModelFromString(modelText)
+	if err != nil {
+		return nil, err
+	}
+	engine, err := casbin.NewEnforcer(rbacModel)
+	if err != nil {
+		return nil, err
+	}
+	// 初始策略：用户名 admin 的用户归属管理员角色
+	if _, err := engine.AddGroupingPolicy("admin", RoleAdmin); err != nil {
+		return nil, err
+	}
+	return &Enforcer{engine: engine}, nil
+}
+
+// GetRole 查询用户角色（admin / user）。
+// 参数：username 用户名。
+func (e *Enforcer) GetRole(username string) string {
+	roles, err := e.engine.GetRolesForUser(username)
+	if err != nil {
+		return RoleUser
+	}
+	for _, role := range roles {
+		if role == RoleAdmin {
+			return RoleAdmin
+		}
+	}
+	return RoleUser
+}
+
+// Enforce 校验权限（M2 扩展使用：sub, obj, act）。
+func (e *Enforcer) Enforce(sub string, obj string, act string) (bool, error) {
+	return e.engine.Enforce(sub, obj, act)
+}

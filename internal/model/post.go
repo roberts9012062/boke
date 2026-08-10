@@ -1,0 +1,133 @@
+// internal/model/post.go
+// 帖子模块数据模型：Post 实体 + 发帖/列表/详情 DTO（与前端 src/types 手工同步）。
+package model
+
+import "time"
+
+// 帖子内容类型（设计稿四形态：文字/图片/音频/视频）。
+const (
+	PostTypeText  = "text"  // 文字帖
+	PostTypeImage = "image" // 图片帖
+	PostTypeAudio = "audio" // 音频帖
+	PostTypeVideo = "video" // 视频帖（M2 启用）
+)
+
+// 帖子状态（附录 B 状态字典）。
+const (
+	PostStatusDraft     = "draft"     // 草稿
+	PostStatusPublished = "published" // 已发布
+	PostStatusTakenDown = "taken_down" // 已下架
+	PostStatusDeleted   = "deleted"   // 已删除（软删）
+)
+
+// 可见性（需求 3.4 + 设计稿《可见性》弹层：公开/仅关注者/仅自己；密码帖设计稿未覆盖，后置）。
+const (
+	VisibilityPublic    = "public"    // 公开：所有人可见，可被推荐
+	VisibilityFollowers = "followers" // 仅关注者：互相关注的人可见
+	VisibilityPrivate   = "private"   // 私密：仅自己可见（草稿箱式）
+)
+
+// ---------- 实体 ----------
+
+// Post 帖子实体（posts 表结构）。
+// 说明：json tag 供后台管理列表直接序列化（前台用 PostSummary/PostDetail DTO）。
+type Post struct {
+	ID           int64      `json:"id"`            // 帖子 ID
+	AuthorID     int64      `json:"author_id"`     // 作者 ID
+	Title        string     `json:"title"`         // 标题（可空）
+	Summary      string     `json:"summary"`       // 摘要（自动生成）
+	Content      string     `json:"content"`       // 正文（≤2000 字）
+	ContentType  string     `json:"content_type"`  // 内容类型
+	Status       string     `json:"status"`        // 状态
+	Visibility   string     `json:"visibility"`    // 可见性
+	CoverURL     string     `json:"cover_url"`     // 封面图
+	MediaIDs     []int64    `json:"media_ids"`     // 关联媒体 ID
+	ViewCount    int64      `json:"view_count"`    // 浏览量
+	LikeCount    int64      `json:"like_count"`    // 点赞数
+	CommentCount int64      `json:"comment_count"` // 评论数
+	PublishedAt  *time.Time `json:"published_at"`  // 发布时间
+	CreatedAt    time.Time  `json:"created_at"`    // 创建时间
+	UpdatedAt    time.Time  `json:"updated_at"`    // 更新时间
+}
+
+// ---------- DTO ----------
+
+// CreatePostReq 发帖/存草稿请求（需求 3.4）。
+type CreatePostReq struct {
+	ContentType string   `json:"content_type"` // 内容类型：text/image/audio（video M2 置灰）
+	Title       string   `json:"title"`        // 标题（可选）
+	Content     string   `json:"content"`      // 正文（≤2000 字）
+	Tags        []string `json:"tags"`         // 标签（≤5 个，每个 ≤20 字符）
+	MediaIDs    []int64  `json:"media_ids"`    // 关联媒体 ID（图片多张有序/音频一张）
+	Visibility  string   `json:"visibility"`   // 可见性：public/private
+	Status      string   `json:"status"`       // draft=存草稿 / published=发布
+}
+
+// UpdatePostReq 更新帖子请求（草稿继续编辑/已发布编辑）。
+type UpdatePostReq struct {
+	Title      *string  `json:"title"`       // 标题（nil 表示不修改）
+	Content    *string  `json:"content"`     // 正文
+	Tags       []string `json:"tags"`        // 标签（空数组=清空，nil=不修改）
+	MediaIDs   []int64  `json:"media_ids"`   // 媒体（空数组=清空，nil=不修改）
+	Visibility *string  `json:"visibility"`  // 可见性
+}
+
+// TagDTO 标签信息（列表/详情展示）。
+type TagDTO struct {
+	Name string `json:"name"` // 标签名（含 # 前缀）
+	Slug string `json:"slug"` // URL 别名
+}
+
+// AuthorDTO 作者信息（列表/详情展示）。
+type AuthorDTO struct {
+	ID        int64  `json:"id"`         // 用户 ID
+	Username  string `json:"username"`   // 账号名
+	Nickname  string `json:"nickname"`   // 昵称
+	AvatarURL string `json:"avatar_url"` // 头像地址
+}
+
+// MediaDTO 媒体信息（列表/详情展示）。
+type MediaDTO struct {
+	ID       int64  `json:"id"`        // 媒体 ID
+	Type     string `json:"type"`      // 类型：image/audio
+	URL      string `json:"url"`       // 访问地址
+	MimeType string `json:"mime_type"` // MIME 类型
+	SizeBytes int64 `json:"size_bytes"` // 文件大小
+	Width    int    `json:"width"`     // 宽（图片）
+	Height   int    `json:"height"`    // 高（图片）
+}
+
+// PostSummary 帖子摘要（时间线列表项）。
+type PostSummary struct {
+	ID           int64     `json:"id"`            // 帖子 ID
+	Title        string    `json:"title"`         // 标题
+	Summary      string    `json:"summary"`       // 摘要（正文截断）
+	ContentType  string    `json:"content_type"`  // 类型
+	Visibility   string    `json:"visibility"`    // 可见性
+	Author       AuthorDTO `json:"author"`        // 作者
+	Tags         []TagDTO  `json:"tags"`          // 标签
+	Media        []MediaDTO `json:"media"`        // 媒体预览（图片封面/音频）
+	LikeCount    int64     `json:"like_count"`    // 点赞数
+	CommentCount int64     `json:"comment_count"` // 评论数
+	ViewCount    int64     `json:"view_count"`    // 浏览量
+	FavoriteCount int64    `json:"favorite_count"` // 收藏数（M1.7：列表聚合补齐）
+	FavoritedAt  string    `json:"favorited_at,omitempty"` // 收藏时间（仅「我的收藏」列表返回）
+	PublishedAt  string    `json:"published_at"`  // 发布时间（ISO8601）
+}
+
+// PostDetail 帖子详情（详情页）。
+type PostDetail struct {
+	PostSummary
+	Content     string `json:"content"`      // 完整正文
+	IsAuthor    bool   `json:"is_author"`    // 是否作者本人（编辑/删除权限）
+	CanView     bool   `json:"can_view"`     // 当前用户是否有权查看（私密帖校验）
+}
+
+// UploadResult 媒体上传结果。
+type UploadResult struct {
+	ID       int64  `json:"id"`        // 媒体 ID
+	Type     string `json:"type"`      // 类型：image/audio
+	URL      string `json:"url"`       // 访问地址
+	MimeType string `json:"mime_type"` // MIME 类型
+	SizeBytes int64 `json:"size_bytes"` // 文件大小
+}
