@@ -20,7 +20,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/yueyan/boke/pkg/dbcfg"
+	"github.com/roberts9012062/boke/pkg/dbcfg"
 )
 
 // 管理员账号常量（与 Casbin 策略 g, admin, admin 对应）。

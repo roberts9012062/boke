@@ -6,7 +6,7 @@ package service
 import (
 	"context"
 
-	"github.com/yueyan/boke/internal/repository"
+	"github.com/roberts9012062/boke/internal/repository"
 )
 
 // 站点元信息默认值（settings 表缺失或读取失败时兜底，与 seed.sql 一致）。

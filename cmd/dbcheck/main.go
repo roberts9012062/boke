@@ -19,7 +19,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/yueyan/boke/pkg/dbcfg"
+	"github.com/roberts9012062/boke/pkg/dbcfg"
 )
 
 // 数据库检查结果状态码

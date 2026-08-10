@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yueyan/boke/internal/model"
+	"github.com/roberts9012062/boke/internal/model"
 )
 
 // assembleSummaries 批量组装帖子摘要（作者/标签/媒体 + 私密帖过滤 + 收藏数聚合）。

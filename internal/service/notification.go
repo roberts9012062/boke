@@ -9,8 +9,8 @@ import (
 	"context"
 	"strconv"
 
-	"github.com/yueyan/boke/internal/model"
-	"github.com/yueyan/boke/internal/repository"
+	"github.com/roberts9012062/boke/internal/model"
+	"github.com/roberts9012062/boke/internal/repository"
 )
 
 // NotificationDTO 通知条目（前端展示：触发者 + 动作文案 + 帖子摘要 + 时间）。

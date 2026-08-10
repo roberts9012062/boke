@@ -11,7 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/yueyan/boke/internal/model"
+	"github.com/roberts9012062/boke/internal/model"
 )
 
 // ErrNotFound 记录不存在（内部错误，由 service 层转为业务错误码）。

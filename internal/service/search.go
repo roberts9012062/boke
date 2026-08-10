@@ -5,8 +5,8 @@ package service
 import (
 	"context"
 
-	"github.com/yueyan/boke/internal/model"
-	"github.com/yueyan/boke/internal/repository"
+	"github.com/roberts9012062/boke/internal/model"
+	"github.com/roberts9012062/boke/internal/repository"
 )
 
 // SearchResult 搜索结果（按类型分组返回，前端 Tab 切换展示）。

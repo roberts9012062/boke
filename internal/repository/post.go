@@ -13,7 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/yueyan/boke/internal/model"
+	"github.com/roberts9012062/boke/internal/model"
 )
 
 // PostRepo 帖子数据访问（连接器类）。

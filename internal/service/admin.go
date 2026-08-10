@@ -6,10 +6,10 @@ import (
 	"context"
 	"time"
 
-	"github.com/yueyan/boke/internal/casbin"
-	"github.com/yueyan/boke/internal/model"
-	"github.com/yueyan/boke/internal/repository"
-	"github.com/yueyan/boke/pkg/errs"
+	"github.com/roberts9012062/boke/internal/casbin"
+	"github.com/roberts9012062/boke/internal/model"
+	"github.com/roberts9012062/boke/internal/repository"
+	"github.com/roberts9012062/boke/pkg/errs"
 )
 
 // AdminService 后台服务（连接器类）。

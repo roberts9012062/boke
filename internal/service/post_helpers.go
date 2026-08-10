@@ -9,9 +9,9 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/yueyan/boke/internal/model"
-	"github.com/yueyan/boke/internal/repository"
-	"github.com/yueyan/boke/pkg/errs"
+	"github.com/roberts9012062/boke/internal/model"
+	"github.com/roberts9012062/boke/internal/repository"
+	"github.com/roberts9012062/boke/pkg/errs"
 )
 
 // validatePostReq 校验发帖参数（类型/字数/标签/可见性）。

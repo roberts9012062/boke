@@ -1,4 +1,4 @@
-module github.com/yueyan/boke
+module github.com/roberts9012062/boke
 
 go 1.25.0
 

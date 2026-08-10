@@ -11,7 +11,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/yueyan/boke/internal/config"
+	"github.com/roberts9012062/boke/internal/config"
 )
 
 // Sender 邮件发送器（连接器类）。

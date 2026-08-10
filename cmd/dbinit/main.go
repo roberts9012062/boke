@@ -14,7 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/yueyan/boke/pkg/dbcfg"
+	"github.com/roberts9012062/boke/pkg/dbcfg"
 )
 
 // connect 建立数据库连接（使用简单查询协议，以支持多语句 SQL 文件执行）。

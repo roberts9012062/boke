@@ -18,13 +18,13 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/yueyan/boke/internal/auth"
-	"github.com/yueyan/boke/internal/casbin"
-	"github.com/yueyan/boke/internal/mail"
-	"github.com/yueyan/boke/internal/model"
-	"github.com/yueyan/boke/internal/redis"
-	"github.com/yueyan/boke/internal/repository"
-	"github.com/yueyan/boke/pkg/errs"
+	"github.com/roberts9012062/boke/internal/auth"
+	"github.com/roberts9012062/boke/internal/casbin"
+	"github.com/roberts9012062/boke/internal/mail"
+	"github.com/roberts9012062/boke/internal/model"
+	"github.com/roberts9012062/boke/internal/redis"
+	"github.com/roberts9012062/boke/internal/repository"
+	"github.com/roberts9012062/boke/pkg/errs"
 )
 
 // 用户状态常量（对应 users.status）。

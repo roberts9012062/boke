@@ -18,7 +18,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/yueyan/boke/pkg/dbcfg"
+	"github.com/roberts9012062/boke/pkg/dbcfg"
 )
 
 // schemaMigrationsTable 迁移记录表 DDL（记录已执行的迁移文件名，保证幂等）。

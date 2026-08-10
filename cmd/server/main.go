@@ -11,8 +11,8 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/yueyan/boke/internal/config"
-	"github.com/yueyan/boke/internal/server"
+	"github.com/roberts9012062/boke/internal/config"
+	"github.com/roberts9012062/boke/internal/server"
 )
 
 func main() {

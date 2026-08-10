@@ -10,7 +10,7 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/yueyan/boke/pkg/dbcfg"
+	"github.com/roberts9012062/boke/pkg/dbcfg"
 )
 
 // Config 服务运行配置（值类型，方法按值接收，不修改原配置）。

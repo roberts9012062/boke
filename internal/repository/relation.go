@@ -7,7 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/yueyan/boke/internal/model"
+	"github.com/roberts9012062/boke/internal/model"
 )
 
 // 关系类型（user_relations.type）。

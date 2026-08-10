@@ -8,11 +8,11 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
-	"github.com/yueyan/boke/internal/middleware"
-	"github.com/yueyan/boke/internal/model"
-	"github.com/yueyan/boke/internal/service"
-	"github.com/yueyan/boke/pkg/errs"
-	"github.com/yueyan/boke/pkg/resp"
+	"github.com/roberts9012062/boke/internal/middleware"
+	"github.com/roberts9012062/boke/internal/model"
+	"github.com/roberts9012062/boke/internal/service"
+	"github.com/roberts9012062/boke/pkg/errs"
+	"github.com/roberts9012062/boke/pkg/resp"
 )
 
 // PostHandler 帖子控制器（连接器类）。
