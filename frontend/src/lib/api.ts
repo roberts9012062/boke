@@ -197,8 +197,10 @@ export function apiTimeline(
 }
 
 // 帖子详情。
-export function apiPostDetail(postId: number): Promise<PostDetail> {
-  return get<PostDetail>(`/posts/${postId}`);
+// 帖子详情（P1 浏览埋点：匿名访客带 guest_token 用于访客区分与同日去重）。
+export function apiPostDetail(postId: number, guestToken?: string): Promise<PostDetail> {
+  const query = guestToken ? `?guest_token=${encodeURIComponent(guestToken)}` : "";
+  return get<PostDetail>(`/posts/${postId}${query}`);
 }
 
 // 发帖/存草稿。

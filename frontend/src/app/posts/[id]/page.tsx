@@ -25,6 +25,7 @@ import {
   ApiError,
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { readGuest } from "@/lib/guest";
 import { timeAgo } from "@/lib/utils";
 import type { PostDetail } from "@/types/api";
 
@@ -55,7 +56,7 @@ export default function PostDetailPage() {
       setError("帖子不存在");
       return;
     }
-    apiPostDetail(postId)
+    apiPostDetail(postId, readGuest()?.guest_token)
       .then((detail) => {
         setPost(detail);
         setLikeCount(detail.like_count);

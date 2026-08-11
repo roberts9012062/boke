@@ -87,7 +87,7 @@ func (h *PostHandler) Get(c *gin.Context) {
 		resp.Fail(c, 400, errs.ErrBadRequest)
 		return
 	}
-	detail, err := h.posts.GetDetail(c.Request.Context(), postID, middleware.GetUserID(c))
+	detail, err := h.posts.GetDetail(c.Request.Context(), postID, middleware.GetUserID(c), c.Query("guest_token"))
 	if err != nil {
 		h.failWithLog(c, err)
 		return

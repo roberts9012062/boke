@@ -20,14 +20,19 @@ import (
 	"github.com/roberts9012062/boke/pkg/errs"
 )
 
-// viewerHash 生成浏览埋点的访客标识（登录用户 = ID 的 SHA256；访客 = 空串）。
-// 说明：不落原始用户 ID，日 UV 聚合用哈希去重；匿名无法跨设备识别（MVP 可接受）。
-func (s *PostService) viewerHash(viewerID int64) string {
-	if viewerID == 0 {
-		return ""
+// viewerHash 生成浏览埋点的访客标识（登录用户 = ID 的 SHA256；匿名 = 带 guest token 的 SHA256）。
+// 说明：不落原始用户 ID，日 UV 聚合用哈希去重；匿名访客带本地 guest token（P1 完善：
+//       此前匿名统一空串无法区分访客，现可区分且同人同日去重）；两者皆无时返回空串（降级）。
+func (s *PostService) viewerHash(viewerID int64, guestToken string) string {
+	if viewerID != 0 {
+		sum := sha256.Sum256([]byte(strconv.FormatInt(viewerID, 10)))
+		return hex.EncodeToString(sum[:])
 	}
-	sum := sha256.Sum256([]byte(strconv.FormatInt(viewerID, 10)))
-	return hex.EncodeToString(sum[:])
+	if guestToken != "" {
+		sum := sha256.Sum256([]byte("g:" + guestToken))
+		return hex.EncodeToString(sum[:])
+	}
+	return ""
 }
 
 // validatePostReq 校验发帖参数（类型/字数/标签/可见性）。

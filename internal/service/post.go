@@ -252,7 +252,7 @@ func (s *PostService) ListDrafts(ctx context.Context, userID int64) ([]model.Pos
 
 // GetDetail 帖子详情（可见性校验：私密帖仅作者可见）。
 // 参数：viewerID 当前用户（0 = 访客）。
-func (s *PostService) GetDetail(ctx context.Context, postID int64, viewerID int64) (*model.PostDetail, error) {
+func (s *PostService) GetDetail(ctx context.Context, postID int64, viewerID int64, guestToken string) (*model.PostDetail, error) {
 	post, err := s.posts.FindByID(ctx, postID)
 	if err != nil {
 		return nil, errs.ErrNotFound
@@ -279,7 +279,7 @@ func (s *PostService) GetDetail(ctx context.Context, postID int64, viewerID int6
 
 	// 浏览量 +1 + 浏览埋点（P1 真实日浏览统计；失败均忽略不影响详情展示）
 	_ = s.posts.IncrView(ctx, postID)
-	_ = s.posts.RecordView(ctx, postID, s.viewerHash(viewerID))
+	_ = s.posts.RecordView(ctx, postID, s.viewerHash(viewerID, guestToken))
 
 	// 组装详情
 	detail := &model.PostDetail{

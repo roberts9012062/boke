@@ -150,11 +150,14 @@ func (r *PostRepo) IncrView(ctx context.Context, id int64) error {
 	return err
 }
 
-// RecordView 记录浏览埋点（P1 真实日浏览统计：post_views 表按时间维度聚合）。
-// 参数：postID 帖子；viewerHash 访客标识（登录用户 ID 的 SHA256，匿名空串）。
+// RecordView 记录浏览埋点（P1 真实日浏览统计：post_views 按日去重）。
+// 说明：唯一约束 (post_id, viewer_hash, view_date)（迁移 012）——同人同日同帖只计一次，
+//       防刷新刷量；viewerHash 登录 = SHA256(userID)，匿名 = SHA256("g:"+guestToken) 可区分访客。
 func (r *PostRepo) RecordView(ctx context.Context, postID int64, viewerHash string) error {
-	_, err := r.pool.Exec(ctx,
-		`INSERT INTO post_views (post_id, viewer_hash) VALUES ($1, $2)`, postID, viewerHash)
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO post_views (post_id, viewer_hash, view_date)
+		VALUES ($1, $2, CURRENT_DATE)
+		ON CONFLICT (post_id, viewer_hash, view_date) DO NOTHING`, postID, viewerHash)
 	return err
 }
 
