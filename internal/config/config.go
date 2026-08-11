@@ -24,6 +24,7 @@ type Config struct {
 	Mail        MailConfig   // 邮件配置（M2 找回密码；未配置时降级日志输出）
 	SiteBaseURL string       // 站点访问地址（生成重置链接）
 	GitHubToken string       // GitHub Token（M3.1 插件商城清单拉取；可为空仅公开仓库）
+	AIKeySecret string       // AI 供应商 API Key 加密密钥（M4：AES 派生；未配置回退 JWT_SECRET）
 }
 
 // MailConfig 邮件发送参数（SMTP，M2 找回密码）。
@@ -102,6 +103,12 @@ func Load() (Config, error) {
 	cfg.SiteBaseURL = os.Getenv("SITE_BASE_URL")
 	if cfg.SiteBaseURL == "" {
 		cfg.SiteBaseURL = "http://localhost:3000"
+	}
+	// AI 供应商 API Key 加密密钥（M4：AES-256-GCM 派生；未配置时回退 JWT_SECRET
+	// 保证开箱即用，生产环境建议单独配置 AI_KEY_SECRET，避免与 JWT 密钥同源）
+	cfg.AIKeySecret = os.Getenv("AI_KEY_SECRET")
+	if cfg.AIKeySecret == "" {
+		cfg.AIKeySecret = cfg.JWTSecret
 	}
 	return cfg, nil
 }

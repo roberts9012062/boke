@@ -31,6 +31,7 @@ type Handlers struct {
 	Moderation *handler.ModerationHandler // 内容治理控制器（M2 举报/敏感词/封禁）
 	Plugin   *handler.PluginHandler   // 插件控制器（M3.1 商城/管理）
 	Seo      *handler.SeoHandler      // SEO 控制器（M4）
+	Ai       *handler.AiHandler       // AI 控制器（M4：供应商/任务/用量/内置场景）
 }
 
 // Register 注册全部路由并返回 Gin 引擎。
@@ -196,6 +197,7 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager) {
 	adminGroup.GET("/reports/stats", handlers.Moderation.ReportStats)
 	adminGroup.GET("/reports", handlers.Moderation.ListReports)
 	adminGroup.PUT("/reports/:id/status", handlers.Moderation.SetReportStatus)
+	adminGroup.POST("/reports/:id/verdict", handlers.Moderation.VerdictReport) // M4：AI 工单放行/删除
 	adminGroup.GET("/sensitive-words/stats", handlers.Moderation.SensitiveStats)
 	adminGroup.GET("/sensitive-words", handlers.Moderation.ListSensitiveWords)
 	adminGroup.POST("/sensitive-words", handlers.Moderation.AddSensitiveWord)
@@ -218,4 +220,17 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager) {
 	adminGroup.POST("/seo/health/scan", handlers.Seo.ScanHealth)
 	adminGroup.POST("/seo/batch-fix", handlers.Seo.BatchFix)
 	adminGroup.GET("/seo/serp-preview", handlers.Seo.SerpPreview)
+	// AI（M4）：供应商 / 任务配置 / 用量 / 内置场景（摘要/标签/评论审核）
+	adminGroup.GET("/ai/providers", handlers.Ai.ListProviders)
+	adminGroup.POST("/ai/providers", handlers.Ai.CreateProvider)
+	adminGroup.PUT("/ai/providers/:id", handlers.Ai.UpdateProvider)
+	adminGroup.DELETE("/ai/providers/:id", handlers.Ai.DeleteProvider)
+	adminGroup.POST("/ai/providers/:id/test", handlers.Ai.TestProvider)
+	adminGroup.GET("/ai/tasks", handlers.Ai.ListTasks)
+	adminGroup.PUT("/ai/tasks/:name", handlers.Ai.UpdateTask)
+	adminGroup.POST("/ai/tasks/:name/toggle", handlers.Ai.ToggleTask)
+	adminGroup.GET("/ai/usage", handlers.Ai.UsageStats)
+	adminGroup.POST("/ai/gen/summary", handlers.Ai.GenSummary)  // ?post_id= 生成摘要（seo_meta.summary）
+	adminGroup.POST("/ai/gen/tags", handlers.Ai.GenTags)        // ?post_id= 生成标签建议
+	adminGroup.POST("/ai/review/comments", handlers.Ai.ReviewComments) // 批量 AI 审核评论
 }

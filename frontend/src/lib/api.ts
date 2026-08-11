@@ -824,17 +824,19 @@ export interface ReportDTO {
   reason: string; // 原因
   detail: string; // 补充说明
   status: string; // pending/resolved/rejected
+  source: string; // 来源：user 人工举报 / ai AI 审核标记（M4）
   created_at: string; // 提交时间
   cost_seconds?: number; // 处理耗时（秒，已处理工单；P1 审核耗时）
 }
 
-// 审核队列统计（设计稿统计条：待处理/今日已审/平均耗时）。
+// 审核队列统计（设计稿统计条：待处理/高风险/今日已审/平均耗时；M4 补高风险）。
 export function apiAdminReportStats(): Promise<{
   pending: number;
+  high_risk: number;
   resolved_today: number;
   avg_cost_seconds: number;
 }> {
-  return get<{ pending: number; resolved_today: number; avg_cost_seconds: number }>(
+  return get<{ pending: number; high_risk: number; resolved_today: number; avg_cost_seconds: number }>(
     "/admin/reports/stats",
   );
 }
@@ -850,6 +852,11 @@ export function apiAdminReports(params: { status?: string; page?: number }): Pro
 // 处理工单（resolved/rejected）。
 export function apiAdminSetReportStatus(reportId: number, status: string): Promise<void> {
   return put<void>(`/admin/reports/${reportId}/status`, { status });
+}
+
+// 复核 AI 标记工单（M4：action=allow 放行 / delete 删除，仅 AI 来源工单）。
+export function apiAdminVerdictReport(reportId: number, action: "allow" | "delete"): Promise<void> {
+  return post<void>(`/admin/reports/${reportId}/verdict`, { action });
 }
 
 // 敏感词（后台管理）。

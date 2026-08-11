@@ -52,6 +52,7 @@ type ReportDTO struct {
 	Reason       string `json:"reason"`        // 原因
 	Detail       string `json:"detail"`        // 补充说明
 	Status       string `json:"status"`        // 状态
+	Source       string `json:"source"`        // 来源：user 人工举报 / ai AI 审核标记（M4）
 	CreatedAt    string `json:"created_at"`    // 提交时间
 	CostSeconds  *int64 `json:"cost_seconds"`  // 处理耗时（秒，已处理工单；P1 审核耗时）
 }
@@ -105,16 +106,56 @@ func (s *ModerationService) SetReportStatus(ctx context.Context, reportID int64,
 	return s.reports.SetStatus(ctx, reportID, status)
 }
 
-// ReportStats 工单统计（设计稿审核队列统计条：待处理/今日已审/工单总数）。
+// VerdictReport 复核 AI 标记工单（M4：审核队列「放行/删除」操作）。
+// 规则：仅限 AI 来源（source=ai）且目标为评论的待处理工单；
+//       allow=放行（评论恢复可见）+ 工单已解决；delete=删除评论 + 工单已解决。
+// 设计：人工举报工单沿用「解决/驳回」，AI 工单用「放行/删除」，两套互不干扰。
+func (s *ModerationService) VerdictReport(ctx context.Context, reportID int64, action string) error {
+	if action != "allow" && action != "delete" {
+		return errs.New(errs.CodeBadRequest, "操作仅支持 allow（放行）/ delete（删除）")
+	}
+	report, found, err := s.reports.FindByID(ctx, reportID)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return errs.ErrNotFound
+	}
+	if report.Source != repository.ReportSourceAI {
+		return errs.New(errs.CodeStateConflict, "该工单非 AI 标记，请使用「解决/驳回」处理")
+	}
+	if report.TargetType != "comment" {
+		return errs.New(errs.CodeStateConflict, "仅支持对评论工单执行放行/删除")
+	}
+	if report.Status != repository.ReportPending {
+		return errs.New(errs.CodeStateConflict, "该工单已处理")
+	}
+	// 评论处置：放行 → 恢复可见；删除 → 标记删除
+	targetStatus := "visible"
+	if action == "delete" {
+		targetStatus = "deleted"
+	}
+	if err := s.comments.SetStatus(ctx, report.TargetID, targetStatus); err != nil {
+		return err
+	}
+	return s.reports.SetStatus(ctx, reportID, repository.ReportResolved)
+}
+
+// ReportStats 工单统计（设计稿审核队列统计条：待处理/高风险/今日已审/平均耗时）。
 type ReportStats struct {
-	Pending       int64 `json:"pending"`         // 待处理（全量）
-	ResolvedToday int64 `json:"resolved_today"`  // 今日已审
+	Pending        int64 `json:"pending"`         // 待处理（全量）
+	HighRisk       int64 `json:"high_risk"`       // 高风险（M4：AI 审核标记且待复核）
+	ResolvedToday  int64 `json:"resolved_today"`  // 今日已审
 	AvgCostSeconds int64 `json:"avg_cost_seconds"` // 平均处理耗时（秒，P1 审核耗时埋点）
 }
 
 // ReportStats 审核队列统计。
 func (s *ModerationService) ReportStats(ctx context.Context) (*ReportStats, error) {
 	pending, err := s.reports.CountPending(ctx)
+	if err != nil {
+		return nil, err
+	}
+	highRisk, err := s.reports.CountHighRisk(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -126,7 +167,7 @@ func (s *ModerationService) ReportStats(ctx context.Context) (*ReportStats, erro
 	if err != nil {
 		return nil, err
 	}
-	return &ReportStats{Pending: pending, ResolvedToday: resolvedToday, AvgCostSeconds: avgCost}, nil
+	return &ReportStats{Pending: pending, HighRisk: highRisk, ResolvedToday: resolvedToday, AvgCostSeconds: avgCost}, nil
 }
 
 // SensitiveStats 敏感词统计（设计稿统计条：全部/拦截/审核）。
@@ -300,7 +341,7 @@ func (s *ModerationService) assembleReport(ctx context.Context, rep repository.R
 	dto := ReportDTO{
 		ID: rep.ID, TargetType: rep.TargetType, TargetID: rep.TargetID,
 		Reason: rep.Reason, Detail: rep.Detail, Status: rep.Status,
-		CreatedAt: rep.CreatedAt.Format(time.RFC3339),
+		Source: rep.Source, CreatedAt: rep.CreatedAt.Format(time.RFC3339),
 	}
 	// 处理耗时（秒；已处理工单才展示，P1 审核耗时）
 	if rep.ResolvedAt != nil {

@@ -18,6 +18,7 @@ const ICON_PATHS: Record<string, string> = {
   seo: '<circle cx="11" cy="11" r="7"/><path d="M16.5 16.5L21 21"/><path d="M8 11l2 2 3-4"/>',
   health: '<path d="M3 12h4l2-6 4 12 2-6h6"/>',
   serp: '<path d="M4 6h16M4 10h16M4 14h16M4 18h10"/>',
+  ai: '<path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4"/><path d="M8 12a4 4 0 0 1 8 0"/><path d="M12 12l2.5 4.5h-5z"/>',
 };
 
 // NavIcon 侧栏图标组件。

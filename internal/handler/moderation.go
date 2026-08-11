@@ -92,6 +92,28 @@ func (h *ModerationHandler) ReportStats(c *gin.Context) {
 	resp.OK(c, stats)
 }
 
+// VerdictReport 复核 AI 标记工单（POST /api/v1/admin/reports/:id/verdict，
+// body: {action: allow|delete}；M4：AI 高风险评论的放行/删除）。
+func (h *ModerationHandler) VerdictReport(c *gin.Context) {
+	reportID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || reportID <= 0 {
+		resp.Fail(c, 400, errs.ErrBadRequest)
+		return
+	}
+	var req struct {
+		Action string `json:"action"` // allow 放行 / delete 删除
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, errs.ErrBadRequest)
+		return
+	}
+	if err := h.moderation.VerdictReport(c.Request.Context(), reportID, req.Action); err != nil {
+		resp.FailFrom(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"verdict": req.Action})
+}
+
 // ---------- 后台：敏感词 ----------
 
 // ListSensitiveWords 词库列表（GET /api/v1/admin/sensitive-words?q=&page=）。

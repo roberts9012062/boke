@@ -9,7 +9,8 @@ import { forwardRef, useImperativeHandle, useState } from "react";
 import { AudioUploader } from "@/components/compose/audio-uploader";
 import { ImageUploader } from "@/components/compose/image-uploader";
 import { VideoUploader } from "@/components/compose/video-uploader";
-import { apiAdminUpdatePost, apiUploadMedia } from "@/lib/api";
+import { apiAdminUpdatePost, apiUploadMedia, ApiError } from "@/lib/api";
+import { apiAiGenTags } from "@/lib/api-ai";
 import type { AdminPostDetail, MediaDTO } from "@/types/api";
 
 // 正文上限（与后端 maxContentLen 一致）
@@ -50,6 +51,39 @@ export const PostEditForm = forwardRef<
   const [video, setVideo] = useState<MediaDTO | null>(detail.media[0] ?? null);
   const [coverUrl, setCoverUrl] = useState<string>(detail.cover_url);
   const [error, setError] = useState<string>("");
+  // AI 标签建议（M4：生成后展示 chips，点击合并；不自动写入）
+  const [aiTags, setAiTags] = useState<string[]>([]);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiError, setAiError] = useState("");
+
+  // genTags AI 生成标签建议（失败提示原因，未配 Key 引导去 AI 设置）。
+  const genTags = async () => {
+    setAiBusy(true);
+    setAiError("");
+    try {
+      const r = await apiAiGenTags(detail.id);
+      setAiTags(r.tags);
+      if (r.tags.length === 0) {
+        setAiError("AI 未返回标签建议，请重试");
+      }
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : "生成失败";
+      setAiError(msg.includes("AI 设置") || msg.includes("API Key") ? `${msg}（可前往侧栏「AI 设置」配置）` : msg);
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
+  // mergeAiTag 合并建议标签进输入框（去重，≤5 个）。
+  const mergeAiTag = (tag: string) => {
+    setTagsText((prev) => {
+      const current = parseTags(prev);
+      if (current.includes(tag) || current.length >= 5) {
+        return prev;
+      }
+      return [...current, tag].map((t) => `#${t}`).join(" ");
+    });
+  };
 
   // save 保存帖子（draft=保存草稿 / published=更新发布；成功返回 true）。
   const save = async (status: "draft" | "published"): Promise<boolean> => {
@@ -182,11 +216,21 @@ export const PostEditForm = forwardRef<
         <p className="mt-1 text-right text-xs text-ink-3">{content.length}/{MAX_CONTENT}</p>
       </div>
 
-      {/* 标签（设计稿：#月色 #夜读 #随笔） */}
+      {/* 标签（设计稿：#月色 #夜读 #随笔；M4 增加 AI 生成建议） */}
       <div>
-        <label htmlFor="edit-tags" className="mb-1.5 block text-sm text-ink-2">
-          标签
-        </label>
+        <div className="mb-1.5 flex items-center justify-between">
+          <label htmlFor="edit-tags" className="block text-sm text-ink-2">
+            标签
+          </label>
+          <button
+            type="button"
+            onClick={() => void genTags()}
+            disabled={aiBusy}
+            className="rounded-full bg-accent/10 px-3 py-1 text-xs text-glow hover:bg-accent/20 disabled:opacity-50"
+          >
+            {aiBusy ? "生成中…" : "AI 生成标签"}
+          </button>
+        </div>
         <input
           id="edit-tags"
           type="text"
@@ -195,6 +239,22 @@ export const PostEditForm = forwardRef<
           placeholder="#月色 #夜读 #随笔（空格分隔，≤5 个）"
           className="h-11 w-full rounded-lg border border-line bg-muted px-4 text-sm text-ink placeholder:text-ink-3 focus:border-accent focus:outline-none"
         />
+        {/* AI 建议标签（点击合并进输入框，≤5 个） */}
+        {aiTags.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {aiTags.map((tag) => (
+              <button
+                key={tag}
+                type="button"
+                onClick={() => mergeAiTag(tag)}
+                className="rounded-full border border-line px-3 py-1 text-xs text-ink-2 transition-colors hover:border-accent hover:text-glow"
+              >
+                #{tag} ＋
+              </button>
+            ))}
+          </div>
+        )}
+        {aiError && <p className="mt-2 text-xs text-like">{aiError}</p>}
       </div>
 
       {/* 可见性（设计稿《可见性》弹层三选项） */}

@@ -11,6 +11,7 @@ import {
   apiAdminReportStats,
   apiAdminReports,
   apiAdminSetReportStatus,
+  apiAdminVerdictReport,
   type ReportDTO,
 } from "@/lib/api";
 import { formatDuration } from "@/lib/utils";
@@ -30,20 +31,20 @@ const TYPE_LABEL: Record<string, string> = {
   user: "用户",
 };
 
-// AuditPage 审核队列页（举报工单管理）。
+// AuditPage 审核队列页（举报工单 + AI 高风险评论复核）。
 export default function AuditPage() {
   const [items, setItems] = useState<ReportDTO[]>([]);
-  const [total, setTotal] = useState<number>(0);
-  const [stats, setStats] = useState<{ pending: number; resolved_today: number; avg_cost_seconds: number } | null>(null);
+  const [stats, setStats] = useState<{ pending: number; high_risk: number; resolved_today: number; avg_cost_seconds: number } | null>(null);
   const [filter, setFilter] = useState<string>(""); // 空=全部；pending/resolved/rejected
   const [loaded, setLoaded] = useState<boolean>(false);
 
-  // 加载统计（待处理全量 + 今日已审）
-  useEffect(() => {
+  // 加载统计（待处理全量 + 今日已审 + 高风险）
+  const loadStats = () => {
     apiAdminReportStats()
       .then(setStats)
       .catch(() => setStats(null));
-  }, []);
+  };
+  useEffect(loadStats, []);
 
   // 加载工单
   useEffect(() => {
@@ -53,7 +54,6 @@ export default function AuditPage() {
       .then((r) => {
         if (cancelled) return;
         setItems(r.items);
-        setTotal(r.total);
       })
       .catch(() => {
         if (!cancelled) setItems([]);
@@ -66,11 +66,22 @@ export default function AuditPage() {
     };
   }, [filter]);
 
-  // 处理工单（解决/驳回）
+  // 处理工单（解决/驳回；处理后刷新统计条，保证「待处理」联动）
   const handleStatus = async (report: ReportDTO, status: string) => {
     await apiAdminSetReportStatus(report.id, status);
     // 本地更新状态
     setItems((prev) => prev.map((x) => (x.id === report.id ? { ...x, status } : x)));
+    loadStats();
+  };
+
+  // 复核 AI 工单（放行/删除；M4：仅 AI 来源工单显示此操作）
+  const handleVerdict = async (report: ReportDTO, action: "allow" | "delete") => {
+    if (action === "delete" && !confirm("确认删除该评论？删除后不可恢复")) {
+      return;
+    }
+    await apiAdminVerdictReport(report.id, action);
+    setItems((prev) => prev.map((x) => (x.id === report.id ? { ...x, status: "resolved" } : x)));
+    loadStats();
   };
 
   return (
@@ -82,13 +93,12 @@ export default function AuditPage() {
       </div>
 
       {/* 统计条（设计稿：待处理 18 / 高风险 3 / 今日已审 47 / 平均耗时 4m；
-          MVP 实现待处理/今日已审/工单总数/平均耗时（P1 处理时长埋点）；
-          高风险需 AI 判定（M4）） */}
+          高风险 = AI 审核标记待人工复核，M4-AI 激活） */}
       <div className="mt-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
         {[
           { label: "待处理", value: stats?.pending ?? 0 },
+          { label: "高风险", value: stats?.high_risk ?? 0 },
           { label: "今日已审", value: stats?.resolved_today ?? 0 },
-          { label: "工单总数", value: total },
           { label: "平均耗时", value: formatDuration(stats?.avg_cost_seconds ?? 0) },
         ].map((s) => (
           <div key={s.label} className="rounded-lg border border-line bg-elevated p-4">
@@ -136,6 +146,7 @@ export default function AuditPage() {
                 <th className="px-4 py-3 font-normal">内容摘要</th>
                 <th className="px-4 py-3 font-normal">类型</th>
                 <th className="px-4 py-3 font-normal">来源</th>
+                <th className="px-4 py-3 font-normal">举报人</th>
                 <th className="px-4 py-3 font-normal">原因</th>
                 <th className="px-4 py-3 font-normal">提交</th>
                 <th className="px-4 py-3 font-normal">状态</th>
@@ -155,6 +166,14 @@ export default function AuditPage() {
                     <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-ink-2">
                       {TYPE_LABEL[report.target_type] ?? report.target_type}
                     </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    {/* 来源徽标：AI 审核标记 / 人工举报（M4） */}
+                    {report.source === "ai" ? (
+                      <span className="rounded-full bg-like/15 px-2 py-0.5 text-xs text-like">AI</span>
+                    ) : (
+                      <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-ink-3">举报</span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-ink-2">{report.reporter || "匿名"}</td>
                   <td className="px-4 py-3 text-ink-2">{report.reason}</td>
@@ -176,22 +195,42 @@ export default function AuditPage() {
                   </td>
                   <td className="px-4 py-3">
                     {report.status === "pending" ? (
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => void handleStatus(report, "resolved")}
-                          className="rounded-full bg-accent px-3 py-1 text-xs text-on-accent hover:opacity-90"
-                        >
-                          解决
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void handleStatus(report, "rejected")}
-                          className="rounded-full border border-line px-3 py-1 text-xs text-ink-2 hover:text-ink"
-                        >
-                          驳回
-                        </button>
-                      </div>
+                      report.source === "ai" ? (
+                        // AI 工单：放行（恢复可见）/ 删除（M4）
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => void handleVerdict(report, "allow")}
+                            className="rounded-full bg-accent px-3 py-1 text-xs text-on-accent hover:opacity-90"
+                          >
+                            放行
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleVerdict(report, "delete")}
+                            className="rounded-full border border-like/40 px-3 py-1 text-xs text-like hover:bg-like/10"
+                          >
+                            删除
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => void handleStatus(report, "resolved")}
+                            className="rounded-full bg-accent px-3 py-1 text-xs text-on-accent hover:opacity-90"
+                          >
+                            解决
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleStatus(report, "rejected")}
+                            className="rounded-full border border-line px-3 py-1 text-xs text-ink-2 hover:text-ink"
+                          >
+                            驳回
+                          </button>
+                        </div>
+                      )
                     ) : (
                       <span className="text-xs text-ink-3">已处理</span>
                     )}

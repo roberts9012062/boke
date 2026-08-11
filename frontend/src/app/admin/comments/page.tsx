@@ -13,7 +13,9 @@ import {
   apiAdminComments,
   apiAdminDeleteComment,
   apiAdminSetCommentStatus,
+  ApiError,
 } from "@/lib/api";
+import { apiAiReviewComments } from "@/lib/api-ai";
 import { timeAgo } from "@/lib/utils";
 import type { AdminComment } from "@/types/api";
 
@@ -64,6 +66,25 @@ export default function AdminComments() {
     await apiAdminDeleteComment(commentId);
     setItems((prev) => prev.filter((c) => c.id !== commentId));
     apiAdminCommentStats().then(setStats).catch(() => undefined);
+  };
+
+  // AI 审核单条评论（M4 手动兜底：高风险自动隐藏并进审核队列，刷新列表反映状态变化）
+  const handleAiReview = async (commentId: number) => {
+    try {
+      const r = await apiAiReviewComments([commentId]);
+      const msg = r.failed > 0 ? `审核完成，${r.failed} 条失败` : "AI 审核完成（高风险评论已隐藏并进入审核队列）";
+      alert(msg);
+      // 重新加载列表与统计（隐藏状态会变化）
+      apiAdminComments({ status: status || undefined, q: keyword || undefined })
+        .then((res) => {
+          setItems(res.items);
+          setTotal(res.total);
+        })
+        .catch(() => undefined);
+      apiAdminCommentStats().then(setStats).catch(() => undefined);
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "AI 审核失败");
+    }
   };
 
   return (
@@ -152,6 +173,13 @@ export default function AdminComments() {
                 <td className="px-4 py-3 text-xs text-ink-3">{timeAgo(comment.created_at)}</td>
                 <td className="px-4 py-3">
                   <div className="flex gap-2 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => void handleAiReview(comment.id)}
+                      className="text-glow hover:underline"
+                    >
+                      AI 审核
+                    </button>
                     <button
                       type="button"
                       onClick={() => void toggleHidden(comment)}

@@ -25,6 +25,12 @@ const (
 	WordReview    = "review"    // 进入审核（MVP 放行，后续接入审核队列）
 )
 
+// 举报来源（迁移 010：M4-AI 高风险评论由 AI 预审标记，来源=ai）。
+const (
+	ReportSourceUser = "user" // 人工举报
+	ReportSourceAI   = "ai"   // AI 审核标记（高风险评论，待人工复核）
+)
+
 // Report 举报工单实体（reports 表）。
 type Report struct {
 	ID         int64      // 工单 ID
@@ -34,6 +40,7 @@ type Report struct {
 	Reason     string     // 举报原因（预置选项）
 	Detail     string     // 补充说明
 	Status     string     // 状态：pending / processing / resolved / rejected
+	Source     string     // 来源：user 人工举报 / ai AI 审核标记（迁移 010）
 	CreatedAt  time.Time  // 提交时间
 	ResolvedAt *time.Time // 处理时间（resolved/rejected 时写入，P1 审核耗时统计）
 }
@@ -67,14 +74,18 @@ func NewReportRepo(pool *pgxpool.Pool) *ReportRepo {
 	return &ReportRepo{pool: pool}
 }
 
-// Create 提交举报（返回工单 ID）。
+// Create 提交举报（返回工单 ID；source 缺省为人工举报）。
 func (r *ReportRepo) Create(ctx context.Context, report Report) (int64, error) {
+	source := report.Source
+	if source == "" {
+		source = ReportSourceUser
+	}
 	var id int64
 	err := r.pool.QueryRow(ctx, `
-		INSERT INTO reports (reporter_id, target_type, target_id, reason, detail, status)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO reports (reporter_id, target_type, target_id, reason, detail, status, source)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id`,
-		report.ReporterID, report.TargetType, report.TargetID, report.Reason, report.Detail, ReportPending).Scan(&id)
+		report.ReporterID, report.TargetType, report.TargetID, report.Reason, report.Detail, ReportPending, source).Scan(&id)
 	return id, err
 }
 
@@ -94,7 +105,7 @@ func (r *ReportRepo) List(ctx context.Context, status string, page int, pageSize
 
 	args = append(args, pageSize, (page-1)*pageSize)
 	rows, err := r.pool.Query(ctx, `
-		SELECT id, reporter_id, target_type, target_id, reason, detail, status, created_at, resolved_at
+		SELECT id, reporter_id, target_type, target_id, reason, detail, status, source, created_at, resolved_at
 		FROM reports `+where+`
 		ORDER BY created_at DESC
 		LIMIT $`+strconv.Itoa(len(args)-1)+` OFFSET $`+strconv.Itoa(len(args)),
@@ -107,7 +118,7 @@ func (r *ReportRepo) List(ctx context.Context, status string, page int, pageSize
 	items := make([]Report, 0)
 	for rows.Next() {
 		var rep Report
-		if err := rows.Scan(&rep.ID, &rep.ReporterID, &rep.TargetType, &rep.TargetID, &rep.Reason, &rep.Detail, &rep.Status, &rep.CreatedAt, &rep.ResolvedAt); err != nil {
+		if err := rows.Scan(&rep.ID, &rep.ReporterID, &rep.TargetType, &rep.TargetID, &rep.Reason, &rep.Detail, &rep.Status, &rep.Source, &rep.CreatedAt, &rep.ResolvedAt); err != nil {
 			return nil, 0, err
 		}
 		items = append(items, rep)
@@ -155,6 +166,32 @@ func (r *ReportRepo) CountResolvedToday(ctx context.Context) (int64, error) {
 		SELECT count(*) FROM reports
 		WHERE status IN ('resolved', 'rejected') AND created_at >= current_date`).Scan(&count)
 	return count, err
+}
+
+// CountHighRisk 高风险工单数（M4：AI 审核标记且待人工复核，设计稿「高风险」统计卡）。
+func (r *ReportRepo) CountHighRisk(ctx context.Context) (int64, error) {
+	var count int64
+	err := r.pool.QueryRow(ctx, `
+		SELECT count(*) FROM reports
+		WHERE status = 'pending' AND source = 'ai'`).Scan(&count)
+	return count, err
+}
+
+// FindByID 按 ID 查工单（verdict 复核 / 详情用；无记录返回 false）。
+func (r *ReportRepo) FindByID(ctx context.Context, reportID int64) (*Report, bool, error) {
+	var rep Report
+	err := r.pool.QueryRow(ctx, `
+		SELECT id, reporter_id, target_type, target_id, reason, detail, status, source, created_at, resolved_at
+		FROM reports WHERE id = $1`, reportID).Scan(
+		&rep.ID, &rep.ReporterID, &rep.TargetType, &rep.TargetID, &rep.Reason,
+		&rep.Detail, &rep.Status, &rep.Source, &rep.CreatedAt, &rep.ResolvedAt)
+	if err != nil {
+		if isNoRows(err) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	return &rep, true, nil
 }
 
 // SensitiveRepo 敏感词数据访问（连接器类）。

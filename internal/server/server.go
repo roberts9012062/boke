@@ -143,6 +143,10 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 	reportRepo := repository.NewReportRepo(conn)      // 举报工单（M2 内容治理）
 	sensitiveRepo := repository.NewSensitiveRepo(conn) // 敏感词（M2）
 	banRepo := repository.NewBanRepo(conn)             // 封禁记录（M2）
+	aiProviderRepo := repository.NewAiProviderRepo(conn) // AI 供应商（M4）
+	aiTaskRepo := repository.NewAiTaskRepo(conn)         // AI 任务（M4）
+	aiUsageRepo := repository.NewAiUsageRepo(conn)       // AI 用量（M4）
+	seoRepo := repository.NewSeoRepo(conn)               // SEO 元数据（M4：摘要落库）
 
 	// ---------- 业务层 ----------
 	limiter := redis.NewRateLimiter(redisClient)
@@ -160,7 +164,9 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 	_ = moderationSvc.ReloadForbidden(ctx)
 	postSvc := service.NewPostService(postRepo, tagRepo, mediaRepo, userRepo, mediaStore, moderationSvc, relationRepo, hookDispatcher)
 	notifySvc := service.NewNotificationService(notificationRepo, userRepo, hookDispatcher)
-	commentSvc := service.NewCommentService(commentRepo, reactionRepo, userRepo, guestMgr, postRepo, notifySvc, moderationSvc, hookDispatcher)
+	// AI 服务（M4：供应商/任务/用量 + 三内置场景；先建供评论预审注入）
+	aiSvc := service.NewAiService(aiProviderRepo, aiTaskRepo, aiUsageRepo, seoRepo, postRepo, commentRepo, reportRepo, cfg.AIKeySecret)
+	commentSvc := service.NewCommentService(commentRepo, reactionRepo, userRepo, guestMgr, postRepo, notifySvc, moderationSvc, hookDispatcher, aiSvc)
 	reactionSvc := service.NewReactionService(reactionRepo, postRepo, notifySvc)
 	followSvc := service.NewFollowService(relationRepo, userRepo, postRepo, postSvc, notifySvc)
 	topicSvc := service.NewTopicService(tagRepo, postRepo, postSvc)
@@ -169,7 +175,7 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 	siteSvc := service.NewSiteService(settingRepo) // 站点信息（meta 从 settings 实时读取，M1.7）
 	messageSvc := service.NewMessageService(messageRepo, userRepo, notifySvc) // 私信（M2）
 	pluginSvc := service.NewPluginService(ghClient, pluginRepo, settingRepo, hookDispatcher)
-	seoSvc := service.NewSeoService(repository.NewSeoRepo(conn), postRepo, "http://localhost:"+cfg.ServerPort)
+	seoSvc := service.NewSeoService(seoRepo, postRepo, "http://localhost:"+cfg.ServerPort)
 	// 启动同步已启用插件的钩子（M3.2：重启后恢复运行态插件功能）
 	if err := pluginSvc.SyncActiveHooks(ctx); err != nil {
 		logger.Warn("插件钩子启动同步失败", zap.Error(err))
@@ -195,6 +201,7 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 		Moderation: handler.NewModerationHandler(moderationSvc, logger),
 		Plugin:     handler.NewPluginHandler(pluginSvc),
 		Seo:        handler.NewSeoHandler(seoSvc),
+		Ai:         handler.NewAiHandler(aiSvc, logger),
 	}
 	return handlers, jwtMgr, cleanup, nil
 }

@@ -38,6 +38,13 @@ type CommentService struct {
 	notify     *NotificationService      // 通知服务（评论/回复通知）
 	moderation *ModerationService        // 内容治理（M2：敏感词拦截）
 	hooks      plugin.Dispatcher         // 插件钩子调度器（M3.2 扩展框架）
+	reviewer   CommentReviewer           // 评论 AI 预审（M4：可空，异步不阻塞主流程）
+}
+
+// CommentReviewer 评论 AI 预审接口（M4：CommentService 只依赖接口，
+// 不感知 AI 实现细节——AiService 实现；业务与 AI 解耦）。
+type CommentReviewer interface {
+	ReviewComment(ctx context.Context, commentID int64) error
 }
 
 // NewCommentService 创建评论服务。
@@ -50,8 +57,21 @@ func NewCommentService(
 	notify *NotificationService,
 	moderation *ModerationService,
 	hooks plugin.Dispatcher,
+	reviewer CommentReviewer,
 ) *CommentService {
-	return &CommentService{comments: comments, reactions: reactions, users: users, guests: guests, posts: posts, notify: notify, moderation: moderation, hooks: hooks}
+	return &CommentService{comments: comments, reactions: reactions, users: users, guests: guests, posts: posts, notify: notify, moderation: moderation, hooks: hooks, reviewer: reviewer}
+}
+
+// reviewAsync 异步 AI 预审新评论（fire-and-forget：失败静默，不影响评论主流程；
+// goroutine 内 recover 兜底，仿插件异步钩子先例）。
+func (s *CommentService) reviewAsync(commentID int64) {
+	if s.reviewer == nil {
+		return
+	}
+	go func() {
+		defer func() { _ = recover() }()
+		_ = s.reviewer.ReviewComment(context.Background(), commentID)
+	}()
 }
 
 // CommentInput 发表评论输入（顶层与回复共用）。
@@ -170,6 +190,9 @@ func (s *CommentService) Create(ctx context.Context, postID int64, viewerID int6
 			s.notify.NotifyComment(ctx, *authorID, post.AuthorID, postID, commentPreview(content))
 		}
 	}
+
+	// AI 异步预审（M4：高风险评论自动隐藏 + 进审核队列；不阻塞评论发布）
+	s.reviewAsync(commentID)
 	return commentID, nil
 }
 func (s *CommentService) Reply(ctx context.Context, targetID int64, viewerID int64, input CommentInput) (int64, error) {
@@ -229,6 +252,9 @@ func (s *CommentService) Reply(ctx context.Context, targetID int64, viewerID int
 	if authorID != nil && target.AuthorID != nil {
 		s.notify.NotifyReply(ctx, *authorID, *target.AuthorID, target.PostID, commentPreview(content))
 	}
+
+	// AI 异步预审（M4：与顶层评论一致，高风险自动进审核队列）
+	s.reviewAsync(commentID)
 	return commentID, nil
 }
 

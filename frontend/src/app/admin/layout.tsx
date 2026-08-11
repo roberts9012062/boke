@@ -34,6 +34,7 @@ const MAIN_ITEMS: NavItem[] = [
   { href: "/admin/seo", label: "SEO 设置", icon: "seo", available: true }, // M4 激活
   { href: "/admin/seo-health", label: "健康度", icon: "health", available: true }, // M4 激活
   { href: "/admin/serp", label: "SERP 预览", icon: "serp", available: true }, // M4 激活
+  { href: "/admin/ai", label: "AI 设置", icon: "ai", available: true }, // M4-AI 激活
 ];
 
 // 插件二级子菜单（插件为一级菜单，子项：插件商城 / 我的插件；M3.1 激活）

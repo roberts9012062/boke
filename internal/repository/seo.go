@@ -122,6 +122,18 @@ func (r *SeoRepo) UpsertMeta(ctx context.Context, m SeoMeta) error {
 	return err
 }
 
+// UpdateSummary 写入 AI 生成的帖子摘要（seo_meta.summary，M4-AI 场景）。
+// 说明：仅更新 summary 列，不影响其他 SEO 字段；无记录时创建。
+func (r *SeoRepo) UpdateSummary(ctx context.Context, postID int64, summary string) error {
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO seo_meta (post_id, summary)
+		VALUES ($1, $2)
+		ON CONFLICT (post_id) DO UPDATE SET
+			summary = EXCLUDED.summary, updated_at = now()`,
+		postID, summary)
+	return err
+}
+
 // AllForSitemap 全部公开帖子（sitemap 生成：id/标题/更新时间/媒体 URL）。
 // 返回：帖子行（含首图 URL 便于图片 sitemap）。
 func (r *SeoRepo) AllForSitemap(ctx context.Context) ([]PostSitemapRow, error) {

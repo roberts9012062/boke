@@ -6,6 +6,7 @@
 import { useEffect, useState } from "react";
 
 import { apiAdminDeletePost, apiAdminSetPostStatus, apiSaveSeoMeta, apiSeoMeta, ApiError } from "@/lib/api";
+import { AiSummary } from "@/components/admin/ai/ai-summary";
 import { formatCompact, formatDateTime } from "@/lib/utils";
 import type { AdminPostDetail } from "@/types/api";
 
@@ -36,6 +37,7 @@ export function PostEditPanel({
   const [seoDesc, setSeoDesc] = useState<string>("");
   const [seoKeywords, setSeoKeywords] = useState<string>("");
   const [seoOgImage, setSeoOgImage] = useState<string>("");
+  const [seoSummary, setSeoSummary] = useState<string>(""); // AI 摘要（M4：seo_meta.summary）
   const [seoLoaded, setSeoLoaded] = useState<boolean>(false);
   const [seoSaved, setSeoSaved] = useState<boolean>(false);
   const [seoError, setSeoError] = useState<string>("");
@@ -48,6 +50,7 @@ export function PostEditPanel({
         setSeoDesc(meta.description);
         setSeoKeywords(meta.keywords);
         setSeoOgImage(meta.og_image);
+        setSeoSummary(meta.summary);
       })
       .catch(() => undefined)
       .finally(() => setSeoLoaded(true));
@@ -212,6 +215,8 @@ export function PostEditPanel({
               className="h-9 w-full rounded-lg border border-line bg-muted px-3 text-xs text-ink placeholder:text-ink-3 focus:border-accent focus:outline-none"
             />
           </div>
+          {/* AI 摘要（M4：生成后写入 seo_meta.summary） */}
+          <AiSummary postId={detail.id} initial={seoSummary} />
           {seoError && (
             <p className="rounded-md bg-like/10 px-3 py-2 text-xs text-like" role="alert">
               {seoError}
