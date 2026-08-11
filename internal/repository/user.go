@@ -155,13 +155,13 @@ func (r *UserRepo) UpdateAvatar(ctx context.Context, id int64, avatarURL string)
 // UserRoleRow 用户角色行（casbin 启动加载与角色调整用）。
 type UserRoleRow struct {
 	Username string // 账号名（casbin 策略主体）
-	Role     string // 角色：admin / user
+	Role     string // 角色：superadmin / editor / author / visitor / restricted（M5）
 }
 
-// AllRoles 查询全部用户角色（服务启动时全量加载到 casbin 内存策略）。
+// AllRoles 查询全部用户角色（服务启动时全量加载到 casbin 内存策略，M5 全量）。
 func (r *UserRepo) AllRoles(ctx context.Context) ([]UserRoleRow, error) {
 	rows, err := r.pool.Query(ctx,
-		`SELECT username, role FROM users WHERE role = 'admin'`)
+		`SELECT username, role FROM users`)
 	if err != nil {
 		return nil, err
 	}
@@ -178,7 +178,7 @@ func (r *UserRepo) AllRoles(ctx context.Context) ([]UserRoleRow, error) {
 	return roles, rows.Err()
 }
 
-// SetRoleByID 按用户 ID 设置角色（admin / user）。
+// SetRoleByID 按用户 ID 设置角色（M5 五级角色）。
 func (r *UserRepo) SetRoleByID(ctx context.Context, id int64, role string) error {
 	_, err := r.pool.Exec(ctx,
 		`UPDATE users SET role = $2, updated_at = now() WHERE id = $1`, id, role)

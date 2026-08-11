@@ -11,6 +11,7 @@ import { useRouter } from "next/navigation";
 import { MobileTabbar } from "@/components/mobile-tabbar";
 import { Avatar } from "@/components/ui/avatar";
 import { useAuth } from "@/lib/auth";
+import { isSuperAdmin } from "@/lib/rbac";
 
 // MyPage 我的页（移动端入口为底部 Tab「我的」；桌面也可直接访问）。
 export default function MyPage() {
@@ -67,7 +68,7 @@ export default function MyPage() {
             <div className="flex items-center gap-2">
               <p className="font-display text-lg font-semibold text-ink">{user.nickname}</p>
               {/* 角色徽标（设计稿：站长） */}
-              {user.role === "admin" && (
+              {isSuperAdmin(user.role) && (
                 <span className="rounded-full bg-accent-soft px-2 py-0.5 text-xs text-glow">
                   站长
                 </span>
@@ -151,7 +152,7 @@ export default function MyPage() {
             </span>
           </Link>
           {/* 运营后台（仅 admin，设计稿 M/冷月/我的） */}
-          {user.role === "admin" && (
+          {isSuperAdmin(user.role) && (
             <Link
               href="/admin"
               className="flex items-center justify-between border-b border-line px-4 py-3.5 text-sm text-ink transition-colors hover:bg-muted"

@@ -57,7 +57,7 @@ export interface UserProfile {
   nickname: string; // 昵称
   avatar_url: string; // 头像地址
   bio: string; // 个人简介
-  role: "admin" | "user"; // 角色
+  role: "superadmin" | "editor" | "author" | "visitor" | "restricted"; // 角色（M5 五级 RBAC）
   status: string; // 用户状态
   post_count: number; // 帖子数
   like_count: number; // 获赞数

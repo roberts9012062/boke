@@ -144,8 +144,8 @@ func (r *AdminRepo) TrendSeries(ctx context.Context, days int) ([]TrendPoint, er
 }
 
 // ListAdminPosts 内容管理列表（类型/状态筛选 + 关键词搜索 + 分页）。
-func (r *AdminRepo) ListAdminPosts(ctx context.Context, contentType string, status string, keyword string, page int, pageSize int) ([]model.Post, int64, error) {
-	// 动态 WHERE（参数化）
+func (r *AdminRepo) ListAdminPosts(ctx context.Context, contentType string, status string, keyword string, authorID int64, page int, pageSize int) ([]model.Post, int64, error) {
+	// 动态 WHERE（参数化；authorID>0 时按作者过滤，M5 author 角色数据隔离）
 	where := "WHERE p.status != 'deleted'"
 	args := make([]any, 0, 4)
 	if contentType != "" {
@@ -159,6 +159,10 @@ func (r *AdminRepo) ListAdminPosts(ctx context.Context, contentType string, stat
 	if keyword != "" {
 		args = append(args, "%"+keyword+"%")
 		where += fmt.Sprintf(" AND (p.title ILIKE $%d OR p.content ILIKE $%d)", len(args), len(args))
+	}
+	if authorID > 0 {
+		args = append(args, authorID)
+		where += fmt.Sprintf(" AND p.author_id = $%d", len(args))
 	}
 
 	var total int64
@@ -417,4 +421,23 @@ type ActivityRow struct {
 	Actor     string    `json:"actor"`     // 操作者
 	Content   string    `json:"content"`   // 内容摘要
 	CreatedAt time.Time `json:"created_at"` // 时间
+}
+
+// CountUsersByRole 按角色分组计数（M5 角色矩阵页「人数」列）。
+func (r *AdminRepo) CountUsersByRole(ctx context.Context) (map[string]int64, error) {
+	rows, err := r.pool.Query(ctx, `SELECT role, count(*) FROM users GROUP BY role`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	counts := make(map[string]int64)
+	for rows.Next() {
+		var role string
+		var count int64
+		if err := rows.Scan(&role, &count); err != nil {
+			return nil, err
+		}
+		counts[role] = count
+	}
+	return counts, rows.Err()
 }

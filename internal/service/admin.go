@@ -29,11 +29,12 @@ type AdminService struct {
 	tags     *repository.TagRepo       // 标签（M2.9：标签分类）
 	store    *media.Store              // 媒体存储（M2.9：删除磁盘文件）
 	hooks    plugin.Dispatcher         // 插件钩子调度器（M3.2 扩展框架）
+	audit    *repository.AuditRepo     // 审计日志（M5：角色变更留痕）
 }
 
 // NewAdminService 创建后台服务。
-func NewAdminService(admin *repository.AdminRepo, posts *repository.PostRepo, comments *repository.CommentRepo, settings *repository.SettingRepo, enforcer *casbin.Enforcer, bans *repository.BanRepo, users *repository.UserRepo, postSvc *PostService, medias *repository.MediaRepo, tags *repository.TagRepo, store *media.Store, hooks plugin.Dispatcher) *AdminService {
-	return &AdminService{admin: admin, posts: posts, comments: comments, settings: settings, enforcer: enforcer, bans: bans, users: users, postSvc: postSvc, medias: medias, tags: tags, store: store, hooks: hooks}
+func NewAdminService(admin *repository.AdminRepo, posts *repository.PostRepo, comments *repository.CommentRepo, settings *repository.SettingRepo, enforcer *casbin.Enforcer, bans *repository.BanRepo, users *repository.UserRepo, postSvc *PostService, medias *repository.MediaRepo, tags *repository.TagRepo, store *media.Store, hooks plugin.Dispatcher, audit *repository.AuditRepo) *AdminService {
+	return &AdminService{admin: admin, posts: posts, comments: comments, settings: settings, enforcer: enforcer, bans: bans, users: users, postSvc: postSvc, medias: medias, tags: tags, store: store, hooks: hooks, audit: audit}
 }
 
 // DashboardData 仪表盘数据。
@@ -126,32 +127,64 @@ func (s *AdminService) Dashboard(ctx context.Context) (*DashboardData, error) {
 
 // ---------- 内容管理 ----------
 
-// ListPosts 内容管理列表。
-func (s *AdminService) ListPosts(ctx context.Context, contentType string, status string, keyword string, page int, pageSize int) ([]model.Post, int64, error) {
-	return s.admin.ListAdminPosts(ctx, contentType, status, keyword, page, pageSize)
+// ListPosts 内容管理列表（M5：author 角色仅返回自己帖子，数据隔离）。
+func (s *AdminService) ListPosts(ctx context.Context, contentType string, status string, keyword string, actorID int64, role string, page int, pageSize int) ([]model.Post, int64, error) {
+	authorID := int64(0)
+	if role == casbin.RoleAuthor {
+		authorID = actorID
+	}
+	return s.admin.ListAdminPosts(ctx, contentType, status, keyword, authorID, page, pageSize)
 }
 
-// SetPostStatus 上下架（published ↔ taken_down）。
-func (s *AdminService) SetPostStatus(ctx context.Context, postID int64, status string) error {
+// SetPostStatus 上下架（published ↔ taken_down；author 仅能操作自己帖子）。
+func (s *AdminService) SetPostStatus(ctx context.Context, postID int64, status string, actorID int64, role string) error {
 	if status != model.PostStatusPublished && status != model.PostStatusTakenDown {
 		return errs.New(errs.CodeBadRequest, "状态仅支持 published / taken_down")
+	}
+	if err := s.checkPostOwner(ctx, postID, actorID, role); err != nil {
+		return err
 	}
 	return s.posts.SetStatus(ctx, postID, status, nil)
 }
 
-// DeletePost 删除内容（软删）。
-func (s *AdminService) DeletePost(ctx context.Context, postID int64) error {
+// DeletePost 删除内容（软删；author 仅能操作自己帖子）。
+func (s *AdminService) DeletePost(ctx context.Context, postID int64, actorID int64, role string) error {
+	if err := s.checkPostOwner(ctx, postID, actorID, role); err != nil {
+		return err
+	}
 	return s.posts.SetStatus(ctx, postID, model.PostStatusDeleted, nil)
 }
 
-// GetPostDetail 后台编辑详情（透传帖子服务；设计稿《后台编辑·文字/图片/音频/视频》）。
-func (s *AdminService) GetPostDetail(ctx context.Context, postID int64) (*model.AdminPostDetail, error) {
+// GetPostDetail 后台编辑详情（author 仅能查看自己帖子）。
+func (s *AdminService) GetPostDetail(ctx context.Context, postID int64, actorID int64, role string) (*model.AdminPostDetail, error) {
+	if err := s.checkPostOwner(ctx, postID, actorID, role); err != nil {
+		return nil, err
+	}
 	return s.postSvc.GetAdminDetail(ctx, postID)
 }
 
-// UpdatePost 后台编辑保存（透传帖子服务；status：draft=保存草稿 / published=更新发布）。
-func (s *AdminService) UpdatePost(ctx context.Context, postID int64, req model.AdminUpdatePostReq) error {
+// UpdatePost 后台编辑保存（author 仅能编辑自己帖子）。
+func (s *AdminService) UpdatePost(ctx context.Context, postID int64, req model.AdminUpdatePostReq, actorID int64, role string) error {
+	if err := s.checkPostOwner(ctx, postID, actorID, role); err != nil {
+		return err
+	}
 	return s.postSvc.UpdateByAdmin(ctx, postID, req)
+}
+
+// checkPostOwner 帖子归属校验（M5 author 数据隔离：非本人帖子拒绝操作）。
+// 说明：非 author 角色（superadmin/editor）放行；author 校验帖子作者。
+func (s *AdminService) checkPostOwner(ctx context.Context, postID int64, actorID int64, role string) error {
+	if role != casbin.RoleAuthor {
+		return nil
+	}
+	post, err := s.posts.FindByID(ctx, postID)
+	if err != nil {
+		return errs.ErrNotFound
+	}
+	if post.AuthorID != actorID {
+		return errs.New(errs.CodeForbidden, "只能操作自己的帖子")
+	}
+	return nil
 }
 
 // ---------- 评论管理 ----------
@@ -224,17 +257,24 @@ func (s *AdminService) UserStats(ctx context.Context) (*repository.UserStats, er
 	return s.admin.UserStats(ctx)
 }
 
-// SetUserRole 角色调整（M2：admin ↔ user，users.role 落库 + casbin 内存策略即时生效）。
-// 参数：userID 目标用户；role 目标角色。差异记录：完整角色权限矩阵（5 角色）规划 M3，
-//   MVP 仅提供 admin/user 两级切换；角色调整后需该用户重新登录生效（JWT claims 登录时签发）。
-func (s *AdminService) SetUserRole(ctx context.Context, userID int64, role string) error {
-	if role != casbin.RoleAdmin && role != casbin.RoleUser {
-		return errs.New(errs.CodeBadRequest, "角色仅支持 admin / user")
+// SetUserRole 角色调整（M5：五级角色，users.role 落库 + casbin 内存策略即时生效）。
+// 参数：actorID 操作者；userID 目标用户；role 目标角色；ip/ua 审计信息。
+// 规则：白名单五角色；不能调整自己的角色（防自降级锁死）；调整后需该用户重新登录生效（JWT claims）。
+func (s *AdminService) SetUserRole(ctx context.Context, actorID int64, userID int64, role string, ip string, ua string) error {
+	if !casbin.IsBuiltinRole(role) {
+		return errs.New(errs.CodeBadRequest, "角色仅支持 superadmin / editor / author / visitor / restricted")
 	}
 	user, err := s.users.FindByID(ctx, userID)
 	if err != nil {
 		return errs.ErrNotFound
 	}
+	// 自我保护：不可调整自己的角色
+	if actorID == userID {
+		return errs.New(errs.CodeStateConflict, "不能调整自己的角色")
+	}
+	// 变更前角色（审计快照；casbin 内存为当前生效值）
+	beforeRole := s.enforcer.GetRole(user.Username)
+
 	// 落库 + 内存策略同步（顺序：先内存后落库，失败时内存已生效不影响可用性）
 	if err := s.enforcer.SetRole(user.Username, role); err != nil {
 		return err
@@ -242,6 +282,13 @@ func (s *AdminService) SetUserRole(ctx context.Context, userID int64, role strin
 	if err := s.users.SetRoleByID(ctx, userID, role); err != nil {
 		return err
 	}
+
+	// 审计（角色变更入 audit_logs，架构 9.2；失败静默不影响主流程）
+	_ = s.audit.Insert(ctx, repository.AuditEntry{
+		ActorID: actorID, Action: "set_role", ResourceType: "user", ResourceID: userID,
+		BeforeData: `"` + beforeRole + `"`, AfterData: `"` + role + `"`,
+		IP: ip, UserAgent: ua,
+	})
 	return nil
 }
 

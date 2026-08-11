@@ -10,6 +10,7 @@ import { useState, type FormEvent } from "react";
 
 import { ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { canAccessAdmin } from "@/lib/rbac";
 
 // AdminLoginPage 后台登录（仅 admin 角色可进）。
 export default function AdminLoginPage() {
@@ -22,7 +23,7 @@ export default function AdminLoginPage() {
   const [submitting, setSubmitting] = useState<boolean>(false);
 
   // 已登录 admin：直接进后台
-  if (user && user.role === "admin") {
+  if (user && canAccessAdmin(user.role)) {
     router.replace("/admin");
     return null;
   }

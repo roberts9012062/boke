@@ -12,6 +12,7 @@ import { useEffect, useState } from "react";
 import { NavIcon } from "@/components/admin/nav-icons";
 import { apiInstalledPlugins } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { canAccessAdmin, isSuperAdmin } from "@/lib/rbac";
 
 // 导航项：icon 对应 NavIcon 图标键；available=false 显示建设中占位。
 interface NavItem {
@@ -29,7 +30,7 @@ const MAIN_ITEMS: NavItem[] = [
   { href: "/admin/users", label: "用户/访客", icon: "users", available: true },
   { href: "/admin/media", label: "媒体库", icon: "media", available: true }, // M2.9 激活
   { href: "/admin/tags", label: "标签分类", icon: "tags", available: true }, // M2.9 激活
-  { href: "/admin/roles", label: "角色权限", icon: "roles", available: false },
+  { href: "/admin/roles", label: "角色权限", icon: "roles", available: true }, // M5 激活
   { href: "/admin/settings", label: "站点设置", icon: "settings", available: true },
   { href: "/admin/seo", label: "SEO 设置", icon: "seo", available: true }, // M4 激活
   { href: "/admin/seo-health", label: "健康度", icon: "health", available: true }, // M4 激活
@@ -104,13 +105,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   // 未登录/非 admin：跳转
   useEffect(() => {
-    if (!loading && (!user || user.role !== "admin")) {
+    if (!loading && (!user || !canAccessAdmin(user.role))) {
       router.replace("/admin-login");
     }
   }, [loading, user, router]);
 
   // 恢复中：骨架
-  if (loading || !user || user.role !== "admin") {
+  if (loading || !user || !canAccessAdmin(user.role)) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <div className="h-6 w-40 animate-pulse rounded bg-muted" aria-hidden />
@@ -216,7 +217,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               {user.nickname.charAt(0)}
             </span>
             <span className="text-sm text-ink">{user.nickname}</span>
-            {user.role === "admin" && (
+            {isSuperAdmin(user.role) && (
               <span className="rounded-full bg-accent-soft px-2 py-0.5 text-xs text-glow">站长</span>
             )}
           </div>

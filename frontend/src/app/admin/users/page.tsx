@@ -1,19 +1,20 @@
 // src/app/admin/users/page.tsx
-// 后台用户管理（需求 4.5 + M2 封禁增强）：
+// 后台用户管理（需求 4.5 + M2 封禁增强 + M5 五级角色）：
 // 用户表格（头像/昵称/@账号/角色/帖子数/状态/注册时间）+ 搜索；
-// 封禁弹层（原因 + 永久/限时，写 ban_records）+ 解封。
+// 封禁弹层（原因 + 永久/限时，写 ban_records）+ 调整角色弹层（M5 五级）。
 "use client";
 
 import { useEffect, useState } from "react";
 
+import { UserRoleModal } from "@/components/admin/user-role-modal";
 import {
-  apiAdminSetUserRole,
   apiAdminSetUserStatus,
   apiAdminUsers,
   apiAdminUserStats,
   ApiError,
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { ROLE_LABEL } from "@/lib/rbac";
 import { timeAgo } from "@/lib/utils";
 import type { UserProfile } from "@/types/api";
 
@@ -37,6 +38,8 @@ export default function AdminUsers() {
   const [banReason, setBanReason] = useState<string>("");
   const [banUntil, setBanUntil] = useState<string>(""); // 空 = 永久
   const [banError, setBanError] = useState<string>("");
+  // 调整角色弹层状态（M5）
+  const [roleTarget, setRoleTarget] = useState<UserProfile | null>(null);
 
   // 加载统计条（设计稿《后台用户》四卡片）
   useEffect(() => {
@@ -91,23 +94,19 @@ export default function AdminUsers() {
     }
   };
 
-  // 角色调整（M2：admin ↔ user；落库 + casbin 即时生效，需该用户重新登录）
-  const toggleRole = async (user: UserProfile) => {
+  // 角色调整（M5：五级角色弹层；落库 + casbin 即时生效，需该用户重新登录）
+  const openRoleModal = (user: UserProfile) => {
     if (user.id === me?.id) {
-      setBanError("不能调整自己的管理员角色");
+      setBanError("不能调整自己的角色");
       return;
     }
-    const next = user.role === "admin" ? "user" : "admin";
-    const label = next === "admin" ? "设为管理员" : "取消管理员";
-    if (!window.confirm(`确定将 ${user.nickname} ${label}？变更后需该用户重新登录生效`)) {
-      return;
-    }
-    try {
-      await apiAdminSetUserRole(user.id, next);
-      setItems((prev) => prev.map((u) => (u.id === user.id ? { ...u, role: next } : u)));
-    } catch (err) {
-      setBanError(err instanceof ApiError ? err.message : "角色调整失败");
-    }
+    setRoleTarget(user);
+  };
+
+  // 角色调整成功回调（本地更新 + 刷新统计）
+  const onRoleChanged = (user: UserProfile) => {
+    setItems((prev) => prev.map((u) => (u.id === user.id ? { ...u, role: user.role } : u)));
+    setRoleTarget(null);
   };
 
   return (
@@ -166,12 +165,18 @@ export default function AdminUsers() {
                     </div>
                   </div>
                 </td>
-                <td className="px-4 py-3 text-ink-2">
-                  {user.role === "admin" ? (
-                    <span className="rounded-full bg-accent-soft px-2 py-0.5 text-xs text-glow">admin</span>
-                  ) : (
-                    "user"
-                  )}
+                <td className="px-4 py-3">
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-xs ${
+                      user.role === "superadmin"
+                        ? "bg-accent-soft text-glow"
+                        : user.role === "restricted"
+                          ? "bg-like/15 text-like"
+                          : "bg-muted text-ink-2"
+                    }`}
+                  >
+                    {ROLE_LABEL[user.role] ?? user.role}
+                  </span>
                 </td>
                 <td className="px-4 py-3 text-ink-3">{user.post_count}</td>
                 <td className="px-4 py-3">
@@ -210,13 +215,13 @@ export default function AdminUsers() {
                     </button>
                   )}
                   <span className="mx-1.5 text-ink-3">·</span>
-                  {/* 角色调整（M2：admin ↔ user） */}
+                  {/* 调整角色（M5 五级角色弹层） */}
                   <button
                     type="button"
-                    onClick={() => void toggleRole(user)}
+                    onClick={() => openRoleModal(user)}
                     className="text-xs text-glow hover:underline"
                   >
-                    {user.role === "admin" ? "取消管理员" : "设为管理员"}
+                    调整角色
                   </button>
                 </td>
               </tr>
@@ -292,6 +297,16 @@ export default function AdminUsers() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* 调整角色弹层（M5：五级角色单选 + 保存） */}
+      {roleTarget && (
+        <UserRoleModal
+          user={roleTarget}
+          me={me}
+          onClose={() => setRoleTarget(null)}
+          onChanged={() => onRoleChanged(roleTarget)}
+        />
       )}
     </div>
   );

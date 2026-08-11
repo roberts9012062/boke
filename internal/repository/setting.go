@@ -76,3 +76,13 @@ func (r *SettingRepo) SetMany(ctx context.Context, updates map[string]string) er
 	}
 	return nil
 }
+
+// SetJSON 保存 JSON 对象设置（M5：权限矩阵 role_permissions 用；
+// 与 SetMany 的区别：rawJSON 为合法 JSON 对象文本，直接绑定 jsonb 不包引号）。
+func (r *SettingRepo) SetJSON(ctx context.Context, key string, rawJSON string) error {
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO settings (key, value, description) VALUES ($1, $2::jsonb, '')
+		ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+		key, rawJSON)
+	return err
+}

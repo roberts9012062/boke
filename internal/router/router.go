@@ -10,6 +10,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/roberts9012062/boke/internal/auth"
+	"github.com/roberts9012062/boke/internal/casbin"
 	"github.com/roberts9012062/boke/internal/config"
 	"github.com/roberts9012062/boke/internal/handler"
 	"github.com/roberts9012062/boke/internal/middleware"
@@ -34,11 +35,13 @@ type Handlers struct {
 	Ai       *handler.AiHandler       // AI 控制器（M4：供应商/任务/用量/内置场景）
 	Report   *handler.ReportHandler   // 数据报表控制器（M4-报表）
 	Backup   *handler.BackupHandler   // 备份导出控制器（M4-报表）
+	Role     *handler.RoleHandler     // 角色权限控制器（M5）
 }
 
 // Register 注册全部路由并返回 Gin 引擎。
-// 参数：cfg 运行配置；logger 请求/恢复日志输出器；handlers 业务控制器；jwtMgr JWT 管理器。
-func Register(cfg config.Config, logger *zap.Logger, handlers Handlers, jwtMgr *auth.Manager) *gin.Engine {
+// 参数：cfg 运行配置；logger 请求/恢复日志输出器；handlers 业务控制器；jwtMgr JWT 管理器；
+//       enforcer 权限执行器（M5 RBAC 后台路由按资源域挂 RequirePermission）。
+func Register(cfg config.Config, logger *zap.Logger, handlers Handlers, jwtMgr *auth.Manager, enforcer *casbin.Enforcer) *gin.Engine {
 	// 使用 gin.New（不启用 Gin 默认日志，统一走 zap）
 	engine := gin.New()
 
@@ -63,13 +66,13 @@ func Register(cfg config.Config, logger *zap.Logger, handlers Handlers, jwtMgr *
 	api := engine.Group("/api/v1")
 	// 全站维护中间件（M2）：维护开关开启时拦截前台 API，放行后台/认证/meta
 	api.Use(middleware.Maintenance(handlers.Site.MaintenanceMode))
-	registerV1(api, handlers, jwtMgr)
+	registerV1(api, handlers, jwtMgr, enforcer)
 
 	return engine
 }
 
 // registerV1 注册 /api/v1 下各业务模块路由。
-func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager) {
+func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager, enforcer *casbin.Enforcer) {
 	// ---------- 认证模块（M1.2） ----------
 	authGroup := api.Group("/auth")
 	authGroup.POST("/register", handlers.Auth.Register) // 注册（注册即登录）
@@ -85,6 +88,9 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager) {
 	authed.GET("/me", handlers.Auth.Me)               // 当前用户资料
 	authed.PUT("/me/password", handlers.Auth.ChangePassword) // 修改密码（账号安全页）
 
+	// 前台写操作拦截（M5：受限访客仅可阅读；路由级挂 RequireNotRestricted，
+	// 发帖/编辑/评论/回复/私信发送——评论接口在 OptionalAuth 组，匿名按 visitor 放行）
+
 	// ---------- 用户模块（M1.2 基础） ----------
 	api.GET("/users/:id", handlers.User.GetUser) // 用户公开资料
 
@@ -93,10 +99,10 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager) {
 	api.GET("/posts", middleware.OptionalAuth(jwtMgr), handlers.Post.List) // 时间线
 	api.GET("/posts/:id", middleware.OptionalAuth(jwtMgr), handlers.Post.Get) // 帖子详情
 
-	// 需要登录的帖子操作
-	authed.POST("/posts", handlers.Post.Create)       // 发帖/存草稿
-	authed.PUT("/posts/:id", handlers.Post.Update)    // 更新帖子
-	authed.POST("/posts/:id/publish", handlers.Post.Publish) // 发布草稿
+	// 需要登录的帖子操作（M5：写操作挂 RequireNotRestricted，受限访客 403）
+	authed.POST("/posts", middleware.RequireNotRestricted(), handlers.Post.Create)       // 发帖/存草稿
+	authed.PUT("/posts/:id", middleware.RequireNotRestricted(), handlers.Post.Update)    // 更新帖子
+	authed.POST("/posts/:id/publish", middleware.RequireNotRestricted(), handlers.Post.Publish) // 发布草稿
 	authed.DELETE("/posts/:id", handlers.Post.Delete) // 删除帖子
 	authed.GET("/me/drafts", handlers.Post.ListDrafts) // 草稿箱
 
@@ -104,10 +110,11 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager) {
 	authed.POST("/media", handlers.Media.Upload) // 媒体上传（multipart）
 
 	// ---------- 评论模块（M1.4） ----------
-	// 评论接口开放（登录/匿名均可）：挂可选鉴权识别登录用户身份
+	// 评论接口开放（登录/匿名均可）：挂可选鉴权识别登录用户身份；
+	// 发表/回复挂 RequireNotRestricted（M5：受限访客 403，匿名按 visitor 放行）
 	api.GET("/posts/:id/comments", middleware.OptionalAuth(jwtMgr), handlers.Comment.List)     // 评论列表
-	api.POST("/posts/:id/comments", middleware.OptionalAuth(jwtMgr), handlers.Comment.Create)  // 发表评论
-	api.POST("/comments/:id/reply", middleware.OptionalAuth(jwtMgr), handlers.Comment.Reply)   // 回复评论
+	api.POST("/posts/:id/comments", middleware.OptionalAuth(jwtMgr), middleware.RequireNotRestricted(), handlers.Comment.Create)  // 发表评论
+	api.POST("/comments/:id/reply", middleware.OptionalAuth(jwtMgr), middleware.RequireNotRestricted(), handlers.Comment.Reply)   // 回复评论
 	authed.POST("/comments/:id/like", handlers.Comment.Like)  // 评论点赞
 	authed.DELETE("/comments/:id", handlers.Comment.Delete)   // 删除评论
 
@@ -154,93 +161,115 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager) {
 		authed.POST("/conversations", handlers.Message.OpenConversation)          // 发起/打开会话（{user_id}）
 		authed.GET("/conversations/unread-count", handlers.Message.UnreadTotal)   // 未读总数（角标）
 		authed.GET("/conversations/:id/messages", handlers.Message.ListMessages)  // 消息列表（打开即已读）
-		authed.POST("/conversations/:id/messages", handlers.Message.SendMessage)  // 发送消息（{content}）
+		authed.POST("/conversations/:id/messages", middleware.RequireNotRestricted(), handlers.Message.SendMessage)  // 发送消息（M5：受限访客 403）
 
 		// ---------- 内容治理（M2）：前台举报 ----------
 		authed.POST("/reports", handlers.Moderation.SubmitReport) // 提交举报（帖子/评论/用户）
 
-	// ---------- 后台路由组（M1.6；admin 角色校验） ----------
-	adminGroup := api.Group("/admin")
-	adminGroup.Use(middleware.RequireAuth(jwtMgr), middleware.RequireAdmin())
-	adminGroup.GET("/ping", func(c *gin.Context) { // 后台健康探活
-		resp.OK(c, gin.H{"role": middleware.GetRole(c), "uid": middleware.GetUserID(c)})
-	})
-	// 仪表盘
-	adminGroup.GET("/dashboard", handlers.Admin.Dashboard)
-	// 内容管理
-	adminGroup.GET("/posts", handlers.Admin.ListPosts)
-	adminGroup.GET("/posts/:id", handlers.Admin.GetPost)      // 后台编辑详情（M2）
-	adminGroup.PUT("/posts/:id", handlers.Admin.UpdatePost)   // 后台编辑保存（M2）
-	adminGroup.PUT("/posts/:id/status", handlers.Admin.SetPostStatus)
-	adminGroup.DELETE("/posts/:id", handlers.Admin.DeletePost)
-	// 评论管理
-	adminGroup.GET("/comments", handlers.Admin.ListComments)
-	adminGroup.GET("/comments/stats", handlers.Admin.CommentStats) // 统计条（M2）
-	adminGroup.PUT("/comments/:id/status", handlers.Admin.SetCommentStatus) // 隐藏/恢复（M2）
-	adminGroup.DELETE("/comments/:id", handlers.Admin.DeleteComment)
-	// 用户管理
-	adminGroup.GET("/users", handlers.Admin.ListUsers)
-	adminGroup.PUT("/users/:id/status", handlers.Admin.SetUserStatus)
-	adminGroup.PUT("/users/:id/role", handlers.Admin.SetUserRole) // 角色调整（M2）
-	// 媒体库（M2.9）
-	adminGroup.GET("/media", handlers.Admin.ListMedia)
-	adminGroup.GET("/media/stats", handlers.Admin.MediaStats)
-	adminGroup.DELETE("/media/:id", handlers.Admin.DeleteMedia)
-	// 标签分类（M2.9）
-	adminGroup.GET("/tags", handlers.Admin.ListTags)
-	adminGroup.GET("/tags/stats", handlers.Admin.TagStats)
-	adminGroup.PUT("/tags/:id", handlers.Admin.RenameTag)
-	adminGroup.POST("/tags/:id/merge", handlers.Admin.MergeTag)
-	adminGroup.DELETE("/tags/:id", handlers.Admin.DeleteTag)
-	// 站点设置
-	adminGroup.GET("/settings", handlers.Admin.GetSettings)
-	adminGroup.PUT("/settings", handlers.Admin.SaveSettings)
-	// 内容治理（M2）：举报工单 / 敏感词 / 封禁记录
-	adminGroup.GET("/reports/stats", handlers.Moderation.ReportStats)
-	adminGroup.GET("/reports", handlers.Moderation.ListReports)
-	adminGroup.PUT("/reports/:id/status", handlers.Moderation.SetReportStatus)
-	adminGroup.POST("/reports/:id/verdict", handlers.Moderation.VerdictReport) // M4：AI 工单放行/删除
-	adminGroup.GET("/sensitive-words/stats", handlers.Moderation.SensitiveStats)
-	adminGroup.GET("/sensitive-words", handlers.Moderation.ListSensitiveWords)
-	adminGroup.POST("/sensitive-words", handlers.Moderation.AddSensitiveWord)
-	adminGroup.POST("/sensitive-words/batch", handlers.Moderation.AddSensitiveWords) // 设置页逗号分隔批量（M2 设计稿纠偏）
-	adminGroup.DELETE("/sensitive-words/:word", handlers.Moderation.DeleteSensitiveWord)
-	adminGroup.GET("/bans", handlers.Moderation.ListBans)
-	adminGroup.GET("/users/stats", handlers.Admin.UserStats)
-	// 插件（M3.1：GitHub 仓库清单驱动商城 + 安装管理）
-	adminGroup.GET("/plugins/market", handlers.Plugin.Market)     // 商城清单（?source= 自定义仓库）
-	adminGroup.GET("/plugins", handlers.Plugin.ListInstalled)     // 我的插件
-	adminGroup.POST("/plugins/install", handlers.Plugin.Install)  // 安装 {plugin_id}
-	adminGroup.PUT("/plugins/:id/state", handlers.Plugin.SetState) // 启用/禁用
-	adminGroup.DELETE("/plugins/:id", handlers.Plugin.Uninstall)   // 卸载
-	// SEO（M4）：设置/元数据/健康度/批量修复/SERP
-	adminGroup.GET("/seo/settings", handlers.Seo.GetSettings)
-	adminGroup.PUT("/seo/settings", handlers.Seo.SaveSettings)
-	adminGroup.GET("/seo/meta/:postId", handlers.Seo.GetMeta)
-	adminGroup.PUT("/seo/meta/:postId", handlers.Seo.SaveMeta)
-	adminGroup.GET("/seo/health", handlers.Seo.Health)
-	adminGroup.POST("/seo/health/scan", handlers.Seo.ScanHealth)
-	adminGroup.POST("/seo/batch-fix", handlers.Seo.BatchFix)
-	adminGroup.GET("/seo/serp-preview", handlers.Seo.SerpPreview)
-	// AI（M4）：供应商 / 任务配置 / 用量 / 内置场景（摘要/标签/评论审核）
-	adminGroup.GET("/ai/providers", handlers.Ai.ListProviders)
-	adminGroup.POST("/ai/providers", handlers.Ai.CreateProvider)
-	adminGroup.PUT("/ai/providers/:id", handlers.Ai.UpdateProvider)
-	adminGroup.DELETE("/ai/providers/:id", handlers.Ai.DeleteProvider)
-	adminGroup.POST("/ai/providers/:id/test", handlers.Ai.TestProvider)
-	adminGroup.GET("/ai/tasks", handlers.Ai.ListTasks)
-	adminGroup.PUT("/ai/tasks/:name", handlers.Ai.UpdateTask)
-	adminGroup.POST("/ai/tasks/:name/toggle", handlers.Ai.ToggleTask)
-	adminGroup.GET("/ai/usage", handlers.Ai.UsageStats)
-	adminGroup.POST("/ai/gen/summary", handlers.Ai.GenSummary)  // ?post_id= 生成摘要（seo_meta.summary）
-	adminGroup.POST("/ai/gen/tags", handlers.Ai.GenTags)        // ?post_id= 生成标签建议
-	adminGroup.POST("/ai/review/comments", handlers.Ai.ReviewComments) // 批量 AI 审核评论
-	// 数据报表（M4-报表，设计稿《数据报表》）：overview 聚合 + 趋势 CSV 导出
-	adminGroup.GET("/reports/overview", handlers.Report.Overview) // ?days=7|30
-	adminGroup.GET("/reports/export.csv", handlers.Report.ExportCSV) // ?days= 附件下载
-	// 备份导出（M4-报表，设计稿《备份导出》）：记录/创建/下载/删除
-	adminGroup.GET("/backups", handlers.Backup.List)
-	adminGroup.POST("/backups", handlers.Backup.Create)
-	adminGroup.GET("/backups/:id/download", handlers.Backup.Download)
-	adminGroup.DELETE("/backups/:id", handlers.Backup.Delete)
-}
+		// ---------- 后台路由组（M5 RBAC：按资源域挂 RequirePermission） ----------
+		adminGroup := api.Group("/admin")
+		adminGroup.Use(middleware.RequireAuth(jwtMgr))
+		// perm 域权限中间件工厂（enforcer 由 server 注入）
+		perm := func(domain string) gin.HandlerFunc { return middleware.RequirePermission(enforcer, domain) }
+
+		// 仪表盘域
+		dash := adminGroup.Group("", perm(casbin.DomainDashboard))
+		dash.GET("/ping", func(c *gin.Context) { // 后台健康探活
+			resp.OK(c, gin.H{"role": middleware.GetRole(c), "uid": middleware.GetUserID(c)})
+		})
+		dash.GET("/dashboard", handlers.Admin.Dashboard)
+		// 内容管理域（author 角色仅自己帖子，service 层数据隔离）
+		posts := adminGroup.Group("/posts", perm(casbin.DomainPosts))
+		posts.GET("", handlers.Admin.ListPosts)
+		posts.GET("/:id", handlers.Admin.GetPost)      // 后台编辑详情（M2）
+		posts.PUT("/:id", handlers.Admin.UpdatePost)   // 后台编辑保存（M2）
+		posts.PUT("/:id/status", handlers.Admin.SetPostStatus)
+		posts.DELETE("/:id", handlers.Admin.DeletePost)
+		// 评论管理域
+		comments := adminGroup.Group("/comments", perm(casbin.DomainComments))
+		comments.GET("", handlers.Admin.ListComments)
+		comments.GET("/stats", handlers.Admin.CommentStats)              // 统计条（M2）
+		comments.PUT("/:id/status", handlers.Admin.SetCommentStatus)     // 隐藏/恢复（M2）
+		comments.DELETE("/:id", handlers.Admin.DeleteComment)
+		// 用户管理域（含角色调整）
+		users := adminGroup.Group("/users", perm(casbin.DomainUsers))
+		users.GET("", handlers.Admin.ListUsers)
+		users.GET("/stats", handlers.Admin.UserStats)
+		users.PUT("/:id/status", handlers.Admin.SetUserStatus)
+		users.PUT("/:id/role", handlers.Admin.SetUserRole) // 角色调整（M2→M5 五级）
+		// 媒体库域（M2.9）
+		media := adminGroup.Group("/media", perm(casbin.DomainMedia))
+		media.GET("", handlers.Admin.ListMedia)
+		media.GET("/stats", handlers.Admin.MediaStats)
+		media.DELETE("/:id", handlers.Admin.DeleteMedia)
+		// 标签分类域（M2.9）
+		tags := adminGroup.Group("/tags", perm(casbin.DomainTags))
+		tags.GET("", handlers.Admin.ListTags)
+		tags.GET("/stats", handlers.Admin.TagStats)
+		tags.PUT("/:id", handlers.Admin.RenameTag)
+		tags.POST("/:id/merge", handlers.Admin.MergeTag)
+		tags.DELETE("/:id", handlers.Admin.DeleteTag)
+		// 站点设置域
+		settings := adminGroup.Group("/settings", perm(casbin.DomainSettings))
+		settings.GET("", handlers.Admin.GetSettings)
+		settings.PUT("", handlers.Admin.SaveSettings)
+		// 角色权限域（M5，设计稿《后台角色》）
+		roles := adminGroup.Group("/roles", perm(casbin.DomainRoles))
+		roles.GET("", handlers.Role.Matrix)
+		roles.PUT("/:role/permissions", handlers.Role.UpdatePermissions)
+		// 内容治理域（M2）：举报工单 / 敏感词 / 封禁记录
+		reports := adminGroup.Group("/reports", perm(casbin.DomainModeration))
+		reports.GET("/stats", handlers.Moderation.ReportStats)
+		reports.GET("", handlers.Moderation.ListReports)
+		reports.PUT("/:id/status", handlers.Moderation.SetReportStatus)
+		reports.POST("/:id/verdict", handlers.Moderation.VerdictReport) // M4：AI 工单放行/删除
+		sw := adminGroup.Group("/sensitive-words", perm(casbin.DomainModeration))
+		sw.GET("/stats", handlers.Moderation.SensitiveStats)
+		sw.GET("", handlers.Moderation.ListSensitiveWords)
+		sw.POST("", handlers.Moderation.AddSensitiveWord)
+		sw.POST("/batch", handlers.Moderation.AddSensitiveWords) // 设置页逗号分隔批量（M2 设计稿纠偏）
+		sw.DELETE("/:word", handlers.Moderation.DeleteSensitiveWord)
+		bans := adminGroup.Group("/bans", perm(casbin.DomainModeration))
+		bans.GET("", handlers.Moderation.ListBans)
+		// 插件域（M3.1：GitHub 仓库清单驱动商城 + 安装管理）
+		plugins := adminGroup.Group("/plugins", perm(casbin.DomainPlugins))
+		plugins.GET("/market", handlers.Plugin.Market)      // 商城清单（?source= 自定义仓库）
+		plugins.GET("", handlers.Plugin.ListInstalled)      // 我的插件
+		plugins.POST("/install", handlers.Plugin.Install)   // 安装 {plugin_id}
+		plugins.PUT("/:id/state", handlers.Plugin.SetState) // 启用/禁用
+		plugins.DELETE("/:id", handlers.Plugin.Uninstall)   // 卸载
+		// SEO 域（M4）：设置/元数据/健康度/批量修复/SERP
+		seo := adminGroup.Group("/seo", perm(casbin.DomainSeo))
+		seo.GET("/settings", handlers.Seo.GetSettings)
+		seo.PUT("/settings", handlers.Seo.SaveSettings)
+		seo.GET("/meta/:postId", handlers.Seo.GetMeta)
+		seo.PUT("/meta/:postId", handlers.Seo.SaveMeta)
+		seo.GET("/health", handlers.Seo.Health)
+		seo.POST("/health/scan", handlers.Seo.ScanHealth)
+		seo.POST("/batch-fix", handlers.Seo.BatchFix)
+		seo.GET("/serp-preview", handlers.Seo.SerpPreview)
+		// AI 域（M4）：供应商 / 任务配置 / 用量 / 内置场景（摘要/标签/评论审核）
+		ai := adminGroup.Group("/ai", perm(casbin.DomainAi))
+		ai.GET("/providers", handlers.Ai.ListProviders)
+		ai.POST("/providers", handlers.Ai.CreateProvider)
+		ai.PUT("/providers/:id", handlers.Ai.UpdateProvider)
+		ai.DELETE("/providers/:id", handlers.Ai.DeleteProvider)
+		ai.POST("/providers/:id/test", handlers.Ai.TestProvider)
+		ai.GET("/tasks", handlers.Ai.ListTasks)
+		ai.PUT("/tasks/:name", handlers.Ai.UpdateTask)
+		ai.POST("/tasks/:name/toggle", handlers.Ai.ToggleTask)
+		ai.GET("/usage", handlers.Ai.UsageStats)
+		ai.POST("/gen/summary", handlers.Ai.GenSummary)        // ?post_id= 生成摘要（seo_meta.summary）
+		ai.POST("/gen/tags", handlers.Ai.GenTags)              // ?post_id= 生成标签建议
+		ai.POST("/review/comments", handlers.Ai.ReviewComments) // 批量 AI 审核评论
+		// 数据报表域（M4-报表，设计稿《数据报表》；与举报 /reports 前缀并存，路径不同）
+		reportsView := adminGroup.Group("/reports", perm(casbin.DomainReports))
+		reportsView.GET("/overview", handlers.Report.Overview)     // ?days=7|30
+		reportsView.GET("/export.csv", handlers.Report.ExportCSV)  // ?days= 附件下载
+		// 备份导出域（M4-报表，设计稿《备份导出》）：记录/创建/下载/删除
+		backups := adminGroup.Group("/backups", perm(casbin.DomainBackups))
+		backups.GET("", handlers.Backup.List)
+		backups.POST("", handlers.Backup.Create)
+		backups.GET("/:id/download", handlers.Backup.Download)
+		backups.DELETE("/:id", handlers.Backup.Delete)
+	}

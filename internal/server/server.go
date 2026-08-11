@@ -92,11 +92,11 @@ func connectDatabase(ctx context.Context, connString string) (*pgxpool.Pool, err
 }
 
 // buildHandlers 依赖注入：创建数据库/Redis 连接与全部业务控制器。
-func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (router.Handlers, *auth.Manager, func(), error) {
+func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (router.Handlers, *auth.Manager, *casbin.Enforcer, func(), error) {
 	// ---------- 数据库连接 ----------
 	conn, err := connectDatabase(ctx, cfg.DB.ConnString())
 	if err != nil {
-		return router.Handlers{}, nil, nil, fmt.Errorf("连接数据库失败：%w", err)
+		return router.Handlers{}, nil, nil, nil, fmt.Errorf("连接数据库失败：%w", err)
 	}
 	// 退出时关闭数据库连接池
 	cleanup := func() {
@@ -111,16 +111,16 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 
 	// ---------- 核心组件装配 ----------
 	jwtMgr := auth.NewManager(cfg.JWTSecret)     // JWT 管理器
-	enforcer, err := casbin.NewEnforcer()        // 角色权限执行器
+	enforcer, err := casbin.NewEnforcer()        // 角色权限执行器（M5 五级 RBAC）
 	if err != nil {
 		cleanup()
-		return router.Handlers{}, nil, nil, fmt.Errorf("初始化权限执行器失败：%w", err)
+		return router.Handlers{}, nil, nil, nil, fmt.Errorf("初始化权限执行器失败：%w", err)
 	}
 	// 媒体存储（data/media 目录）
 	mediaStore, err := media.NewStore(cfg.DataDir + "/media")
 	if err != nil {
 		cleanup()
-		return router.Handlers{}, nil, nil, err
+		return router.Handlers{}, nil, nil, nil, err
 	}
 
 	// ---------- GitHub 客户端（M3.1 插件商城清单源） ----------
@@ -172,7 +172,7 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 	followSvc := service.NewFollowService(relationRepo, userRepo, postRepo, postSvc, notifySvc)
 	topicSvc := service.NewTopicService(tagRepo, postRepo, postSvc)
 	searchSvc := service.NewSearchService(postRepo, tagRepo, userRepo, postSvc, hookDispatcher)
-	adminSvc := service.NewAdminService(adminRepo, postRepo, commentRepo, settingRepo, enforcer, banRepo, userRepo, postSvc, mediaRepo, tagRepo, mediaStore, hookDispatcher)
+	adminSvc := service.NewAdminService(adminRepo, postRepo, commentRepo, settingRepo, enforcer, banRepo, userRepo, postSvc, mediaRepo, tagRepo, mediaStore, hookDispatcher, auditRepo)
 	siteSvc := service.NewSiteService(settingRepo) // 站点信息（meta 从 settings 实时读取，M1.7）
 	messageSvc := service.NewMessageService(messageRepo, userRepo, notifySvc) // 私信（M2）
 	pluginSvc := service.NewPluginService(ghClient, pluginRepo, settingRepo, hookDispatcher)
@@ -181,14 +181,22 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 	reportSvc := service.NewReportService(repository.NewAdminRepo(conn), reportRepo)
 	// 备份导出服务（M4-报表：应用级 JSON/CSV/ZIP 导出 + 媒体库打包）
 	backupSvc := service.NewBackupService(backupRepo, cfg.DataDir, logger)
+	// 角色权限服务（M5：矩阵查询 + 权限域编辑持久化；audit 复用）
+	roleSvc := service.NewRoleService(enforcer, adminRepo, settingRepo, auditRepo)
 	// 启动同步已启用插件的钩子（M3.2：重启后恢复运行态插件功能）
 	if err := pluginSvc.SyncActiveHooks(ctx); err != nil {
 		logger.Warn("插件钩子启动同步失败", zap.Error(err))
 	}  // 插件（M3.1）
 
-	// ---------- 角色策略全量加载（M2：users.role 落库 → casbin 内存策略） ----------
+	// ---------- 角色策略加载（M5：自定义矩阵恢复 → 用户角色全量同步） ----------
+	// 先恢复后台编辑过的权限矩阵（settings.role_permissions），再同步用户角色分组
+	if custom, err := roleSvc.CustomMatrix(ctx); err == nil && len(custom) > 0 {
+		if err := enforcer.InitPolicies(custom); err != nil {
+			logger.Warn("自定义权限矩阵恢复失败，使用默认矩阵", zap.Error(err))
+		}
+	}
 	if err := syncRoles(ctx, enforcer, userRepo, logger); err != nil {
-		logger.Warn("角色策略加载失败，使用兜底策略（仅 admin 账号）", zap.Error(err))
+		logger.Warn("角色策略加载失败，使用兜底策略", zap.Error(err))
 	}
 
 	// ---------- 控制器层 ----------
@@ -209,8 +217,9 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 		Ai:         handler.NewAiHandler(aiSvc, logger),
 		Report:     handler.NewReportHandler(reportSvc, logger),
 		Backup:     handler.NewBackupHandler(backupSvc, logger),
+		Role:       handler.NewRoleHandler(roleSvc),
 	}
-	return handlers, jwtMgr, cleanup, nil
+	return handlers, jwtMgr, enforcer, cleanup, nil
 }
 
 // syncRoles 从数据库全量加载角色到 casbin（M2 角色调整：users.role 为唯一数据源）。
@@ -237,7 +246,7 @@ func syncRoles(ctx context.Context, enforcer *casbin.Enforcer, users *repository
 func Run(cfg config.Config, logger *zap.Logger) error {
 	// 装配依赖（数据库连接等）
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	handlers, jwtMgr, cleanup, err := buildHandlers(ctx, cfg, logger)
+	handlers, jwtMgr, enforcer, cleanup, err := buildHandlers(ctx, cfg, logger)
 	cancel()
 	if err != nil {
 		return err
@@ -246,7 +255,7 @@ func Run(cfg config.Config, logger *zap.Logger) error {
 	defer cleanup()
 
 	// 构建 Gin 引擎（路由 + 中间件链）
-	engine := router.Register(cfg, logger, handlers, jwtMgr)
+	engine := router.Register(cfg, logger, handlers, jwtMgr, enforcer)
 
 	// HTTP 服务：读写超时保护，防止慢请求拖垮
 	srv := &http.Server{

@@ -36,11 +36,12 @@ func (h *AdminHandler) Dashboard(c *gin.Context) {
 	resp.OK(c, data)
 }
 
-// ListPosts 内容管理列表（GET /api/v1/admin/posts）。
+// ListPosts 内容管理列表（GET /api/v1/admin/posts；M5 author 角色仅自己帖子）。
 func (h *AdminHandler) ListPosts(c *gin.Context) {
 	page, pageSize := parsePage(c)
 	items, total, err := h.admin.ListPosts(c.Request.Context(),
-		c.Query("type"), c.Query("status"), c.Query("q"), page, pageSize)
+		c.Query("type"), c.Query("status"), c.Query("q"),
+		middleware.GetUserID(c), middleware.GetRole(c), page, pageSize)
 	if err != nil {
 		resp.FailFrom(c, err)
 		return
@@ -48,7 +49,7 @@ func (h *AdminHandler) ListPosts(c *gin.Context) {
 	resp.OK(c, gin.H{"page": page, "page_size": pageSize, "total": total, "items": items})
 }
 
-// SetPostStatus 上下架（PUT /api/v1/admin/posts/:id/status）。
+// SetPostStatus 上下架（PUT /api/v1/admin/posts/:id/status；author 仅自己帖子）。
 func (h *AdminHandler) SetPostStatus(c *gin.Context) {
 	postID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || postID <= 0 {
@@ -62,35 +63,35 @@ func (h *AdminHandler) SetPostStatus(c *gin.Context) {
 		resp.Fail(c, 400, errs.ErrBadRequest)
 		return
 	}
-	if err := h.admin.SetPostStatus(c.Request.Context(), postID, req.Status); err != nil {
+	if err := h.admin.SetPostStatus(c.Request.Context(), postID, req.Status, middleware.GetUserID(c), middleware.GetRole(c)); err != nil {
 		resp.FailFrom(c, err)
 		return
 	}
 	resp.OK(c, gin.H{"status": req.Status})
 }
 
-// DeletePost 删除内容（DELETE /api/v1/admin/posts/:id）。
+// DeletePost 删除内容（DELETE /api/v1/admin/posts/:id；author 仅自己帖子）。
 func (h *AdminHandler) DeletePost(c *gin.Context) {
 	postID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || postID <= 0 {
 		resp.Fail(c, 400, errs.ErrBadRequest)
 		return
 	}
-	if err := h.admin.DeletePost(c.Request.Context(), postID); err != nil {
+	if err := h.admin.DeletePost(c.Request.Context(), postID, middleware.GetUserID(c), middleware.GetRole(c)); err != nil {
 		resp.FailFrom(c, err)
 		return
 	}
 	resp.OK(c, gin.H{"deleted": true})
 }
 
-// GetPost 后台编辑详情（GET /api/v1/admin/posts/:id，设计稿《后台编辑》四画板）。
+// GetPost 后台编辑详情（GET /api/v1/admin/posts/:id，设计稿《后台编辑》四画板；author 仅自己帖子）。
 func (h *AdminHandler) GetPost(c *gin.Context) {
 	postID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || postID <= 0 {
 		resp.Fail(c, 400, errs.ErrBadRequest)
 		return
 	}
-	detail, err := h.admin.GetPostDetail(c.Request.Context(), postID)
+	detail, err := h.admin.GetPostDetail(c.Request.Context(), postID, middleware.GetUserID(c), middleware.GetRole(c))
 	if err != nil {
 		resp.FailFrom(c, err)
 		return
@@ -98,7 +99,7 @@ func (h *AdminHandler) GetPost(c *gin.Context) {
 	resp.OK(c, detail)
 }
 
-// UpdatePost 后台编辑保存（PUT /api/v1/admin/posts/:id）。
+// UpdatePost 后台编辑保存（PUT /api/v1/admin/posts/:id；author 仅自己帖子）。
 // body：{title, content, tags, media_ids, visibility, status}——status draft=保存草稿 / published=更新发布。
 func (h *AdminHandler) UpdatePost(c *gin.Context) {
 	postID, err := strconv.ParseInt(c.Param("id"), 10, 64)
@@ -111,7 +112,7 @@ func (h *AdminHandler) UpdatePost(c *gin.Context) {
 		resp.Fail(c, 400, errs.ErrBadRequest)
 		return
 	}
-	if err := h.admin.UpdatePost(c.Request.Context(), postID, req); err != nil {
+	if err := h.admin.UpdatePost(c.Request.Context(), postID, req, middleware.GetUserID(c), middleware.GetRole(c)); err != nil {
 		resp.FailFrom(c, err)
 		return
 	}
@@ -230,13 +231,13 @@ func (h *AdminHandler) SetUserRole(c *gin.Context) {
 		return
 	}
 	var req struct {
-		Role string `json:"role"` // admin / user
+		Role string `json:"role"` // superadmin / editor / author / visitor / restricted（M5）
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		resp.Fail(c, 400, errs.ErrBadRequest)
 		return
 	}
-	if err := h.admin.SetUserRole(c.Request.Context(), userID, req.Role); err != nil {
+	if err := h.admin.SetUserRole(c.Request.Context(), middleware.GetUserID(c), userID, req.Role, c.ClientIP(), c.Request.UserAgent()); err != nil {
 		resp.FailFrom(c, err)
 		return
 	}

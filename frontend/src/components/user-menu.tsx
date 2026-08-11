@@ -11,6 +11,7 @@ import { useEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/ui/avatar";
 import { apiUnreadCount } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { isSuperAdmin } from "@/lib/rbac";
 
 // UserMenu 导航区用户菜单（桌面 ≥768px 显示，移动端在「我的」页）。
 export function UserMenu() {
@@ -110,7 +111,7 @@ export function UserMenu() {
               我的主页
             </Link>
             {/* 仅 admin 显示后台入口（设计稿「运营后台」） */}
-            {user.role === "admin" && (
+            {isSuperAdmin(user.role) && (
               <Link
                 href="/admin"
                 onClick={() => setOpen(false)}

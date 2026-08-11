@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/roberts9012062/boke/internal/auth"
+	"github.com/roberts9012062/boke/internal/casbin"
 	"github.com/roberts9012062/boke/pkg/errs"
 	"github.com/roberts9012062/boke/pkg/resp"
 )
@@ -53,13 +54,27 @@ func RequireAuth(manager *auth.Manager) gin.HandlerFunc {
 	}
 }
 
-// RequireAdmin 返回管理员角色中间件（要求已登录且角色为 admin）。
-// 必须挂在 RequireAuth 之后。
-func RequireAdmin() gin.HandlerFunc {
+// RequirePermission 返回资源域权限中间件（M5 RBAC：角色须具备 domain 域访问权）。
+// 必须挂在 RequireAuth 之后；enforcer 为权限执行器（策略内存 + users.role 数据源）。
+func RequirePermission(enforcer *casbin.Enforcer, domain string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		role, _ := c.Get(ctxRoleKey)
-		if role != "admin" {
+		role := GetRole(c)
+		ok, err := enforcer.Enforce(role, domain, "access")
+		if err != nil || !ok {
 			resp.Fail(c, 403, errs.ErrForbidden)
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}
+
+// RequireNotRestricted 返回前台写操作拦截中间件（M5：受限访客仅可阅读）。
+// 必须挂在 RequireAuth 之后；restricted 角色拒绝发帖/评论/私信等写操作。
+func RequireNotRestricted() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if GetRole(c) == casbin.RoleRestricted {
+			resp.Fail(c, 403, errs.New(errs.CodeForbidden, "账号受限，仅可阅读"))
 			c.Abort()
 			return
 		}
@@ -97,14 +112,14 @@ func GetUserID(c *gin.Context) int64 {
 	return 0
 }
 
-// GetRole 从上下文读取当前用户角色（鉴权后使用）。
+// GetRole 从上下文读取当前用户角色（鉴权后使用；缺省按访客处理）。
 func GetRole(c *gin.Context) string {
 	if v, ok := c.Get(ctxRoleKey); ok {
 		if role, ok := v.(string); ok {
 			return role
 		}
 	}
-	return "user"
+	return casbin.RoleVisitor
 }
 
 // extractBearerToken 提取 Authorization 头中的 Bearer token。

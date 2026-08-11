@@ -23,6 +23,7 @@ import {
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { PostSummary, UserProfile } from "@/types/api";
+import { isSuperAdmin } from "@/lib/rbac";
 
 // Tab 配置（设计稿：帖子/媒体/赞过）
 const TABS = [
@@ -138,7 +139,7 @@ export default function UserProfilePage() {
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <p className="font-display text-lg font-semibold text-ink">{profile.nickname}</p>
-                  {profile.role === "admin" && (
+                  {isSuperAdmin(profile.role) && (
                     <span className="rounded-full bg-accent-soft px-2 py-0.5 text-xs text-glow">
                       站长
                     </span>

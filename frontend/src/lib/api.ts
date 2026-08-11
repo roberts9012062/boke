@@ -518,9 +518,36 @@ export function apiAdminSetUserStatus(userId: number, status: string, reason?: s
   return put<void>("/admin/users/" + userId + "/status", { status, reason, until });
 }
 
-// 角色调整（M2：admin ↔ user；落库 + casbin 即时生效，需该用户重新登录）。
+// 角色调整（M2→M5：五级角色 superadmin/editor/author/visitor/restricted；
+// 落库 + casbin 即时生效，需该用户重新登录）。
 export function apiAdminSetUserRole(userId: number, role: string): Promise<void> {
   return put<void>(`/admin/users/${userId}/role`, { role });
+}
+
+// 角色矩阵行（M5，设计稿《后台角色》表格行）。
+export interface RoleMatrixItem {
+  role: string; // 角色标识
+  count: number; // 人数
+  permissions: string[]; // 权限域列表
+  status: string; // enabled / restricted
+  builtin: boolean; // 系统内置
+}
+
+// 角色矩阵（设计稿统计条 + 表格）。
+export interface RoleMatrix {
+  roles: RoleMatrixItem[];
+  role_count: number; // 角色数
+  total: number; // 全部用户数
+}
+
+// 角色矩阵查询。
+export function apiAdminRoles(): Promise<RoleMatrix> {
+  return get<RoleMatrix>("/admin/roles");
+}
+
+// 更新角色权限域（superadmin 不可编辑；settings 持久化 + 即时生效）。
+export function apiUpdateRolePermissions(role: string, permissions: string[]): Promise<void> {
+  return put<void>(`/admin/roles/${role}/permissions`, { permissions });
 }
 
 // 站点设置读取/保存。
