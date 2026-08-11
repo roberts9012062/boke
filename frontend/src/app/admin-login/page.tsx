@@ -1,7 +1,8 @@
 // src/app/admin-login/page.tsx
 // 后台登录页（设计稿 D/冷月/后台登录 1400×900）：
 // 月言 · 管理后台 + 在月光下照管每一篇未说完的话 + 仅限授权管理员进入
-// + 管理员登录 + 账号/密码 + 进入后台。
+// + 特性 3 条（角色权限与操作审计/待审内容一站处理/站点运行指标一览，走查纠偏补）
+// + 管理员登录 + 账号/密码 + 记住此设备 + 忘记密码？ + 进入后台。
 "use client";
 
 import Link from "next/link";
@@ -12,13 +13,21 @@ import { ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { canAccessAdmin } from "@/lib/rbac";
 
-// AdminLoginPage 后台登录（仅 admin 角色可进）。
+// 特性列表（设计稿右侧特性文案；走查纠偏补）
+const FEATURES = [
+  { title: "角色权限与操作审计", desc: "五级角色矩阵，关键操作留痕可追溯" },
+  { title: "待审内容一站处理", desc: "审核队列聚合评论、举报与高风险内容" },
+  { title: "站点运行指标一览", desc: "浏览、互动、内容分布与报表导出" },
+];
+
+// AdminLoginPage 后台登录（仅可访问后台的角色可进）。
 export default function AdminLoginPage() {
   const router = useRouter();
   const { user, login } = useAuth();
 
   const [account, setAccount] = useState<string>("");
   const [password, setPassword] = useState<string>("");
+  const [remember, setRemember] = useState<boolean>(false); // 记住此设备（本地偏好）
   const [error, setError] = useState<string>("");
   const [submitting, setSubmitting] = useState<boolean>(false);
 
@@ -38,6 +47,8 @@ export default function AdminLoginPage() {
     setSubmitting(true);
     try {
       await login(account.trim(), password);
+      // 记住此设备：本地偏好（刷新令牌有效期由后端决定，M5 差异记录）
+      localStorage.setItem("yueyan-remember-device", remember ? "1" : "0");
       router.push("/admin");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "登录失败，请稍后再试");
@@ -59,7 +70,19 @@ export default function AdminLoginPage() {
             <p className="text-xs text-ink-3">在月光下照管每一篇未说完的话</p>
           </div>
         </div>
-        <p className="mt-1 text-xs text-ink-3">内容审核 · 用户治理 · 站点配置 · 仅限授权管理员进入</p>
+        {/* 副标题（设计稿两行：内容审核 · 用户治理 · 站点配置 / 仅限授权管理员进入） */}
+        <p className="mt-1 text-xs text-ink-3">内容审核 · 用户治理 · 站点配置</p>
+        <p className="text-xs text-ink-3">仅限授权管理员进入</p>
+
+        {/* 特性 3 条（设计稿右侧；走查纠偏补） */}
+        <div className="mt-6 grid gap-2">
+          {FEATURES.map((f) => (
+            <div key={f.title} className="rounded-lg border border-line bg-elevated px-4 py-3">
+              <p className="text-sm font-medium text-ink">{f.title}</p>
+              <p className="mt-0.5 text-xs text-ink-3">{f.desc}</p>
+            </div>
+          ))}
+        </div>
 
         {/* 登录表单（设计稿：管理员登录） */}
         <form onSubmit={handleSubmit} className="mt-8 rounded-lg border border-line bg-elevated p-6">
@@ -93,6 +116,22 @@ export default function AdminLoginPage() {
             />
           </div>
 
+          {/* 记住此设备 + 忘记密码？（设计稿表单内；走查纠偏补） */}
+          <div className="mt-4 flex items-center justify-between text-xs">
+            <label className="flex cursor-pointer items-center gap-2 text-ink-2">
+              <input
+                type="checkbox"
+                checked={remember}
+                onChange={(e) => setRemember(e.target.checked)}
+                className="h-3.5 w-3.5 accent-[var(--yy-accent)]"
+              />
+              记住此设备
+            </label>
+            <Link href="/forgot-password" className="text-glow hover:underline">
+              忘记密码？
+            </Link>
+          </div>
+
           {error && (
             <p className="mt-3 rounded-md bg-like/10 px-3 py-2 text-sm text-like" role="alert">
               {error}
@@ -108,12 +147,6 @@ export default function AdminLoginPage() {
           </button>
           <p className="mt-4 text-center text-xs text-ink-3">登录即表示你同意管理员行为准则</p>
         </form>
-
-        <p className="mt-6 text-center">
-          <Link href="/" className="text-sm text-ink-2 hover:text-ink">
-            ← 返回站点
-          </Link>
-        </p>
       </section>
     </main>
   );

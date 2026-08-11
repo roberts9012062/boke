@@ -134,7 +134,7 @@ export default function AdminUsers() {
           type="text"
           value={keyword}
           onChange={(e) => setKeyword(e.target.value)}
-          placeholder="搜索用户名、邮箱…"
+          placeholder="搜索用户…"
           className="h-9 w-56 rounded-full border border-line bg-elevated px-4 text-sm text-ink placeholder:text-ink-3 focus:border-accent focus:outline-none"
         />
       </div>
@@ -187,7 +187,7 @@ export default function AdminUsers() {
                         : "bg-accent-soft text-glow"
                     }`}
                   >
-                    {user.status === "banned" ? "已封禁" : "正常"}
+                    {user.status === "banned" ? "禁言" : "正常"}
                   </span>
                 </td>
                 <td className="px-4 py-3 text-xs text-ink-3">{timeAgo(user.created_at)}</td>

@@ -207,6 +207,14 @@ export function apiCreatePost(req: CreatePostReq): Promise<{ id: number }> {
 }
 
 // 发布草稿。
+// 更新帖子（走查纠偏：编辑已发布帖子 / 草稿继续编辑；后端 PUT /posts/:id，类型不可变）。
+export function apiUpdatePost(
+  postId: number,
+  req: { title?: string; content?: string; tags?: string[]; media_ids?: number[]; visibility?: string },
+): Promise<{ id: number }> {
+  return put<{ id: number }>(`/posts/${postId}`, req);
+}
+
 export function apiPublishPost(postId: number): Promise<{ id: number }> {
   return post<{ id: number }>(`/posts/${postId}/publish`);
 }
@@ -428,6 +436,7 @@ export interface DashboardData {
   type_counts: Record<string, number>; // 内容分布
   trend_series: TrendPoint[]; // 近 7 日互动趋势（M1.7 新增）
   activities: { kind: string; id: number; actor: string; content: string; created_at: string }[];
+  pending: { comments: number; reports: number; sensitive: number }; // 待处理块（走查纠偏补）
 }
 
 // 仪表盘聚合。

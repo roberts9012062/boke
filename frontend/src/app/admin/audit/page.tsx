@@ -146,7 +146,7 @@ export default function AuditPage() {
                 <th className="px-4 py-3 font-normal">内容摘要</th>
                 <th className="px-4 py-3 font-normal">类型</th>
                 <th className="px-4 py-3 font-normal">来源</th>
-                <th className="px-4 py-3 font-normal">举报人</th>
+                <th className="px-4 py-3 font-normal">风险</th>
                 <th className="px-4 py-3 font-normal">原因</th>
                 <th className="px-4 py-3 font-normal">提交</th>
                 <th className="px-4 py-3 font-normal">状态</th>
@@ -173,6 +173,14 @@ export default function AuditPage() {
                       <span className="rounded-full bg-like/15 px-2 py-0.5 text-xs text-like">AI</span>
                     ) : (
                       <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-ink-3">举报</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    {/* 风险列（设计稿：待审/高风险 徽标；走查纠偏补） */}
+                    {report.source === "ai" ? (
+                      <span className="rounded-full bg-like/15 px-2 py-0.5 text-xs text-like">高风险</span>
+                    ) : (
+                      <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-ink-3">待审</span>
                     )}
                   </td>
                   <td className="px-4 py-3 text-ink-2">{report.reporter || "匿名"}</td>

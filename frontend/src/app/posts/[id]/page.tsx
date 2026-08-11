@@ -48,7 +48,8 @@ export default function PostDetailPage() {
   const [favoriteCount, setFavoriteCount] = useState<number>(0);
   const [reacting, setReacting] = useState<boolean>(false);
 
-  // 加载详情
+  // 加载详情（依赖 user 恢复：走查纠偏——刷新页面时 auth 恢复晚于首次请求会导致
+  // is_author 误判（编辑按钮不显示），登录态恢复后重载）
   useEffect(() => {
     if (!postId) {
       setError("帖子不存在");
@@ -70,7 +71,7 @@ export default function PostDetailPage() {
       .catch(() => {
         // 状态拉取失败不阻塞页面
       });
-  }, [postId]);
+  }, [postId, user?.id]); // user 恢复后重载（is_author 纠偏）
 
   // 点赞/取消（未登录提示登录）
   const handleLike = async () => {
@@ -183,10 +184,16 @@ export default function PostDetailPage() {
                   {post.visibility === "public" ? "公开" : post.visibility === "followers" ? "仅关注者" : "私密"}
                 </p>
               </div>
-              {/* 作者可编辑（M1.5 激活） */}
+              {/* 作者可编辑（M1.5 徽标；走查纠偏：编辑按钮 → compose?edit= 设计稿《编辑帖子》） */}
               {post.is_author && (
-                <span className="ml-auto rounded-full bg-accent-soft px-3 py-1 text-xs text-glow">
-                  我的帖子
+                <span className="ml-auto flex items-center gap-2">
+                  <Link
+                    href={`/compose?edit=${post.id}`}
+                    className="rounded-full border border-line px-3 py-1 text-xs text-ink-2 transition-colors hover:text-ink"
+                  >
+                    编辑
+                  </Link>
+                  <span className="rounded-full bg-accent-soft px-3 py-1 text-xs text-glow">我的帖子</span>
                 </span>
               )}
             </div>

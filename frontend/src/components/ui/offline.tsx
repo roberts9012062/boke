@@ -55,13 +55,22 @@ export function OfflineOverlay() {
       </span>
       <p className="mt-4 font-display text-xl font-semibold text-ink">没有网络信号</p>
       <p className="mt-2 text-sm text-ink-2">请检查 Wi-Fi 或蜂窝数据，恢复后自动重试。</p>
-      <button
-        type="button"
-        onClick={handleRetry}
-        className="mt-6 rounded-full bg-accent px-6 py-2.5 text-sm font-medium text-on-accent transition-opacity hover:opacity-90"
-      >
-        重试
-      </button>
+      <div className="mt-6 flex gap-3">
+        {/* 返回首页（设计稿《无网络》画板按钮组；走查纠偏补） */}
+        <a
+          href="/"
+          className="rounded-full bg-accent px-6 py-2.5 text-sm font-medium text-on-accent transition-opacity hover:opacity-90"
+        >
+          返回首页
+        </a>
+        <button
+          type="button"
+          onClick={handleRetry}
+          className="rounded-full border border-line px-6 py-2.5 text-sm text-ink-2 hover:text-ink"
+        >
+          重试
+        </button>
+      </div>
     </div>
   );
 }

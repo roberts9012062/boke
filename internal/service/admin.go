@@ -30,11 +30,12 @@ type AdminService struct {
 	store    *media.Store              // 媒体存储（M2.9：删除磁盘文件）
 	hooks    plugin.Dispatcher         // 插件钩子调度器（M3.2 扩展框架）
 	audit    *repository.AuditRepo     // 审计日志（M5：角色变更留痕）
+	reports  *repository.ReportRepo    // 举报工单（仪表盘待处理块，走查纠偏补）
 }
 
 // NewAdminService 创建后台服务。
-func NewAdminService(admin *repository.AdminRepo, posts *repository.PostRepo, comments *repository.CommentRepo, settings *repository.SettingRepo, enforcer *casbin.Enforcer, bans *repository.BanRepo, users *repository.UserRepo, postSvc *PostService, medias *repository.MediaRepo, tags *repository.TagRepo, store *media.Store, hooks plugin.Dispatcher, audit *repository.AuditRepo) *AdminService {
-	return &AdminService{admin: admin, posts: posts, comments: comments, settings: settings, enforcer: enforcer, bans: bans, users: users, postSvc: postSvc, medias: medias, tags: tags, store: store, hooks: hooks, audit: audit}
+func NewAdminService(admin *repository.AdminRepo, posts *repository.PostRepo, comments *repository.CommentRepo, settings *repository.SettingRepo, enforcer *casbin.Enforcer, bans *repository.BanRepo, users *repository.UserRepo, postSvc *PostService, medias *repository.MediaRepo, tags *repository.TagRepo, store *media.Store, hooks plugin.Dispatcher, audit *repository.AuditRepo, reports *repository.ReportRepo) *AdminService {
+	return &AdminService{admin: admin, posts: posts, comments: comments, settings: settings, enforcer: enforcer, bans: bans, users: users, postSvc: postSvc, medias: medias, tags: tags, store: store, hooks: hooks, audit: audit, reports: reports}
 }
 
 // DashboardData 仪表盘数据。
@@ -50,6 +51,7 @@ type DashboardData struct {
 	TypeCounts  map[string]int64          `json:"type_counts"`  // 内容分布
 	TrendSeries []repository.TrendPoint   `json:"trend_series"` // 近 7 日互动趋势（M1.7 新增）
 	Activities  []repository.ActivityRow  `json:"activities"`   // 最近动态
+	Pending     ReportPending             `json:"pending"`      // 待处理块（设计稿：评论待审/内容举报/敏感词命中；走查纠偏补）
 }
 
 // trend 环比计算（上期 0 时返回 0）。
@@ -107,6 +109,20 @@ func (s *AdminService) Dashboard(ctx context.Context) (*DashboardData, error) {
 		return nil, err
 	}
 
+	// 待处理块（设计稿：评论待审/内容举报/敏感词命中；走查纠偏补）
+	hiddenComments, err := s.admin.CountHiddenComments(ctx)
+	if err != nil {
+		return nil, err
+	}
+	pendingReports, err := s.reports.CountPending(ctx)
+	if err != nil {
+		return nil, err
+	}
+	sensitiveHits, err := s.admin.TotalSensitiveHits(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	data := &DashboardData{
 		Views7d:       views7d,
 		ViewsTrend:    trend(views7d, viewsPrev),
@@ -119,6 +135,7 @@ func (s *AdminService) Dashboard(ctx context.Context) (*DashboardData, error) {
 		TypeCounts:    typeCounts,
 		TrendSeries:   trendSeries,
 		Activities:    activities,
+		Pending:       ReportPending{Comments: hiddenComments, Reports: pendingReports, Sensitive: sensitiveHits},
 	}
 	// ---------- 插件钩子：admin.page（同步扩展点，M3.2；结果忽略，插件可扩展仪表盘指标） ----------
 	s.hooks.Dispatch(ctx, plugin.HookAdminPage, plugin.Event{Payload: data})

@@ -22,6 +22,12 @@ export default function GlobalError({ reset }: { reset: () => void }) {
         >
           返回首页
         </Link>
+        <Link
+          href="/search"
+          className="rounded-full border border-line px-6 py-2.5 text-sm text-ink-2 hover:text-ink"
+        >
+          去搜索
+        </Link>
         <button
           type="button"
           onClick={reset}

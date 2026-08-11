@@ -93,10 +93,11 @@ export default function AdminComments() {
       <h1 className="font-display text-xl font-semibold text-ink">评论审核</h1>
       <p className="mt-0.5 text-xs text-ink-3">审核、回复与处理不当评论</p>
 
-      {/* 统计条（设计稿：全部评论 / 待审核 / 今日新增 / 已屏蔽） */}
-      <div className="mt-4 grid grid-cols-3 gap-3">
+      {/* 统计条（设计稿：全部评论 / 待审核 / 今日新增 / 已屏蔽；走查纠偏补待审核卡 = 已屏蔽数） */}
+      <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
         {[
           { key: "全部评论", value: stats.total },
+          { key: "待审核", value: stats.hidden },
           { key: "今日新增", value: stats.today },
           { key: "已屏蔽", value: stats.hidden },
         ].map((s) => (

@@ -93,22 +93,30 @@ export default function NotificationsPage() {
     );
   }
 
-  // 分区（M1.7 技术债 #4 修复）：近 7 日 / 更早（需求 3.8「首屏近 7 日分区，更早折叠」）
-  const splitByWeek = (list: NotificationDTO[]): { recent: NotificationDTO[]; older: NotificationDTO[] } => {
-    const weekAgo = new Date();
-    weekAgo.setDate(weekAgo.getDate() - 7);
-    const recent: NotificationDTO[] = [];
-    const older: NotificationDTO[] = [];
+  // 分区（设计稿《通知》画板：今天 / 昨天 / 更早；走查纠偏替换原近 7 日分组）
+  const splitByDay = (list: NotificationDTO[]): { today: NotificationDTO[]; yesterday: NotificationDTO[]; older: NotificationDTO[] } => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const groups: { today: NotificationDTO[]; yesterday: NotificationDTO[]; older: NotificationDTO[] } = {
+      today: [],
+      yesterday: [],
+      older: [],
+    };
     for (const n of list) {
-      if (new Date(n.created_at) >= weekAgo) {
-        recent.push(n);
+      const created = new Date(n.created_at);
+      if (created >= today) {
+        groups.today.push(n);
+      } else if (created >= yesterday) {
+        groups.yesterday.push(n);
       } else {
-        older.push(n);
+        groups.older.push(n);
       }
     }
-    return { recent, older };
+    return groups;
   };
-  const { recent, older } = splitByWeek(items);
+  const { today, yesterday, older } = splitByDay(items);
 
   // 渲染通知列表（分组行）
   const renderList = (list: NotificationDTO[]) => (
@@ -204,11 +212,19 @@ export default function NotificationsPage() {
             </div>
           )}
 
-          {/* 近 7 日分区（首屏展示） */}
-          {recent.length > 0 && (
+          {/* 今天分区（设计稿：今天） */}
+          {today.length > 0 && (
             <section>
-              <h2 className="text-xs font-medium text-ink-3">近 7 日</h2>
-              <div className="mt-2">{renderList(recent)}</div>
+              <h2 className="text-xs font-medium text-ink-3">今天</h2>
+              <div className="mt-2">{renderList(today)}</div>
+            </section>
+          )}
+
+          {/* 昨天分区（设计稿：昨天） */}
+          {yesterday.length > 0 && (
+            <section>
+              <h2 className="text-xs font-medium text-ink-3">昨天</h2>
+              <div className="mt-2">{renderList(yesterday)}</div>
             </section>
           )}
 

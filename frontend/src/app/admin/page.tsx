@@ -1,7 +1,7 @@
 // src/app/admin/page.tsx
 // 后台仪表盘（设计稿 D/冷月/后台仪表盘 1400×1080）：
-// 运营总览（近 7 日浏览/获赞/评论/新帖 + 环比 + 刷新）+ 近 7 日互动趋势（M1.7）
-// + 内容分布（环形图 M1.7）+ 最近动态 + 快捷操作。
+// 运营总览（近 7 日浏览/获赞/评论/新帖 + 环比 + 近 7 日 + 刷新）+ 近 7 日互动趋势（M1.7）
+// + 内容分布（环形图 M1.7）+ 待处理块（走查纠偏）+ 最近动态（带相对时间）+ 快捷操作。
 "use client";
 
 import Link from "next/link";
@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import { DonutChart } from "@/components/admin/donut-chart";
 import { TrendChart } from "@/components/admin/trend-chart";
 import { apiDashboard, type DashboardData } from "@/lib/api";
+import { timeAgo } from "@/lib/utils";
 
 // AdminDashboard 后台仪表盘。
 export default function AdminDashboard() {
@@ -55,19 +56,23 @@ export default function AdminDashboard() {
 
   return (
     <div>
-      {/* 运营总览（设计稿：近 7 日数据 · 更新于 刚刚 + 刷新） */}
+      {/* 运营总览（设计稿：近 7 日数据 · 更新于 刚刚 + 近 7 日 + 刷新） */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="font-display text-xl font-semibold text-ink">运营总览</h1>
           <p className="mt-0.5 text-xs text-ink-3">近 7 日数据 · 更新于 {updatedAt}</p>
         </div>
-        <button
-          type="button"
-          onClick={load}
-          className="rounded-full border border-line px-4 py-1.5 text-xs text-ink-2 hover:text-ink"
-        >
-          刷新
-        </button>
+        <div className="flex items-center gap-2">
+          {/* 近 7 日标签（设计稿头部控件；7/30 切换在数据报表页） */}
+          <span className="rounded-full bg-accent px-3 py-1.5 text-xs font-medium text-on-accent">近 7 日</span>
+          <button
+            type="button"
+            onClick={load}
+            className="rounded-full border border-line px-4 py-1.5 text-xs text-ink-2 hover:text-ink"
+          >
+            刷新
+          </button>
+        </div>
       </div>
 
       {/* 指标卡片组 */}
@@ -106,32 +111,59 @@ export default function AdminDashboard() {
           </div>
         </section>
 
-        {/* 最近动态（设计稿：北巷 评论了你 …） */}
+        {/* 待处理块（设计稿：评论待审 N（处理）/ 内容举报 N（查看）/ 敏感词命中 N（复核）；走查纠偏补） */}
         <section className="rounded-lg border border-line bg-elevated p-5">
-          <div className="flex items-center justify-between">
-            <h2 className="font-display text-base font-semibold text-ink">最近动态</h2>
-            <Link href="/admin/posts" className="text-xs text-glow hover:underline">
-              查看全部 →
-            </Link>
-          </div>
-          <div className="mt-3 divide-y divide-line">
-            {data?.activities.map((a, i) => (
-              <div key={`${a.kind}-${a.id}-${i}`} className="py-2.5">
-                <p className="text-sm text-ink">
-                  <span className="font-medium">{a.actor}</span>
-                  <span className="text-ink-2">
-                    {a.kind === "post" ? " 发布了新帖" : a.kind === "comment" ? " 评论了你" : " 加入了月言"}
-                  </span>
-                </p>
-                <p className="mt-0.5 line-clamp-1 text-xs text-ink-3">{a.content}</p>
+          <h2 className="font-display text-base font-semibold text-ink">待处理</h2>
+          <div className="mt-3 space-y-2">
+            {[
+              { label: "评论待审", value: data?.pending.comments ?? 0, href: "/admin/comments", action: "处理" },
+              { label: "内容举报", value: data?.pending.reports ?? 0, href: "/admin/audit", action: "查看" },
+              { label: "敏感词命中", value: data?.pending.sensitive ?? 0, href: "/admin/sensitive-words", action: "复核" },
+            ].map((item) => (
+              <div key={item.label} className="flex items-center justify-between rounded-lg bg-muted/50 px-4 py-3">
+                <div>
+                  <p className="text-sm font-medium text-ink">{item.label}</p>
+                  <p className="mt-0.5 text-xs text-ink-3">{item.value} 条</p>
+                </div>
+                <Link
+                  href={item.href}
+                  className={`rounded-full px-3 py-1 text-xs ${
+                    item.value > 0 ? "bg-accent text-on-accent hover:opacity-90" : "border border-line text-ink-3"
+                  }`}
+                >
+                  {item.action}
+                </Link>
               </div>
             ))}
-            {(!data || data.activities.length === 0) && (
-              <p className="py-8 text-center text-xs text-ink-3">暂无动态</p>
-            )}
           </div>
         </section>
       </div>
+
+      {/* 最近动态（设计稿：北巷 评论了你 · 2 分钟前；走查纠偏补相对时间） */}
+      <section className="mt-6 rounded-lg border border-line bg-elevated p-5">
+        <div className="flex items-center justify-between">
+          <h2 className="font-display text-base font-semibold text-ink">最近动态</h2>
+          <Link href="/admin/posts" className="text-xs text-glow hover:underline">
+            查看全部 →
+          </Link>
+        </div>
+        <div className="mt-3 divide-y divide-line">
+          {data?.activities.map((a, i) => (
+            <div key={`${a.kind}-${a.id}-${i}`} className="flex items-center justify-between py-2.5">
+              <p className="text-sm text-ink">
+                <span className="font-medium">{a.actor}</span>
+                <span className="text-ink-2">
+                  {a.kind === "post" ? " 发布了新帖" : a.kind === "comment" ? " 评论了你" : " 加入了月言"}
+                </span>
+              </p>
+              <span className="shrink-0 pl-3 text-xs text-ink-3">{timeAgo(a.created_at)}</span>
+            </div>
+          ))}
+          {(!data || data.activities.length === 0) && (
+            <p className="py-8 text-center text-xs text-ink-3">暂无动态</p>
+          )}
+        </div>
+      </section>
 
       {/* 快捷操作（设计稿：发新帖/审评论/设置） */}
       <section className="mt-6 rounded-lg border border-line bg-elevated p-5">

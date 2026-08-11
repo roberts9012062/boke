@@ -172,7 +172,7 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 	followSvc := service.NewFollowService(relationRepo, userRepo, postRepo, postSvc, notifySvc)
 	topicSvc := service.NewTopicService(tagRepo, postRepo, postSvc)
 	searchSvc := service.NewSearchService(postRepo, tagRepo, userRepo, postSvc, hookDispatcher)
-	adminSvc := service.NewAdminService(adminRepo, postRepo, commentRepo, settingRepo, enforcer, banRepo, userRepo, postSvc, mediaRepo, tagRepo, mediaStore, hookDispatcher, auditRepo)
+	adminSvc := service.NewAdminService(adminRepo, postRepo, commentRepo, settingRepo, enforcer, banRepo, userRepo, postSvc, mediaRepo, tagRepo, mediaStore, hookDispatcher, auditRepo, reportRepo)
 	siteSvc := service.NewSiteService(settingRepo) // 站点信息（meta 从 settings 实时读取，M1.7）
 	messageSvc := service.NewMessageService(messageRepo, userRepo, notifySvc) // 私信（M2）
 	pluginSvc := service.NewPluginService(ghClient, pluginRepo, settingRepo, hookDispatcher)

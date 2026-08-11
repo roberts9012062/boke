@@ -9,7 +9,7 @@ import { useEffect, useState } from "react";
 
 import { DesktopNav } from "@/components/desktop-nav";
 import { MobileTabbar } from "@/components/mobile-tabbar";
-import { apiDrafts } from "@/lib/api";
+import { apiDeletePost, apiDrafts } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { PostSummary } from "@/types/api";
 
@@ -27,6 +27,20 @@ export default function DraftsPage() {
   const { user, loading } = useAuth();
   const [drafts, setDrafts] = useState<PostSummary[]>([]);
   const [loaded, setLoaded] = useState<boolean>(false);
+  const [error, setError] = useState<string>("");
+
+  // 删除草稿（设计稿《草稿箱》：删除 + 继续编辑；走查纠偏补）
+  const handleDelete = async (id: number) => {
+    if (!window.confirm("确定删除该草稿？删除后不可恢复")) {
+      return;
+    }
+    try {
+      await apiDeletePost(id);
+      setDrafts((prev) => prev.filter((d) => d.id !== id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "删除失败");
+    }
+  };
 
   // 加载草稿列表
   useEffect(() => {
@@ -51,6 +65,7 @@ export default function DraftsPage() {
           草稿箱
           {loaded && <span className="ml-2 text-sm font-normal text-ink-3">{drafts.length} 篇</span>}
         </h1>
+        {error && <p className="mb-3 rounded-md bg-like/10 px-3 py-2 text-sm text-like">{error}</p>}
 
         {/* 加载中 */}
         {!loaded && <div className="h-32 animate-pulse rounded-lg bg-muted" aria-hidden />}
@@ -89,12 +104,21 @@ export default function DraftsPage() {
                       ? new Date(draft.published_at).toLocaleString("zh-CN")
                       : "今天"}
                   </p>
-                  <Link
-                    href={`/compose?draft=${draft.id}`}
-                    className="text-xs text-glow hover:underline"
-                  >
-                    继续编辑 →
-                  </Link>
+                  <div className="flex items-center gap-3">
+                    <Link
+                      href={`/compose?draft=${draft.id}`}
+                      className="text-xs text-glow hover:underline"
+                    >
+                      继续编辑 →
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => void handleDelete(draft.id)}
+                      className="text-xs text-like hover:underline"
+                    >
+                      删除
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}

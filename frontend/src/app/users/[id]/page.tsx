@@ -148,28 +148,39 @@ export default function UserProfilePage() {
                 <p className="mt-0.5 text-sm text-ink-3">@{profile.username}</p>
                 {profile.bio && <p className="mt-1 text-sm text-ink-2">{profile.bio}</p>}
               </div>
-              {/* 操作按钮（本人不显示）：关注/取关 + 私信（M2） */}
-              {user && user.id !== userId && (
+              {/* 操作按钮：他人 → 私信/关注；本人 → 编辑资料（设计稿个人主页；走查纠偏补） */}
+              {user && user.id === userId ? (
                 <div className="flex shrink-0 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => void handleMessage()}
+                  <Link
+                    href="/settings/profile"
                     className="rounded-full border border-line px-5 py-2 text-sm text-ink-2 transition-colors hover:text-ink"
                   >
-                    私信
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void handleFollow()}
-                    className={`rounded-full px-5 py-2 text-sm transition-colors ${
-                      following
-                        ? "border border-line text-ink-2 hover:text-ink"
-                        : "bg-accent text-on-accent hover:opacity-90"
-                    }`}
-                  >
-                    {following ? "已关注" : "关注"}
-                  </button>
+                    编辑资料
+                  </Link>
                 </div>
+              ) : (
+                user && (
+                  <div className="flex shrink-0 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void handleMessage()}
+                      className="rounded-full border border-line px-5 py-2 text-sm text-ink-2 transition-colors hover:text-ink"
+                    >
+                      私信
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleFollow()}
+                      className={`rounded-full px-5 py-2 text-sm transition-colors ${
+                        following
+                          ? "border border-line text-ink-2 hover:text-ink"
+                          : "bg-accent text-on-accent hover:opacity-90"
+                      }`}
+                    >
+                      {following ? "已关注" : "关注"}
+                    </button>
+                  </div>
+                )
               )}
             </div>
             {/* 统计（设计稿个人主页：帖子 / 获赞 / 浏览） */}
