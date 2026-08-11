@@ -36,3 +36,6 @@ export.zip
 
 # 内部文档（架构/插件手册，不随开源仓库分发）
 docs/
+
+# 备份导出产物（data/backup/，M4-报表）
+data/backup/
