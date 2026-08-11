@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/roberts9012062/boke/internal/model"
+	"github.com/roberts9012062/boke/pkg/errs"
 )
 
 // assembleSummaries 批量组装帖子摘要（作者/标签/媒体 + 私密帖过滤 + 收藏数聚合）。
@@ -121,6 +122,57 @@ func (s *PostService) fillMedia(ctx context.Context, summary *model.PostSummary,
 		})
 	}
 	return nil
+}
+
+// GetAdminDetail 后台编辑详情（设计稿《后台编辑》四画板：编辑区/发布信息/互动数据/操作）。
+// 与前台 GetDetail 的区别：不校验可见性（管理员可查看下架/私密帖）、不增加浏览量。
+func (s *PostService) GetAdminDetail(ctx context.Context, postID int64) (*model.AdminPostDetail, error) {
+	post, err := s.posts.FindByID(ctx, postID)
+	if err != nil {
+		return nil, errs.ErrNotFound
+	}
+	if post.Status == model.PostStatusDeleted {
+		return nil, errs.ErrNotFound
+	}
+
+	// 作者 / 标签 / 媒体（复用前台组装，避免重复实现）
+	var summary model.PostSummary
+	if err := s.fillAuthor(ctx, &summary, post.AuthorID); err != nil {
+		return nil, err
+	}
+	if err := s.fillTags(ctx, &summary, post.ID); err != nil {
+		return nil, err
+	}
+	if err := s.fillMedia(ctx, &summary, post.MediaIDs); err != nil {
+		return nil, err
+	}
+	// 标签去掉 # 前缀（表单直接编辑，保存时再补 #）
+	tagNames := make([]string, 0, len(summary.Tags))
+	for _, tag := range summary.Tags {
+		tagNames = append(tagNames, strings.TrimPrefix(tag.Name, "#"))
+	}
+
+	detail := &model.AdminPostDetail{
+		ID:           post.ID,
+		Title:        post.Title,
+		Content:      post.Content,
+		ContentType:  post.ContentType,
+		Status:       post.Status,
+		Visibility:   post.Visibility,
+		CoverURL:     post.CoverURL,
+		Tags:         tagNames,
+		Media:        summary.Media,
+		ViewCount:    post.ViewCount,
+		LikeCount:    post.LikeCount,
+		CommentCount: post.CommentCount,
+		Author:       summary.Author,
+		CreatedAt:    post.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:    post.UpdatedAt.Format(time.RFC3339),
+	}
+	if post.PublishedAt != nil {
+		detail.PublishedAt = post.PublishedAt.Format(time.RFC3339)
+	}
+	return detail, nil
 }
 
 // isMutual 判断 viewer 与 author 是否互相关注（仅关注者帖可见性，设计稿「互相关注的人可见」）。

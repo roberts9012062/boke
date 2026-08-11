@@ -8,6 +8,7 @@ import Link from "next/link";
 import { useState } from "react";
 
 import { AudioPlayer } from "@/components/audio-player";
+import { SharePanel } from "@/components/share-panel";
 import { Avatar } from "@/components/ui/avatar";
 import { useAppearance } from "@/lib/appearance";
 import { apiLikePost, apiUnlikePost, ApiError } from "@/lib/api";
@@ -23,6 +24,7 @@ export function PostCard({ post }: { post: PostSummary }) {
   const [liked, setLiked] = useState<boolean>(false);
   const [likeCount, setLikeCount] = useState<number>(post.like_count);
   const [error, setError] = useState<string>("");
+  const [shareOpen, setShareOpen] = useState<boolean>(false); // 分享面板（#17）
   // 正文显示：列表用摘要（列表摘要）
 
   // 点赞/取消（真实落库；未登录提示登录）
@@ -149,12 +151,30 @@ export function PostCard({ post }: { post: PostSummary }) {
           <span aria-hidden>🔖</span>
           <span>{post.favorite_count ?? 0}</span>
         </Link>
-        <span className="ml-auto text-ink-3" aria-hidden>
-          —
-        </span>
+        {/* 分享（设计稿《分享面板》，#17 激活） */}
+        <button
+          type="button"
+          onClick={() => setShareOpen(true)}
+          className="flex items-center gap-1 transition-colors hover:text-ink"
+        >
+          <span aria-hidden>↗</span>
+          <span>分享</span>
+        </button>
       </div>
       {/* 点赞提示（未登录） */}
       {error && <p className="mt-2 text-xs text-like">{error}</p>}
+
+      {/* 分享面板（作者 · 话题 元信息 + 图片帖海报图） */}
+      {shareOpen && (
+        <SharePanel
+          title={post.title || post.summary || "分享帖子"}
+          content={post.summary}
+          media={post.media.filter((m) => m.type === "image").map((m) => m.url)}
+          meta={`${post.author.nickname}${post.tags.length > 0 ? ` · ${post.tags.map((t) => t.name).join(" ")}` : ""}`}
+          shareUrl={typeof window !== "undefined" ? `${window.location.origin}/posts/${post.id}` : `/posts/${post.id}`}
+          onClose={() => setShareOpen(false)}
+        />
+      )}
     </article>
   );
 }

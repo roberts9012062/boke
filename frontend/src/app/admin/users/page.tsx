@@ -6,21 +6,42 @@
 
 import { useEffect, useState } from "react";
 
-import { apiAdminSetUserStatus, apiAdminUsers, ApiError } from "@/lib/api";
+import {
+  apiAdminSetUserRole,
+  apiAdminSetUserStatus,
+  apiAdminUsers,
+  apiAdminUserStats,
+  ApiError,
+} from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { timeAgo } from "@/lib/utils";
 import type { UserProfile } from "@/types/api";
 
-// AdminUsers 用户管理。
+// AdminUsers 用户管理（设计稿 D/冷月/后台用户 1400×1000）：
+// 统计条（全部用户/本周新增/活跃/已禁言）+ 搜索 + 用户表格 + 封禁弹层 + 角色调整。
 export default function AdminUsers() {
+  const { user: me } = useAuth();
   const [items, setItems] = useState<UserProfile[]>([]);
   const [total, setTotal] = useState<number>(0);
   const [keyword, setKeyword] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(true);
+  // 统计条（设计稿：全部用户/本周新增/活跃/已禁言）
+  const [stats, setStats] = useState<{ total: number; week_new: number; active: number; banned: number }>({
+    total: 0,
+    week_new: 0,
+    active: 0,
+    banned: 0,
+  });
   // 封禁弹层状态
   const [banTarget, setBanTarget] = useState<UserProfile | null>(null);
   const [banReason, setBanReason] = useState<string>("");
   const [banUntil, setBanUntil] = useState<string>(""); // 空 = 永久
   const [banError, setBanError] = useState<string>("");
+
+  // 加载统计条（设计稿《后台用户》四卡片）
+  useEffect(() => {
+    apiAdminUserStats().then(setStats).catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     setLoading(true);
@@ -70,10 +91,44 @@ export default function AdminUsers() {
     }
   };
 
+  // 角色调整（M2：admin ↔ user；落库 + casbin 即时生效，需该用户重新登录）
+  const toggleRole = async (user: UserProfile) => {
+    if (user.id === me?.id) {
+      setBanError("不能调整自己的管理员角色");
+      return;
+    }
+    const next = user.role === "admin" ? "user" : "admin";
+    const label = next === "admin" ? "设为管理员" : "取消管理员";
+    if (!window.confirm(`确定将 ${user.nickname} ${label}？变更后需该用户重新登录生效`)) {
+      return;
+    }
+    try {
+      await apiAdminSetUserRole(user.id, next);
+      setItems((prev) => prev.map((u) => (u.id === user.id ? { ...u, role: next } : u)));
+    } catch (err) {
+      setBanError(err instanceof ApiError ? err.message : "角色调整失败");
+    }
+  };
+
   return (
     <div>
       <h1 className="font-display text-xl font-semibold text-ink">用户管理</h1>
       <p className="mt-0.5 text-xs text-ink-3">管理注册用户与访客权限 · 共 {total} 位用户</p>
+
+      {/* 统计条（设计稿：全部用户 / 本周新增 / 活跃 / 已禁言） */}
+      <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {[
+          { key: "全部用户", value: stats.total },
+          { key: "本周新增", value: stats.week_new },
+          { key: "活跃", value: stats.active },
+          { key: "已禁言", value: stats.banned },
+        ].map((s) => (
+          <div key={s.key} className="rounded-lg border border-line bg-elevated p-4">
+            <p className="text-2xl font-semibold text-ink">{s.value}</p>
+            <p className="mt-1 text-xs text-ink-3">{s.key}</p>
+          </div>
+        ))}
+      </div>
 
       <div className="mt-4 flex items-center gap-3">
         <input
@@ -154,6 +209,15 @@ export default function AdminUsers() {
                       封禁
                     </button>
                   )}
+                  <span className="mx-1.5 text-ink-3">·</span>
+                  {/* 角色调整（M2：admin ↔ user） */}
+                  <button
+                    type="button"
+                    onClick={() => void toggleRole(user)}
+                    className="text-xs text-glow hover:underline"
+                  >
+                    {user.role === "admin" ? "取消管理员" : "设为管理员"}
+                  </button>
                 </td>
               </tr>
             ))}

@@ -67,8 +67,9 @@ func (s *PostService) Create(ctx context.Context, userID int64, req model.Create
 		return 0, err
 	}
 
-	// ---------- 敏感词拦截（M2：发布时命中 forbidden 直接拒绝） ----------
+	// ---------- 敏感词拦截（M2：发布时命中 forbidden 直接拒绝；P1：命中计数） ----------
 	if word := s.moderation.CheckForbidden(req.Content); word != "" {
+		s.moderation.IncrHit(ctx, word)
 		return 0, errs.New(errs.CodeBadRequest, "内容包含敏感词「"+word+"」，请修改后发布")
 	}
 
@@ -257,8 +258,9 @@ func (s *PostService) GetDetail(ctx context.Context, postID int64, viewerID int6
 		return nil, errs.ErrNotFound
 	}
 
-	// 浏览量 +1（忽略失败）
+	// 浏览量 +1 + 浏览埋点（P1 真实日浏览统计；失败均忽略不影响详情展示）
 	_ = s.posts.IncrView(ctx, postID)
+	_ = s.posts.RecordView(ctx, postID, s.viewerHash(viewerID))
 
 	// 组装详情
 	detail := &model.PostDetail{

@@ -34,7 +34,7 @@ func scanUser(row pgx.Row) (model.User, error) {
 	err := row.Scan(
 		&u.ID, &u.Email, &u.Username, &u.PasswordHash,
 		&u.Nickname, &u.AvatarURL, &u.Bio, &u.Status,
-		&u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt,
+		&u.PasswordVersion, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt,
 	)
 	if err != nil {
 		return model.User{}, wrapNotFound(err)
@@ -43,7 +43,7 @@ func scanUser(row pgx.Row) (model.User, error) {
 }
 
 // userColumns 用户查询列清单（插入/查询共用，保证列序一致）。
-const userColumns = `id, email, username, password_hash, nickname, avatar_url, bio, status, last_login_at, created_at, updated_at`
+const userColumns = `id, email, username, password_hash, nickname, avatar_url, bio, status, password_version, last_login_at, created_at, updated_at`
 
 // Create 创建用户（返回新用户 ID）。
 func (r *UserRepo) Create(ctx context.Context, u model.User) (int64, error) {
@@ -135,10 +135,11 @@ func (r *UserRepo) UpdateProfile(ctx context.Context, id int64, nickname string,
 	return err
 }
 
-// UpdatePassword 更新密码哈希（M2 找回密码）。
+// UpdatePassword 更新密码哈希（M2 找回密码；密码版本号自增，使旧会话的 refresh token 失效）。
 func (r *UserRepo) UpdatePassword(ctx context.Context, id int64, passwordHash string) error {
-	_, err := r.pool.Exec(ctx,
-		`UPDATE users SET password_hash = $2, updated_at = now() WHERE id = $1`, id, passwordHash)
+	_, err := r.pool.Exec(ctx, `
+		UPDATE users SET password_hash = $2, password_version = password_version + 1, updated_at = now()
+		WHERE id = $1`, id, passwordHash)
 	return err
 }
 
@@ -146,6 +147,41 @@ func (r *UserRepo) UpdatePassword(ctx context.Context, id int64, passwordHash st
 func (r *UserRepo) UpdateAvatar(ctx context.Context, id int64, avatarURL string) error {
 	_, err := r.pool.Exec(ctx,
 		`UPDATE users SET avatar_url = $2, updated_at = now() WHERE id = $1`, id, avatarURL)
+	return err
+}
+
+// ---------- 角色（M2 角色调整 UI，users.role 列） ----------
+
+// UserRoleRow 用户角色行（casbin 启动加载与角色调整用）。
+type UserRoleRow struct {
+	Username string // 账号名（casbin 策略主体）
+	Role     string // 角色：admin / user
+}
+
+// AllRoles 查询全部用户角色（服务启动时全量加载到 casbin 内存策略）。
+func (r *UserRepo) AllRoles(ctx context.Context) ([]UserRoleRow, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT username, role FROM users WHERE role = 'admin'`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	roles := make([]UserRoleRow, 0)
+	for rows.Next() {
+		var row UserRoleRow
+		if err := rows.Scan(&row.Username, &row.Role); err != nil {
+			return nil, err
+		}
+		roles = append(roles, row)
+	}
+	return roles, rows.Err()
+}
+
+// SetRoleByID 按用户 ID 设置角色（admin / user）。
+func (r *UserRepo) SetRoleByID(ctx context.Context, id int64, role string) error {
+	_, err := r.pool.Exec(ctx,
+		`UPDATE users SET role = $2, updated_at = now() WHERE id = $1`, id, role)
 	return err
 }
 

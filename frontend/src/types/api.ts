@@ -17,6 +17,7 @@ export interface SiteMeta {
   site_name: string; // 站点名称
   site_description: string; // 站点描述
   default_theme: ThemeName; // 服务端默认主题
+  maintenance_mode: "on" | "off"; // 维护开关（M2：前端拦截判定）
 }
 
 // 分页数据结构（架构文档 11.4）
@@ -142,6 +143,27 @@ export interface PostSummary {
 export interface AdminPost extends PostSummary {
   status: string; // draft/published/taken_down/deleted
   updated_at: string; // 更新时间
+}
+
+// 后台编辑帖子详情（设计稿《后台编辑·文字/图片/音频/视频》四画板）
+// 与后端 dto 同步。
+export interface AdminPostDetail {
+  id: number; // 帖子 ID
+  title: string; // 标题
+  content: string; // 正文（文字帖/图说/说明）
+  content_type: PostContentType; // 内容类型
+  status: string; // draft/published/taken_down
+  visibility: "public" | "followers" | "private"; // 可见性
+  cover_url: string; // 封面图（视频帖独立封面）
+  tags: string[]; // 标签名（不带 #）
+  media: MediaDTO[]; // 媒体列表
+  view_count: number; // 浏览量（互动数据·览）
+  like_count: number; // 点赞数（互动数据·赞）
+  comment_count: number; // 评论数（互动数据·评）
+  author: AuthorDTO; // 作者（发布信息）
+  created_at: string; // 创建时间（发布信息·创建）
+  updated_at: string; // 更新时间（发布信息·更新）
+  published_at: string; // 发布时间（空串=未发布）
 }
 
 // 帖子详情（详情页）

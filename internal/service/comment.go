@@ -115,8 +115,9 @@ func (s *CommentService) Create(ctx context.Context, postID int64, viewerID int6
 		return 0, errs.New(errs.CodeBadRequest, "评论内容需为 1-500 字符")
 	}
 
-	// 敏感词拦截（M2：命中 forbidden 直接拒绝）
+	// 敏感词拦截（M2：命中 forbidden 直接拒绝；P1：命中计数）
 	if word := s.moderation.CheckForbidden(content); word != "" {
+		s.moderation.IncrHit(ctx, word)
 		return 0, errs.New(errs.CodeBadRequest, "评论包含敏感词「"+word+"」，请修改后发送")
 	}
 
@@ -168,8 +169,9 @@ func (s *CommentService) Reply(ctx context.Context, targetID int64, viewerID int
 		return 0, errs.New(errs.CodeBadRequest, "评论内容需为 1-500 字符")
 	}
 
-	// 敏感词拦截（M2：命中 forbidden 直接拒绝）
+	// 敏感词拦截（M2：命中 forbidden 直接拒绝；P1：命中计数）
 	if word := s.moderation.CheckForbidden(content); word != "" {
+		s.moderation.IncrHit(ctx, word)
 		return 0, errs.New(errs.CodeBadRequest, "评论包含敏感词「"+word+"」，请修改后发送")
 	}
 

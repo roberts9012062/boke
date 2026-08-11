@@ -6,6 +6,8 @@ package repository
 import (
 	"context"
 	"errors"
+	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -268,4 +270,133 @@ func (r *TagRepo) ListFollowingTopics(ctx context.Context, userID int64) ([]TagR
 		tags = append(tags, tag)
 	}
 	return tags, rows.Err()
+}
+
+// ---------- 后台标签分类（M2.9，设计稿《后台标签》） ----------
+
+// TagAdminRow 后台标签行（设计稿表格：标签/分类/文章/热度/更新/操作）。
+type TagAdminRow struct {
+	ID          int64     `json:"id"`          // 标签 ID
+	Name        string    `json:"name"`        // 标签名
+	Slug        string    `json:"slug"`        // URL 别名
+	Description string    `json:"description"` // 描述（设计稿次行「#slug · 描述」）
+	Category    string    `json:"category"`    // 分类（设计稿：情绪/栏目/体裁/临时，迁移 007）
+	PostCount   int64     `json:"post_count"`  // 文章数（引用计数）
+	CreatedAt   time.Time `json:"created_at"`  // 创建时间
+}
+
+// TagStats 标签统计条（设计稿：全部标签/热门/本周新建/未使用）。
+type TagStats struct {
+	Total   int64 `json:"total"`    // 全部标签
+	Hot     int64 `json:"hot"`      // 热门（帖数 ≥ 50，口径注释）
+	WeekNew int64 `json:"week_new"` // 本周新建（近 7 日）
+	Unused  int64 `json:"unused"`   // 未使用（post_count = 0）
+}
+
+// Stats 标签统计条（一次查询四项）。
+func (r *TagRepo) Stats(ctx context.Context) (*TagStats, error) {
+	var stats TagStats
+	err := r.pool.QueryRow(ctx, `
+		SELECT
+			count(*),
+			count(*) FILTER (WHERE post_count >= 50),
+			count(*) FILTER (WHERE created_at >= current_date - 7),
+			count(*) FILTER (WHERE post_count = 0)
+		FROM tags`).Scan(&stats.Total, &stats.Hot, &stats.WeekNew, &stats.Unused)
+	if err != nil {
+		return nil, err
+	}
+	return &stats, nil
+}
+
+// ListAdmin 后台标签列表（关键词 + 分页，按帖数降序）。
+func (r *TagRepo) ListAdmin(ctx context.Context, keyword string, page int, pageSize int) ([]TagAdminRow, int64, error) {
+	where := "WHERE 1=1"
+	args := make([]any, 0, 1)
+	if keyword != "" {
+		args = append(args, "%"+keyword+"%")
+		where = "WHERE name ILIKE $1"
+	}
+
+	var total int64
+	if err := r.pool.QueryRow(ctx,
+		`SELECT count(*) FROM tags `+where, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	args = append(args, pageSize, (page-1)*pageSize)
+	rows, err := r.pool.Query(ctx, `
+		SELECT id, name, slug, description, category, post_count, created_at FROM tags `+where+`
+		ORDER BY post_count DESC, id DESC
+		LIMIT $`+fmt.Sprintf("%d", len(args)-1)+` OFFSET $`+fmt.Sprintf("%d", len(args)),
+		args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	items := make([]TagAdminRow, 0)
+	for rows.Next() {
+		var row TagAdminRow
+		if err := rows.Scan(&row.ID, &row.Name, &row.Slug, &row.Description, &row.Category, &row.PostCount, &row.CreatedAt); err != nil {
+			return nil, 0, err
+		}
+		items = append(items, row)
+	}
+	return items, total, rows.Err()
+}
+
+// Rename 重命名标签（name + slug + category 同步更新）。
+// 参数：id 标签 ID；name 新名称；slug 新别名（URL 用）；category 分类（设计稿：情绪/栏目/体裁/临时）。
+func (r *TagRepo) Rename(ctx context.Context, id int64, name string, slug string, category string) error {
+	_, err := r.pool.Exec(ctx,
+		`UPDATE tags SET name = $2, slug = $3, category = $4 WHERE id = $1`, id, name, slug, category)
+	return err
+}
+
+// Merge 合并标签（src → dst 事务）：转移帖子关联（去重）→ 重算 dst 计数 → 删除 src。
+// 参数：srcID 被合并标签；dstID 目标标签。
+func (r *TagRepo) Merge(ctx context.Context, srcID int64, dstID int64) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// 转移关联（目标已关联同一帖则跳过）
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO post_tags (post_id, tag_id)
+		SELECT pt.post_id, $2 FROM post_tags pt
+		WHERE pt.tag_id = $1
+		ON CONFLICT DO NOTHING`, srcID, dstID); err != nil {
+		return err
+	}
+	// 重算 dst 计数（转移后全量统计，最简可靠）
+	if _, err := tx.Exec(ctx, `
+		UPDATE tags SET post_count = (SELECT count(*) FROM post_tags WHERE tag_id = $1)
+		WHERE id = $1`, dstID); err != nil {
+		return err
+	}
+	// 删除 src（关联已转移）
+	if _, err := tx.Exec(ctx, `DELETE FROM tags WHERE id = $1`, srcID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// Delete 删除标签（事务）：解除帖子关联 → 删除标签。
+func (r *TagRepo) Delete(ctx context.Context, id int64) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx, `DELETE FROM post_tags WHERE tag_id = $1`, id); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM tags WHERE id = $1`, id); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }

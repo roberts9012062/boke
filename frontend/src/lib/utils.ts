@@ -26,3 +26,32 @@ export function excerpt(text: string, max: number): string {
   }
   return runes.slice(0, max).join("") + "…";
 }
+
+// formatDateTime 格式化日期时间为「YYYY-MM-DD HH:mm」（后台发布信息面板，设计稿格式）。
+// 参数：iso 时间字符串；解析失败时原样返回（避免页面崩溃）。
+export function formatDateTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) {
+    return iso;
+  }
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+// formatCompact 数字缩写（设计稿互动数据：128 赞 / 24 评 / 1.2k 览）。
+// 参数：n 数值；≥1000 缩写为 x.xk（去掉末尾 .0），其余原样。
+export function formatCompact(n: number): string {
+  if (n >= 1000) {
+    return (n / 1000).toFixed(1).replace(/\.0$/, "") + "k";
+  }
+  return String(n);
+}
+
+// formatDuration 秒数格式化为可读时长（设计稿审核队列「平均耗时 4m」）。
+// 参数：seconds 秒数；<60s → Ns；<3600s → Nm；<86400s → Nh；其余 → Nd。
+export function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${Math.max(0, Math.round(seconds))}s`;
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
+  if (seconds < 86400) return `${Math.round(seconds / 3600)}h`;
+  return `${Math.round(seconds / 86400)}d`;
+}

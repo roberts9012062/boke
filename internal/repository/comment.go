@@ -98,6 +98,13 @@ func (r *CommentRepo) SoftDelete(ctx context.Context, id int64) error {
 	return err
 }
 
+// SetStatus 变更评论状态（M2：visible 可见 / hidden 隐藏，前台列表仅查 visible）。
+func (r *CommentRepo) SetStatus(ctx context.Context, id int64, status string) error {
+	_, err := r.pool.Exec(ctx,
+		`UPDATE comments SET status = $2, updated_at = now() WHERE id = $1`, id, status)
+	return err
+}
+
 // IncrLike 评论点赞数 +1（事务内与 comment_likes 同步）。
 func (r *CommentRepo) IncrLike(ctx context.Context, id int64) error {
 	_, err := r.pool.Exec(ctx,

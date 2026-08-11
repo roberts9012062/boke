@@ -27,14 +27,15 @@ const (
 
 // Report 举报工单实体（reports 表）。
 type Report struct {
-	ID         int64     // 工单 ID
-	ReporterID int64     // 举报人
-	TargetType string    // 对象类型：post / comment / user
-	TargetID   int64     // 对象 ID
-	Reason     string    // 举报原因（预置选项）
-	Detail     string    // 补充说明
-	Status     string    // 状态：pending / processing / resolved / rejected
-	CreatedAt  time.Time // 提交时间
+	ID         int64      // 工单 ID
+	ReporterID int64      // 举报人
+	TargetType string     // 对象类型：post / comment / user
+	TargetID   int64      // 对象 ID
+	Reason     string     // 举报原因（预置选项）
+	Detail     string     // 补充说明
+	Status     string     // 状态：pending / processing / resolved / rejected
+	CreatedAt  time.Time  // 提交时间
+	ResolvedAt *time.Time // 处理时间（resolved/rejected 时写入，P1 审核耗时统计）
 }
 
 // SensitiveWord 敏感词实体（sensitive_words 表）。
@@ -42,6 +43,7 @@ type SensitiveWord struct {
 	ID        int64     // 词 ID
 	Word      string    // 词内容
 	Level     string    // 级别：forbidden / review
+	HitCount  int64     // 命中次数（P1 敏感词命中统计，拦截时 +1）
 	CreatedAt time.Time // 添加时间
 }
 
@@ -92,7 +94,7 @@ func (r *ReportRepo) List(ctx context.Context, status string, page int, pageSize
 
 	args = append(args, pageSize, (page-1)*pageSize)
 	rows, err := r.pool.Query(ctx, `
-		SELECT id, reporter_id, target_type, target_id, reason, detail, status, created_at
+		SELECT id, reporter_id, target_type, target_id, reason, detail, status, created_at, resolved_at
 		FROM reports `+where+`
 		ORDER BY created_at DESC
 		LIMIT $`+strconv.Itoa(len(args)-1)+` OFFSET $`+strconv.Itoa(len(args)),
@@ -105,7 +107,7 @@ func (r *ReportRepo) List(ctx context.Context, status string, page int, pageSize
 	items := make([]Report, 0)
 	for rows.Next() {
 		var rep Report
-		if err := rows.Scan(&rep.ID, &rep.ReporterID, &rep.TargetType, &rep.TargetID, &rep.Reason, &rep.Detail, &rep.Status, &rep.CreatedAt); err != nil {
+		if err := rows.Scan(&rep.ID, &rep.ReporterID, &rep.TargetType, &rep.TargetID, &rep.Reason, &rep.Detail, &rep.Status, &rep.CreatedAt, &rep.ResolvedAt); err != nil {
 			return nil, 0, err
 		}
 		items = append(items, rep)
@@ -114,10 +116,28 @@ func (r *ReportRepo) List(ctx context.Context, status string, page int, pageSize
 }
 
 // SetStatus 更新工单状态（处理中/已解决/已驳回）。
+// 说明（P1 审核耗时）：resolved/rejected 视为处理完成，写入 resolved_at（可重复更新取首次）。
+// 注意：status 用 $2/$3 两个独立参数各出现一次（同一参数多上下文类型推断冲突 SQLSTATE 42P08）。
 func (r *ReportRepo) SetStatus(ctx context.Context, reportID int64, status string) error {
-	_, err := r.pool.Exec(ctx,
-		`UPDATE reports SET status = $2 WHERE id = $1`, reportID, status)
+	_, err := r.pool.Exec(ctx, `
+		UPDATE reports SET status = $2,
+			resolved_at = CASE WHEN $3::text IN ('resolved', 'rejected') THEN COALESCE(resolved_at, now()) ELSE resolved_at END
+		WHERE id = $1`, reportID, status, status)
 	return err
+}
+
+// AvgResolveCost 平均处理耗时（已处理工单，秒）。
+// 说明：resolved_at - created_at 的平均值；无已处理工单返回 0。
+func (r *ReportRepo) AvgResolveCost(ctx context.Context) (int64, error) {
+	var seconds *int64
+	err := r.pool.QueryRow(ctx, `
+		SELECT avg(extract(epoch FROM (resolved_at - created_at)))::bigint
+		FROM reports
+		WHERE status IN ('resolved', 'rejected') AND resolved_at IS NOT NULL`).Scan(&seconds)
+	if err != nil || seconds == nil {
+		return 0, err
+	}
+	return *seconds, nil
 }
 
 // CountPending 待处理工单数（后台角标）。
@@ -181,7 +201,7 @@ func (r *SensitiveRepo) List(ctx context.Context, keyword string, page int, page
 
 	args = append(args, pageSize, (page-1)*pageSize)
 	rows, err := r.pool.Query(ctx, `
-		SELECT id, word, level, created_at FROM sensitive_words `+where+`
+		SELECT id, word, level, hit_count, created_at FROM sensitive_words `+where+`
 		ORDER BY created_at DESC
 		LIMIT $`+strconv.Itoa(len(args)-1)+` OFFSET $`+strconv.Itoa(len(args)),
 		args...)
@@ -193,12 +213,19 @@ func (r *SensitiveRepo) List(ctx context.Context, keyword string, page int, page
 	items := make([]SensitiveWord, 0)
 	for rows.Next() {
 		var w SensitiveWord
-		if err := rows.Scan(&w.ID, &w.Word, &w.Level, &w.CreatedAt); err != nil {
+		if err := rows.Scan(&w.ID, &w.Word, &w.Level, &w.HitCount, &w.CreatedAt); err != nil {
 			return nil, 0, err
 		}
 		items = append(items, w)
 	}
 	return items, total, rows.Err()
+}
+
+// IncrHit 敏感词命中 +1（P1 命中统计：发帖/评论拦截命中时调用）。
+func (r *SensitiveRepo) IncrHit(ctx context.Context, word string) error {
+	_, err := r.pool.Exec(ctx,
+		`UPDATE sensitive_words SET hit_count = hit_count + 1 WHERE word = $1`, word)
+	return err
 }
 
 // AllForbidden 全部 forbidden 词（内存匹配用，启动时加载）。

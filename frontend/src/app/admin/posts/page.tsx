@@ -157,6 +157,10 @@ export default function AdminPosts() {
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex gap-2 text-xs">
+                    {/* 编辑（M2：后台编辑表单，设计稿《后台编辑》四画板） */}
+                    <Link href={`/admin/posts/${post.id}/edit`} className="text-glow hover:underline">
+                      编辑
+                    </Link>
                     <button
                       type="button"
                       onClick={() => void toggleStatus(post)}

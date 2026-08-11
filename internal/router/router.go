@@ -29,6 +29,7 @@ type Handlers struct {
 	Site     *handler.SiteHandler     // 站点信息控制器（M1.7：meta 从 settings 读取）
 	Message  *handler.MessageHandler  // 私信控制器（M2）
 	Moderation *handler.ModerationHandler // 内容治理控制器（M2 举报/敏感词/封禁）
+	Plugin   *handler.PluginHandler   // 插件控制器（M3.1 商城/管理）
 }
 
 // Register 注册全部路由并返回 Gin 引擎。
@@ -53,6 +54,8 @@ func Register(cfg config.Config, logger *zap.Logger, handlers Handlers, jwtMgr *
 
 	// ---------- API v1 路由组 ----------
 	api := engine.Group("/api/v1")
+	// 全站维护中间件（M2）：维护开关开启时拦截前台 API，放行后台/认证/meta
+	api.Use(middleware.Maintenance(handlers.Site.MaintenanceMode))
 	registerV1(api, handlers, jwtMgr)
 
 	return engine
@@ -73,6 +76,7 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager) {
 	authed.Use(middleware.RequireAuth(jwtMgr))
 	authed.POST("/auth/logout", handlers.Auth.Logout) // 登出（撤销 refresh）
 	authed.GET("/me", handlers.Auth.Me)               // 当前用户资料
+	authed.PUT("/me/password", handlers.Auth.ChangePassword) // 修改密码（账号安全页）
 
 	// ---------- 用户模块（M1.2 基础） ----------
 	api.GET("/users/:id", handlers.User.GetUser) // 用户公开资料
@@ -158,14 +162,29 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager) {
 	adminGroup.GET("/dashboard", handlers.Admin.Dashboard)
 	// 内容管理
 	adminGroup.GET("/posts", handlers.Admin.ListPosts)
+	adminGroup.GET("/posts/:id", handlers.Admin.GetPost)      // 后台编辑详情（M2）
+	adminGroup.PUT("/posts/:id", handlers.Admin.UpdatePost)   // 后台编辑保存（M2）
 	adminGroup.PUT("/posts/:id/status", handlers.Admin.SetPostStatus)
 	adminGroup.DELETE("/posts/:id", handlers.Admin.DeletePost)
 	// 评论管理
 	adminGroup.GET("/comments", handlers.Admin.ListComments)
+	adminGroup.GET("/comments/stats", handlers.Admin.CommentStats) // 统计条（M2）
+	adminGroup.PUT("/comments/:id/status", handlers.Admin.SetCommentStatus) // 隐藏/恢复（M2）
 	adminGroup.DELETE("/comments/:id", handlers.Admin.DeleteComment)
 	// 用户管理
 	adminGroup.GET("/users", handlers.Admin.ListUsers)
 	adminGroup.PUT("/users/:id/status", handlers.Admin.SetUserStatus)
+	adminGroup.PUT("/users/:id/role", handlers.Admin.SetUserRole) // 角色调整（M2）
+	// 媒体库（M2.9）
+	adminGroup.GET("/media", handlers.Admin.ListMedia)
+	adminGroup.GET("/media/stats", handlers.Admin.MediaStats)
+	adminGroup.DELETE("/media/:id", handlers.Admin.DeleteMedia)
+	// 标签分类（M2.9）
+	adminGroup.GET("/tags", handlers.Admin.ListTags)
+	adminGroup.GET("/tags/stats", handlers.Admin.TagStats)
+	adminGroup.PUT("/tags/:id", handlers.Admin.RenameTag)
+	adminGroup.POST("/tags/:id/merge", handlers.Admin.MergeTag)
+	adminGroup.DELETE("/tags/:id", handlers.Admin.DeleteTag)
 	// 站点设置
 	adminGroup.GET("/settings", handlers.Admin.GetSettings)
 	adminGroup.PUT("/settings", handlers.Admin.SaveSettings)
@@ -176,7 +195,14 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager) {
 	adminGroup.GET("/sensitive-words/stats", handlers.Moderation.SensitiveStats)
 	adminGroup.GET("/sensitive-words", handlers.Moderation.ListSensitiveWords)
 	adminGroup.POST("/sensitive-words", handlers.Moderation.AddSensitiveWord)
+	adminGroup.POST("/sensitive-words/batch", handlers.Moderation.AddSensitiveWords) // 设置页逗号分隔批量（M2 设计稿纠偏）
 	adminGroup.DELETE("/sensitive-words/:word", handlers.Moderation.DeleteSensitiveWord)
 	adminGroup.GET("/bans", handlers.Moderation.ListBans)
 	adminGroup.GET("/users/stats", handlers.Admin.UserStats)
+	// 插件（M3.1：GitHub 仓库清单驱动商城 + 安装管理）
+	adminGroup.GET("/plugins/market", handlers.Plugin.Market)     // 商城清单（?source= 自定义仓库）
+	adminGroup.GET("/plugins", handlers.Plugin.ListInstalled)     // 我的插件
+	adminGroup.POST("/plugins/install", handlers.Plugin.Install)  // 安装 {plugin_id}
+	adminGroup.PUT("/plugins/:id/state", handlers.Plugin.SetState) // 启用/禁用
+	adminGroup.DELETE("/plugins/:id", handlers.Plugin.Uninstall)   // 卸载
 }

@@ -10,6 +10,7 @@
 import type {
   AdminComment,
   AdminPost,
+  AdminPostDetail,
   ApiResponse,
   AuthTokens,
   CommentDTO,
@@ -38,6 +39,9 @@ export class ApiError extends Error {
     this.code = code;
   }
 }
+
+// 维护中错误码（后端 errs.CodeMaintenance=6004，M2 全站维护开关）。
+const MAINTENANCE_CODE = 6004;
 
 // ---------- 凭证存取（由 AuthProvider 注入实现） ----------
 
@@ -92,6 +96,17 @@ async function request<T>(path: string, options: RequestInit = {}, retried = fal
   // 成功：返回业务数据
   if (body.code === 0) {
     return body.data;
+  }
+
+  // 维护中（M2）：跳转维护页（避免在维护页内再次跳转造成循环；
+  // 后台页面不跳转——维护期间后台保持可用，仅前端页面重定向）
+  if (
+    body.code === MAINTENANCE_CODE &&
+    typeof window !== "undefined" &&
+    !window.location.pathname.startsWith("/maintenance") &&
+    !window.location.pathname.startsWith("/admin")
+  ) {
+    window.location.href = "/maintenance";
   }
 
   // 失败：抛出 ApiError（携带错误码与后端提示文案）
@@ -161,6 +176,11 @@ export function apiResetPassword(token: string, newPassword: string): Promise<vo
 // 当前用户资料。
 export function apiMe(): Promise<UserProfile> {
   return get<UserProfile>("/me");
+}
+
+// 修改密码（账号安全页：校验当前密码 → 更新，其他设备旧会话失效）。
+export function apiChangePassword(currentPassword: string, newPassword: string): Promise<void> {
+  return put<void>("/me/password", { current_password: currentPassword, new_password: newPassword });
 }
 
 // ---------- 帖子方法（M1.3） ----------
@@ -440,6 +460,27 @@ export function apiAdminDeletePost(postId: number): Promise<void> {
   return del<void>(`/admin/posts/${postId}`);
 }
 
+// 后台编辑详情（设计稿《后台编辑》四画板：编辑/发布信息/互动数据/操作）。
+export function apiAdminPostDetail(postId: number): Promise<AdminPostDetail> {
+  return get<AdminPostDetail>(`/admin/posts/${postId}`);
+}
+
+// 后台编辑保存（M2：status draft=保存草稿 / published=更新发布；cover_url 视频帖换封面）。
+export function apiAdminUpdatePost(
+  postId: number,
+  req: {
+    title: string;
+    content: string;
+    tags: string[];
+    media_ids: number[];
+    visibility: string;
+    cover_url?: string;
+    status: "draft" | "published";
+  },
+): Promise<{ id: number }> {
+  return put<{ id: number }>(`/admin/posts/${postId}`, req);
+}
+
 // 评论管理列表。
 export function apiAdminComments(params: { status?: string; q?: string; page?: number }): Promise<PageResult<AdminComment>> {
   const query = new URLSearchParams();
@@ -447,6 +488,16 @@ export function apiAdminComments(params: { status?: string; q?: string; page?: n
   if (params.q) query.set("q", params.q);
   query.set("page", String(params.page ?? 1));
   return get<PageResult<AdminComment>>(`/admin/comments?${query.toString()}`);
+}
+
+// 评论统计（设计稿后台评论统计条：全部/今日新增/已屏蔽）。
+export function apiAdminCommentStats(): Promise<{ total: number; today: number; hidden: number }> {
+  return get<{ total: number; today: number; hidden: number }>("/admin/comments/stats");
+}
+
+// 评论隐藏/恢复（M2：visible ↔ hidden，前台列表仅展示 visible）。
+export function apiAdminSetCommentStatus(commentId: number, status: string): Promise<void> {
+  return put<void>(`/admin/comments/${commentId}/status`, { status });
 }
 
 // 评论删除。
@@ -467,12 +518,158 @@ export function apiAdminSetUserStatus(userId: number, status: string, reason?: s
   return put<void>("/admin/users/" + userId + "/status", { status, reason, until });
 }
 
+// 角色调整（M2：admin ↔ user；落库 + casbin 即时生效，需该用户重新登录）。
+export function apiAdminSetUserRole(userId: number, role: string): Promise<void> {
+  return put<void>(`/admin/users/${userId}/role`, { role });
+}
+
 // 站点设置读取/保存。
 export function apiAdminSettings(): Promise<Record<string, string>> {
   return get<Record<string, string>>("/admin/settings");
 }
 export function apiAdminSaveSettings(updates: Record<string, string>): Promise<void> {
   return put<void>("/admin/settings", updates);
+}
+
+// ---------- 媒体库 / 标签分类（M2.9） ----------
+
+// 后台媒体行（设计稿：文件/类型/大小/引用/上传/操作）。
+export interface AdminMediaItem {
+  id: number; // 媒体 ID
+  type: string; // image/audio/video
+  url: string; // 访问地址
+  mime_type: string; // MIME
+  size_bytes: number; // 大小
+  width: number; // 宽
+  height: number; // 高
+  file_name: string; // 文件名
+  ref_count: number; // 引用数
+  created_at: string; // 上传时间
+}
+
+// 媒体统计条（设计稿：全部文件/图片/音频/视频）。
+export function apiAdminMediaStats(): Promise<{ total: number; image: number; audio: number; video: number }> {
+  return get<{ total: number; image: number; audio: number; video: number }>("/admin/media/stats");
+}
+
+// 媒体列表（type/q 筛选）。
+export function apiAdminMedia(params: { type?: string; q?: string; page?: number }): Promise<PageResult<AdminMediaItem>> {
+  const query = new URLSearchParams();
+  if (params.type) query.set("type", params.type);
+  if (params.q) query.set("q", params.q);
+  query.set("page", String(params.page ?? 1));
+  return get<PageResult<AdminMediaItem>>(`/admin/media?${query.toString()}`);
+}
+
+// 删除媒体（解除帖子引用 + 删记录 + 删磁盘文件）。
+export function apiAdminDeleteMedia(mediaId: number): Promise<void> {
+  return del<void>(`/admin/media/${mediaId}`);
+}
+
+// 后台标签行（设计稿：标签/分类/文章/热度/更新/操作）。
+export interface AdminTagItem {
+  id: number; // 标签 ID
+  name: string; // 标签名
+  slug: string; // URL 别名
+  description: string; // 描述
+  category: string; // 分类（情绪/栏目/体裁/临时）
+  post_count: number; // 文章数
+  created_at: string; // 创建时间
+}
+
+// 标签统计条（设计稿：全部/热门/本周新建/未使用）。
+export function apiAdminTagStats(): Promise<{ total: number; hot: number; week_new: number; unused: number }> {
+  return get<{ total: number; hot: number; week_new: number; unused: number }>("/admin/tags/stats");
+}
+
+// 标签列表（q 搜索）。
+export function apiAdminTags(params: { q?: string; page?: number }): Promise<PageResult<AdminTagItem>> {
+  const query = new URLSearchParams();
+  if (params.q) query.set("q", params.q);
+  query.set("page", String(params.page ?? 1));
+  return get<PageResult<AdminTagItem>>(`/admin/tags?${query.toString()}`);
+}
+
+// 重命名标签（name + slug + category 同步）。
+export function apiAdminRenameTag(tagId: number, name: string, slug: string, category: string): Promise<void> {
+  return put<void>(`/admin/tags/${tagId}`, { name, slug, category });
+}
+
+// 合并标签（src → target，src 删除、帖子关联转移）。
+export function apiAdminMergeTag(tagId: number, targetId: number): Promise<void> {
+  return post<void>(`/admin/tags/${tagId}/merge`, { target_id: targetId });
+}
+
+// 删除标签（解除帖子关联）。
+export function apiAdminDeleteTag(tagId: number): Promise<void> {
+  return del<void>(`/admin/tags/${tagId}`);
+}
+
+// ---------- 插件商城/管理（M3.1，GitHub 仓库清单驱动） ----------
+
+// 插件信息（清单项，与后端 dto 同步）。
+export interface PluginInfo {
+  id: string; // 插件 ID
+  name: string; // 名称
+  version: string; // 版本
+  category: string; // 类别：seo/security/performance/analytics/writing/ops/enhancement
+  price: number; // 价格（0=免费）
+  installs: number; // 安装量
+  official: boolean; // 官方标签
+  description: string; // 描述
+  capabilities: string[]; // 能力清单
+  repo_url: string; // 来源仓库
+}
+
+// 商城插件（清单 + 已安装状态）。
+export interface MarketPlugin extends PluginInfo {
+  installed: boolean; // 是否已安装
+  state: string; // 已安装状态
+  instance_id: number; // 实例 ID
+}
+
+// 已安装插件（我的插件页）。
+export interface InstalledPlugin {
+  id: number; // 实例 ID
+  plugin_id: string; // 插件 ID
+  name: string; // 名称
+  version: string; // 版本
+  repo_url: string; // 来源
+  state: string; // running/disabled/installed
+  created_at: string; // 安装时间
+}
+
+// 插件商城清单（source 为空 = settings 默认源；返回清单 + 插件列表）。
+export function apiPluginMarket(source = ""): Promise<{
+  source: string;
+  name: string;
+  description: string;
+  items: MarketPlugin[];
+}> {
+  const query = source ? `?source=${encodeURIComponent(source)}` : "";
+  return get<{ source: string; name: string; description: string; items: MarketPlugin[] }>(
+    `/admin/plugins/market${query}`,
+  );
+}
+
+// 我的插件列表。
+export function apiInstalledPlugins(): Promise<{ items: InstalledPlugin[] }> {
+  return get<{ items: InstalledPlugin[] }>("/admin/plugins");
+}
+
+// 安装插件（从清单拉取信息落库）。
+export function apiInstallPlugin(pluginId: string): Promise<void> {
+  return post<void>("/admin/plugins/install", { plugin_id: pluginId });
+}
+
+// 启用/禁用插件（running / disabled）。
+export function apiSetPluginState(instanceId: number, state: string): Promise<void> {
+  return put<void>(`/admin/plugins/${instanceId}/state`, { state });
+}
+
+// 卸载插件。
+export function apiUninstallPlugin(instanceId: number): Promise<void> {
+  return del<void>(`/admin/plugins/${instanceId}`);
 }
 
 // ---------- 私信/消息（M2） ----------
@@ -526,11 +723,18 @@ export interface ReportDTO {
   detail: string; // 补充说明
   status: string; // pending/resolved/rejected
   created_at: string; // 提交时间
+  cost_seconds?: number; // 处理耗时（秒，已处理工单；P1 审核耗时）
 }
 
-// 审核队列统计（设计稿统计条：待处理/今日已审）。
-export function apiAdminReportStats(): Promise<{ pending: number; resolved_today: number }> {
-  return get<{ pending: number; resolved_today: number }>("/admin/reports/stats");
+// 审核队列统计（设计稿统计条：待处理/今日已审/平均耗时）。
+export function apiAdminReportStats(): Promise<{
+  pending: number;
+  resolved_today: number;
+  avg_cost_seconds: number;
+}> {
+  return get<{ pending: number; resolved_today: number; avg_cost_seconds: number }>(
+    "/admin/reports/stats",
+  );
 }
 
 // 后台工单列表。
@@ -551,6 +755,7 @@ export interface SensitiveWordDTO {
   id: number; // 词 ID
   word: string; // 词内容
   level: string; // forbidden/review
+  hit_count: number; // 命中次数（P1 命中统计）
   created_at: string; // 添加时间
 }
 
@@ -570,6 +775,13 @@ export function apiAdminAddSensitiveWord(word: string, level: string): Promise<v
   return post<void>("/admin/sensitive-words", { word, level });
 }
 
+// 批量添加敏感词（后台站点设置「敏感词（逗号分隔）」入口，forbidden 级别）。
+export function apiAdminAddSensitiveWords(
+  words: string[],
+): Promise<{ added: number; skipped: number }> {
+  return post<{ added: number; skipped: number }>("/admin/sensitive-words/batch", { words });
+}
+
 export function apiAdminDeleteSensitiveWord(word: string): Promise<void> {
   return del<void>(`/admin/sensitive-words/${encodeURIComponent(word)}`);
 }
@@ -585,9 +797,16 @@ export interface BanRecordDTO {
   created_at: string; // 封禁时间
 }
 
-// 用户统计（封禁管理统计条：全部用户/已禁言）。
-export function apiAdminUserStats(): Promise<{ total: number; banned: number }> {
-  return get<{ total: number; banned: number }>("/admin/users/stats");
+// 用户统计（设计稿《后台用户》统计条：全部/本周新增/活跃/已禁言）。
+export function apiAdminUserStats(): Promise<{
+  total: number;
+  week_new: number;
+  active: number;
+  banned: number;
+}> {
+  return get<{ total: number; week_new: number; active: number; banned: number }>(
+    "/admin/users/stats",
+  );
 }
 
 export function apiAdminBans(params: { page?: number }): Promise<PageResult<BanRecordDTO>> {

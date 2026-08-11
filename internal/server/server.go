@@ -25,6 +25,7 @@ import (
 	"github.com/roberts9012062/boke/internal/auth"
 	"github.com/roberts9012062/boke/internal/casbin"
 	"github.com/roberts9012062/boke/internal/config"
+	"github.com/roberts9012062/boke/internal/ghclient"
 	"github.com/roberts9012062/boke/internal/handler"
 	"github.com/roberts9012062/boke/internal/mail"
 	"github.com/roberts9012062/boke/internal/media"
@@ -121,6 +122,9 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 		return router.Handlers{}, nil, nil, err
 	}
 
+	// ---------- GitHub 客户端（M3.1 插件商城清单源） ----------
+	ghClient := ghclient.NewClient(cfg.GitHubToken)
+
 	// ---------- 数据访问层 ----------
 	userRepo := repository.NewUserRepo(conn)
 	auditRepo := repository.NewAuditRepo(conn)
@@ -134,13 +138,14 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 	adminRepo := repository.NewAdminRepo(conn)
 	settingRepo := repository.NewSettingRepo(conn)
 	messageRepo := repository.NewMessageRepo(conn) // 私信会话/消息（M2）
+	pluginRepo := repository.NewPluginRepo(conn)    // 插件实例（M3.1）
 	reportRepo := repository.NewReportRepo(conn)      // 举报工单（M2 内容治理）
 	sensitiveRepo := repository.NewSensitiveRepo(conn) // 敏感词（M2）
 	banRepo := repository.NewBanRepo(conn)             // 封禁记录（M2）
 
 	// ---------- 业务层 ----------
 	limiter := redis.NewRateLimiter(redisClient)
-	guestMgr := auth.NewGuestManager() // 匿名身份管理器（内存）
+	guestMgr := auth.NewGuestManager(redisClient) // 匿名身份管理器（M2：Redis 优先 + 内存兜底）
 	resetMgr := auth.NewResetManager()                 // 密码重置令牌（M2）
 	mailer := mail.NewSender(cfg.Mail, logger)         // 邮件发送（M2；未配置降级日志）
 	authSvc := service.NewAuthService(userRepo, auditRepo, jwtMgr, enforcer, limiter, resetMgr, mailer, cfg.SiteBaseURL)
@@ -155,9 +160,15 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 	followSvc := service.NewFollowService(relationRepo, userRepo, postRepo, postSvc, notifySvc)
 	topicSvc := service.NewTopicService(tagRepo, postRepo, postSvc)
 	searchSvc := service.NewSearchService(postRepo, tagRepo, userRepo, postSvc)
-	adminSvc := service.NewAdminService(adminRepo, postRepo, commentRepo, settingRepo, enforcer, banRepo)
+	adminSvc := service.NewAdminService(adminRepo, postRepo, commentRepo, settingRepo, enforcer, banRepo, userRepo, postSvc, mediaRepo, tagRepo, mediaStore)
 	siteSvc := service.NewSiteService(settingRepo) // 站点信息（meta 从 settings 实时读取，M1.7）
 	messageSvc := service.NewMessageService(messageRepo, userRepo, notifySvc) // 私信（M2）
+	pluginSvc := service.NewPluginService(ghClient, pluginRepo, settingRepo)  // 插件（M3.1）
+
+	// ---------- 角色策略全量加载（M2：users.role 落库 → casbin 内存策略） ----------
+	if err := syncRoles(ctx, enforcer, userRepo, logger); err != nil {
+		logger.Warn("角色策略加载失败，使用兜底策略（仅 admin 账号）", zap.Error(err))
+	}
 
 	// ---------- 控制器层 ----------
 	handlers := router.Handlers{
@@ -172,8 +183,27 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 		Site:   handler.NewSiteHandler(siteSvc),
 		Message: handler.NewMessageHandler(messageSvc, logger),
 		Moderation: handler.NewModerationHandler(moderationSvc, logger),
+		Plugin:     handler.NewPluginHandler(pluginSvc),
 	}
 	return handlers, jwtMgr, cleanup, nil
+}
+
+// syncRoles 从数据库全量加载角色到 casbin（M2 角色调整：users.role 为唯一数据源）。
+// 参数：enforcer 权限执行器；users 用户仓库；logger 日志器（加载失败仅告警，不阻断启动）。
+func syncRoles(ctx context.Context, enforcer *casbin.Enforcer, users *repository.UserRepo, logger *zap.Logger) error {
+	rows, err := users.AllRoles(ctx)
+	if err != nil {
+		return err
+	}
+	roles := make([]casbin.UserRole, 0, len(rows))
+	for _, row := range rows {
+		roles = append(roles, casbin.UserRole{Username: row.Username, Role: row.Role})
+	}
+	if err := enforcer.SyncRoles(roles); err != nil {
+		return err
+	}
+	logger.Info("角色策略已从数据库加载", zap.Int("admin_count", len(roles)))
+	return nil
 }
 
 // Run 构建并启动 HTTP 服务，阻塞直至收到退出信号或发生致命错误。

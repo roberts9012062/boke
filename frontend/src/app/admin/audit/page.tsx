@@ -13,6 +13,7 @@ import {
   apiAdminSetReportStatus,
   type ReportDTO,
 } from "@/lib/api";
+import { formatDuration } from "@/lib/utils";
 
 // 状态文案（附录 B 状态字典）
 const STATUS_LABEL: Record<string, string> = {
@@ -33,7 +34,7 @@ const TYPE_LABEL: Record<string, string> = {
 export default function AuditPage() {
   const [items, setItems] = useState<ReportDTO[]>([]);
   const [total, setTotal] = useState<number>(0);
-  const [stats, setStats] = useState<{ pending: number; resolved_today: number } | null>(null);
+  const [stats, setStats] = useState<{ pending: number; resolved_today: number; avg_cost_seconds: number } | null>(null);
   const [filter, setFilter] = useState<string>(""); // 空=全部；pending/resolved/rejected
   const [loaded, setLoaded] = useState<boolean>(false);
 
@@ -81,13 +82,14 @@ export default function AuditPage() {
       </div>
 
       {/* 统计条（设计稿：待处理 18 / 高风险 3 / 今日已审 47 / 平均耗时 4m；
-          MVP 实现待处理/今日已审/工单总数；高风险需 AI 判定（M4），平均耗时需处理时长记录（后置）） */}
+          MVP 实现待处理/今日已审/工单总数/平均耗时（P1 处理时长埋点）；
+          高风险需 AI 判定（M4）） */}
       <div className="mt-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
         {[
           { label: "待处理", value: stats?.pending ?? 0 },
           { label: "今日已审", value: stats?.resolved_today ?? 0 },
           { label: "工单总数", value: total },
-          { label: "本页已解决", value: items.filter((x) => x.status === "resolved").length },
+          { label: "平均耗时", value: formatDuration(stats?.avg_cost_seconds ?? 0) },
         ].map((s) => (
           <div key={s.label} className="rounded-lg border border-line bg-elevated p-4">
             <p className="text-xs text-ink-3">{s.label}</p>

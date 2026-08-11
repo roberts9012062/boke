@@ -53,6 +53,7 @@ type ReportDTO struct {
 	Detail       string `json:"detail"`        // 补充说明
 	Status       string `json:"status"`        // 状态
 	CreatedAt    string `json:"created_at"`    // 提交时间
+	CostSeconds  *int64 `json:"cost_seconds"`  // 处理耗时（秒，已处理工单；P1 审核耗时）
 }
 
 // SubmitReport 提交举报（校验对象存在性与原因选项）。
@@ -104,10 +105,11 @@ func (s *ModerationService) SetReportStatus(ctx context.Context, reportID int64,
 	return s.reports.SetStatus(ctx, reportID, status)
 }
 
-// ReportStats 工单统计（设计稿审核队列统计条：待处理/今日已审）。
+// ReportStats 工单统计（设计稿审核队列统计条：待处理/今日已审/工单总数）。
 type ReportStats struct {
 	Pending       int64 `json:"pending"`         // 待处理（全量）
 	ResolvedToday int64 `json:"resolved_today"`  // 今日已审
+	AvgCostSeconds int64 `json:"avg_cost_seconds"` // 平均处理耗时（秒，P1 审核耗时埋点）
 }
 
 // ReportStats 审核队列统计。
@@ -120,7 +122,11 @@ func (s *ModerationService) ReportStats(ctx context.Context) (*ReportStats, erro
 	if err != nil {
 		return nil, err
 	}
-	return &ReportStats{Pending: pending, ResolvedToday: resolvedToday}, nil
+	avgCost, err := s.reports.AvgResolveCost(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &ReportStats{Pending: pending, ResolvedToday: resolvedToday, AvgCostSeconds: avgCost}, nil
 }
 
 // SensitiveStats 敏感词统计（设计稿统计条：全部/拦截/审核）。
@@ -146,6 +152,7 @@ type SensitiveWordDTO struct {
 	ID        int64  `json:"id"`         // 词 ID
 	Word      string `json:"word"`       // 词内容
 	Level     string `json:"level"`      // forbidden / review
+	HitCount  int64  `json:"hit_count"`  // 命中次数（P1 命中统计）
 	CreatedAt string `json:"created_at"` // 添加时间
 }
 
@@ -157,9 +164,15 @@ func (s *ModerationService) ListSensitiveWords(ctx context.Context, keyword stri
 	}
 	items := make([]SensitiveWordDTO, 0, len(words))
 	for _, w := range words {
-		items = append(items, SensitiveWordDTO{ID: w.ID, Word: w.Word, Level: w.Level, CreatedAt: w.CreatedAt.Format(time.RFC3339)})
+		items = append(items, SensitiveWordDTO{ID: w.ID, Word: w.Word, Level: w.Level, HitCount: w.HitCount, CreatedAt: w.CreatedAt.Format(time.RFC3339)})
 	}
 	return items, total, nil
+}
+
+// IncrHit 敏感词命中 +1（P1 命中统计；发帖/评论拦截命中时由调用方触发）。
+// 说明：失败静默（命中统计是观测数据，不影响拦截主流程）。
+func (s *ModerationService) IncrHit(ctx context.Context, word string) {
+	_ = s.sensitive.IncrHit(ctx, word)
 }
 
 // AddSensitiveWord 添加敏感词（forbidden/review 两级）。
@@ -184,6 +197,35 @@ func (s *ModerationService) AddSensitiveWord(ctx context.Context, word string, l
 // DeleteSensitiveWord 删除敏感词。
 func (s *ModerationService) DeleteSensitiveWord(ctx context.Context, word string) error {
 	return s.sensitive.Delete(ctx, word)
+}
+
+// AddWords 批量添加敏感词（后台站点设置「敏感词（逗号分隔）」入口，forbidden 级别）。
+// 参数：words 原始列表（自动去空格/去空项；已存在的跳过不报错）。
+// 返回：成功添加数与跳过数（重复/空项）。
+func (s *ModerationService) AddWords(ctx context.Context, words []string) (added int, skipped int, err error) {
+	for _, raw := range words {
+		word := strings.TrimSpace(raw)
+		if word == "" {
+			skipped++
+			continue
+		}
+		ok, err := s.sensitive.Create(ctx, word, repository.WordForbidden)
+		if err != nil {
+			return added, skipped, err
+		}
+		if ok {
+			added++
+		} else {
+			skipped++
+		}
+	}
+	// 有新增时刷新内存词表（后台变更后即时生效）
+	if added > 0 {
+		if err := s.ReloadForbidden(ctx); err != nil {
+			return added, skipped, err
+		}
+	}
+	return added, skipped, nil
 }
 
 // ---------- 封禁 ----------
@@ -253,12 +295,17 @@ func (s *ModerationService) CheckForbidden(content string) string {
 
 // ---------- 内部辅助 ----------
 
-// assembleReport 组装工单 DTO（举报人昵称 + 目标摘要）。
+// assembleReport 组装工单 DTO（举报人昵称 + 目标摘要 + 处理耗时）。
 func (s *ModerationService) assembleReport(ctx context.Context, rep repository.Report) ReportDTO {
 	dto := ReportDTO{
 		ID: rep.ID, TargetType: rep.TargetType, TargetID: rep.TargetID,
 		Reason: rep.Reason, Detail: rep.Detail, Status: rep.Status,
 		CreatedAt: rep.CreatedAt.Format(time.RFC3339),
+	}
+	// 处理耗时（秒；已处理工单才展示，P1 审核耗时）
+	if rep.ResolvedAt != nil {
+		cost := int64(rep.ResolvedAt.Sub(rep.CreatedAt).Seconds())
+		dto.CostSeconds = &cost
 	}
 	// 举报人昵称（失败降级为空）
 	if u, err := s.users.FindByID(ctx, rep.ReporterID); err == nil {

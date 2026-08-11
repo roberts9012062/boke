@@ -137,3 +137,21 @@ func (h *AuthHandler) Me(c *gin.Context) {
 	}
 	resp.OK(c, profile)
 }
+
+// ChangePassword 处理修改密码（PUT /api/v1/me/password，需登录；账号安全页）。
+// body：{current_password, new_password}——校验当前密码后更新，密码版本自增使其他设备退出。
+func (h *AuthHandler) ChangePassword(c *gin.Context) {
+	var req struct {
+		CurrentPassword string `json:"current_password"` // 当前密码
+		NewPassword     string `json:"new_password"`     // 新密码
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, errs.ErrBadRequest)
+		return
+	}
+	if err := h.auth.ChangePassword(c.Request.Context(), middleware.GetUserID(c), req.CurrentPassword, req.NewPassword); err != nil {
+		resp.FailFrom(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"changed": true})
+}

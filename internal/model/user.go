@@ -8,17 +8,18 @@ import "time"
 
 // User 用户实体（users 表结构，不含任何敏感派生字段）。
 type User struct {
-	ID           int64     // 用户 ID
-	Email        string    // 登录邮箱（唯一）
-	Username     string    // 用户名（唯一，@账号）
-	PasswordHash string    // 密码哈希（bcrypt）
-	Nickname     string    // 昵称
-	AvatarURL    string    // 头像地址
-	Bio          string    // 个人简介
-	Status       string    // 状态：active=正常 / banned=封禁 / disabled=停用
-	LastLoginAt  *time.Time // 最后登录时间
-	CreatedAt    time.Time // 注册时间
-	UpdatedAt    time.Time // 更新时间
+	ID              int64     // 用户 ID
+	Email           string    // 登录邮箱（唯一）
+	Username        string    // 用户名（唯一，@账号）
+	PasswordHash    string    // 密码哈希（bcrypt）
+	Nickname        string    // 昵称
+	AvatarURL       string    // 头像地址
+	Bio             string    // 个人简介
+	Status          string    // 状态：active=正常 / banned=封禁 / disabled=停用
+	PasswordVersion int       // 密码版本号（P1：重置密码自增，JWT 校验使旧会话失效）
+	LastLoginAt     *time.Time // 最后登录时间
+	CreatedAt       time.Time // 注册时间
+	UpdatedAt       time.Time // 更新时间
 }
 
 // ---------- 认证 DTO ----------

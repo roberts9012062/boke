@@ -123,6 +123,39 @@ type PostDetail struct {
 	CanView     bool   `json:"can_view"`     // 当前用户是否有权查看（私密帖校验）
 }
 
+// AdminPostDetail 后台编辑帖子详情（设计稿《后台编辑·文字/图片/音频/视频》）。
+// 包含发布信息（类型/状态/可见性/创建/更新）、互动数据（赞/评/览）与操作所需字段。
+type AdminPostDetail struct {
+	ID           int64      `json:"id"`            // 帖子 ID
+	Title        string     `json:"title"`         // 标题
+	Content      string     `json:"content"`       // 正文（文字帖/图说/说明）
+	ContentType  string     `json:"content_type"`  // 内容类型：text/image/audio/video
+	Status       string     `json:"status"`        // 状态：draft/published/taken_down
+	Visibility   string     `json:"visibility"`    // 可见性：public/followers/private
+	CoverURL     string     `json:"cover_url"`     // 封面图（视频帖独立封面）
+	Tags         []string   `json:"tags"`          // 标签名（不带 #，表单直接编辑）
+	Media        []MediaDTO `json:"media"`         // 媒体列表（按 media_ids 顺序）
+	ViewCount    int64      `json:"view_count"`    // 浏览量（互动数据·览）
+	LikeCount    int64      `json:"like_count"`    // 点赞数（互动数据·赞）
+	CommentCount int64      `json:"comment_count"` // 评论数（互动数据·评）
+	Author       AuthorDTO  `json:"author"`        // 作者（发布信息）
+	CreatedAt    string     `json:"created_at"`    // 创建时间（发布信息·创建）
+	UpdatedAt    string     `json:"updated_at"`    // 更新时间（发布信息·更新）
+	PublishedAt  string     `json:"published_at"`  // 发布时间（空串 = 未发布）
+}
+
+// AdminUpdatePostReq 后台更新帖子请求（设计稿：保存草稿 / 更新发布）。
+// 说明：内容类型不允许修改（发布信息面板只读）；状态字段决定按钮语义。
+type AdminUpdatePostReq struct {
+	Title      string   `json:"title"`      // 标题（≤100 字符）
+	Content    string   `json:"content"`    // 正文（≤2000 字）
+	Tags       []string `json:"tags"`       // 标签（≤5 个，每个 ≤20 字符）
+	MediaIDs   []int64  `json:"media_ids"`  // 关联媒体 ID（图片多张有序/音频或视频一张）
+	Visibility string   `json:"visibility"` // 可见性：public/followers/private
+	CoverURL   *string  `json:"cover_url"`  // 封面图（视频帖「更换封面」；nil=按类型推断保留）
+	Status     string   `json:"status"`     // draft=保存草稿 / published=更新发布
+}
+
 // UploadResult 媒体上传结果。
 type UploadResult struct {
 	ID       int64  `json:"id"`        // 媒体 ID

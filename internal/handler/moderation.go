@@ -125,6 +125,28 @@ func (h *ModerationHandler) AddSensitiveWord(c *gin.Context) {
 	resp.OK(c, gin.H{"added": true})
 }
 
+// AddSensitiveWords 批量添加敏感词（POST /api/v1/admin/sensitive-words/batch，
+// 后台站点设置「敏感词（逗号分隔）」入口；body: {words: []}，forbidden 级别）。
+func (h *ModerationHandler) AddSensitiveWords(c *gin.Context) {
+	var req struct {
+		Words []string `json:"words"` // 词列表（自动去空格/去空项）
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, errs.ErrBadRequest)
+		return
+	}
+	if len(req.Words) > 100 {
+		resp.Fail(c, 400, errs.New(errs.CodeBadRequest, "单次最多添加 100 个敏感词"))
+		return
+	}
+	added, skipped, err := h.moderation.AddWords(c.Request.Context(), req.Words)
+	if err != nil {
+		resp.FailFrom(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"added": added, "skipped": skipped})
+}
+
 // DeleteSensitiveWord 删除敏感词（DELETE /api/v1/admin/sensitive-words/:word）。
 func (h *ModerationHandler) DeleteSensitiveWord(c *gin.Context) {
 	word := c.Param("word")

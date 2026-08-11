@@ -23,6 +23,7 @@ type Config struct {
 	DataDir     string       // 本地数据目录（媒体存储等）
 	Mail        MailConfig   // 邮件配置（M2 找回密码；未配置时降级日志输出）
 	SiteBaseURL string       // 站点访问地址（生成重置链接）
+	GitHubToken string       // GitHub Token（M3.1 插件商城清单拉取；可为空仅公开仓库）
 }
 
 // MailConfig 邮件发送参数（SMTP，M2 找回密码）。
@@ -49,6 +50,7 @@ func Load() (Config, error) {
 		JWTSecret:  os.Getenv("JWT_SECRET"),
 		CORSOrigin: os.Getenv("CORS_ORIGIN"),
 		DataDir:    os.Getenv("DATA_DIR"),
+		GitHubToken: os.Getenv("GITHUB_TOKEN"),
 	}
 
 	// 默认端口：未配置时使用 8080

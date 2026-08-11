@@ -21,6 +21,7 @@ type SiteMetaDTO struct {
 	SiteName        string `json:"site_name"`        // 站点名称
 	SiteDescription string `json:"site_description"` // 站点描述
 	DefaultTheme    string `json:"default_theme"`    // 默认主题（冷月/薄雾）
+	MaintenanceMode string `json:"maintenance_mode"` // 维护开关（on/off，M2 前端拦截用）
 }
 
 // SiteService 站点信息服务（连接器类，仅依赖 settings 仓库）。
@@ -48,7 +49,25 @@ func (s *SiteService) Meta(ctx context.Context) SiteMetaDTO {
 		SiteName:        valueOr(all, "site_name", defaultSiteName),
 		SiteDescription: valueOr(all, "site_description", defaultSiteDescription),
 		DefaultTheme:    valueOr(all, "theme", defaultDefaultTheme),
+		MaintenanceMode: maintenanceValue(all),
 	}
+}
+
+// maintenanceValue 维护开关值（on/off，缺失默认 off）。
+func maintenanceValue(all map[string]string) string {
+	if v, ok := all["maintenance_mode"]; ok && v == "on" {
+		return "on"
+	}
+	return "off"
+}
+
+// MaintenanceMode 判断全站维护开关是否开启（M2 中间件拦截用，直接查库实时生效）。
+func (s *SiteService) MaintenanceMode(ctx context.Context) bool {
+	value, ok, err := s.settings.Get(ctx, "maintenance_mode")
+	if err != nil || !ok {
+		return false
+	}
+	return value == "on"
 }
 
 // valueOr 从设置映射取值，缺失时返回默认值。

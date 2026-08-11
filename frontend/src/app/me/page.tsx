@@ -125,7 +125,17 @@ export default function MyPage() {
             href="/settings/privacy"
             className="flex items-center justify-between border-b border-line px-4 py-3.5 text-sm text-ink transition-colors hover:bg-muted"
           >
-            隐私与安全
+            隐私设置
+            <span className="text-ink-3" aria-hidden>
+              ›
+            </span>
+          </Link>
+          {/* 账号安全（设计稿《账号安全》：修改密码/登录设备） */}
+          <Link
+            href="/settings/security"
+            className="flex items-center justify-between border-b border-line px-4 py-3.5 text-sm text-ink transition-colors hover:bg-muted"
+          >
+            账号安全
             <span className="text-ink-3" aria-hidden>
               ›
             </span>

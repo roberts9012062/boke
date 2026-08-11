@@ -169,6 +169,24 @@ func (s *Store) RootDir() string {
 	return s.rootDir
 }
 
+// Remove 删除本地文件（后台媒体库删除；文件不存在视为成功）。
+// 参数：storageKey 相对存储键（Save 返回的 StorageKey，如 202608/xxx.jpg）。
+// 说明：校验路径不越界（仅允许 rootDir 内相对路径，防路径穿越）。
+func (s *Store) Remove(storageKey string) error {
+	if storageKey == "" {
+		return nil
+	}
+	path := filepath.Join(s.rootDir, storageKey)
+	// 防路径穿越：拼接后必须仍在根目录内
+	if !strings.HasPrefix(path, s.rootDir+string(os.PathSeparator)) {
+		return fmt.Errorf("非法存储键：%s", storageKey)
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
 // mimeByExt 按扩展名推断 MIME（Content-Type 缺失时兜底）。
 func mimeByExt(ext string) string {
 	switch strings.ToLower(ext) {

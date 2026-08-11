@@ -53,11 +53,40 @@ func NewEnforcer() (*Enforcer, error) {
 	if err != nil {
 		return nil, err
 	}
-	// 初始策略：用户名 admin 的用户归属管理员角色
+	// 兜底策略：用户名 admin 的用户归属管理员角色（DB 角色加载失败时仍可进入后台）
 	if _, err := engine.AddGroupingPolicy("admin", RoleAdmin); err != nil {
 		return nil, err
 	}
 	return &Enforcer{engine: engine}, nil
+}
+
+// SyncRoles 从数据库全量重建角色策略（服务启动时调用，替代硬编码）。
+// 参数：roles 管理员名单（users.role = 'admin' 的用户；非管理员默认 user 角色，无需显式策略）。
+func (e *Enforcer) SyncRoles(roles []UserRole) error {
+	// 清空既有分组策略（含兜底 admin，以 DB 为准）
+	if _, err := e.engine.RemoveFilteredGroupingPolicy(0, ""); err != nil {
+		return err
+	}
+	for _, role := range roles {
+		if role.Role != RoleAdmin {
+			continue
+		}
+		if _, err := e.engine.AddGroupingPolicy(role.Username, RoleAdmin); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// SetRole 设置用户角色（M2 角色调整 UI：admin ↔ user）。
+// 说明：内存策略即时生效（登录时按 username 查角色）；重启后由 SyncRoles 从 DB 重建。
+func (e *Enforcer) SetRole(username string, role string) error {
+	if role == RoleAdmin {
+		_, err := e.engine.AddGroupingPolicy(username, RoleAdmin)
+		return err
+	}
+	_, err := e.engine.RemoveGroupingPolicy(username, RoleAdmin)
+	return err
 }
 
 // GetRole 查询用户角色（admin / user）。
@@ -78,4 +107,10 @@ func (e *Enforcer) GetRole(username string) string {
 // Enforce 校验权限（M2 扩展使用：sub, obj, act）。
 func (e *Enforcer) Enforce(sub string, obj string, act string) (bool, error) {
 	return e.engine.Enforce(sub, obj, act)
+}
+
+// UserRole 用户角色（SyncRoles 全量加载输入，与 repository.UserRoleRow 对应）。
+type UserRole struct {
+	Username string // 账号名（策略主体）
+	Role     string // 角色：admin / user
 }

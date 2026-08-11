@@ -34,10 +34,11 @@ const (
 
 // Claims 自定义声明（标准 JWT + 业务字段）。
 type Claims struct {
-	UserID    int64     `json:"uid"`    // 用户 ID
-	Role      string    `json:"role"`   // 角色：admin / user
-	TokenType tokenType `json:"ttp"`    // 令牌类型
-	TokenID   string    `json:"jti"`    // 令牌 ID（refresh 撤销用）
+	UserID          int64     `json:"uid"`  // 用户 ID
+	Role            string    `json:"role"` // 角色：admin / user
+	PasswordVersion int       `json:"pv"`   // 密码版本号（P1：重置密码后旧会话失效，refresh 校验）
+	TokenType       tokenType `json:"ttp"`  // 令牌类型
+	TokenID         string    `json:"jti"`  // 令牌 ID（refresh 撤销用）
 	jwt.RegisteredClaims
 }
 
@@ -52,12 +53,13 @@ func NewManager(secret string) *Manager {
 }
 
 // sign 签发指定类型令牌（共用签名与声明组装）。
-func (m *Manager) sign(userID int64, role string, tType tokenType, tokenID string, ttl time.Duration) (string, error) {
+func (m *Manager) sign(userID int64, role string, passwordVersion int, tType tokenType, tokenID string, ttl time.Duration) (string, error) {
 	claims := Claims{
-		UserID:    userID,
-		Role:      role,
-		TokenType: tType,
-		TokenID:   tokenID,
+		UserID:          userID,
+		Role:            role,
+		PasswordVersion: passwordVersion,
+		TokenType:       tType,
+		TokenID:         tokenID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    "yueyan-blog",
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -68,13 +70,14 @@ func (m *Manager) sign(userID int64, role string, tType tokenType, tokenID strin
 }
 
 // GenerateTokenPair 签发令牌对（access + refresh）。
-// 参数：userID 用户 ID；role 角色；refreshTokenID 刷新令牌 ID（随机，撤销用）。
-func (m *Manager) GenerateTokenPair(userID int64, role string, refreshTokenID string) (access string, refresh string, err error) {
-	access, err = m.sign(userID, role, tokenAccess, "", AccessTTL)
+// 参数：userID 用户 ID；role 角色；passwordVersion 密码版本号（重置密码后自增使旧会话失效）；
+//       refreshTokenID 刷新令牌 ID（随机，撤销用）。
+func (m *Manager) GenerateTokenPair(userID int64, role string, passwordVersion int, refreshTokenID string) (access string, refresh string, err error) {
+	access, err = m.sign(userID, role, passwordVersion, tokenAccess, "", AccessTTL)
 	if err != nil {
 		return "", "", fmt.Errorf("签发 access token 失败：%w", err)
 	}
-	refresh, err = m.sign(userID, role, tokenRefresh, refreshTokenID, RefreshTTL)
+	refresh, err = m.sign(userID, role, passwordVersion, tokenRefresh, refreshTokenID, RefreshTTL)
 	if err != nil {
 		return "", "", fmt.Errorf("签发 refresh token 失败：%w", err)
 	}

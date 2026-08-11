@@ -111,8 +111,8 @@ func (s *AuthService) Register(ctx context.Context, req model.RegisterReq, ip st
 	// ---------- 审计：注册 ----------
 	s.writeAudit(ctx, userID, "register", "user", userID, ip, ua)
 
-	// ---------- 签发令牌对（注册即登录） ----------
-	return s.issueTokenPair(ctx, userID, username)
+	// ---------- 签发令牌对（注册即登录；新用户密码版本为 1） ----------
+	return s.issueTokenPair(ctx, userID, username, 1)
 }
 
 // Login 登录（邮箱或用户名 + 密码）。
@@ -156,7 +156,7 @@ func (s *AuthService) Login(ctx context.Context, req model.LoginReq, ip string, 
 	s.writeAudit(ctx, user.ID, "login", "user", user.ID, ip, ua)
 
 	// ---------- 签发令牌对 ----------
-	return s.issueTokenPair(ctx, user.ID, user.Username)
+	return s.issueTokenPair(ctx, user.ID, user.Username, user.PasswordVersion)
 }
 
 // Logout 登出（撤销 refresh token，加入黑名单）。
@@ -169,8 +169,8 @@ func (s *AuthService) Logout(ctx context.Context, tokenID string, userID int64, 
 	return nil
 }
 
-// Refresh 刷新令牌对（refresh token 校验 + 黑名单检查）。
-// 返回：新令牌对；refresh 无效或已撤销返回未登录错误。
+// Refresh 刷新令牌对（refresh token 校验 + 黑名单检查 + 密码版本号校验）。
+// 返回：新令牌对；refresh 无效、已撤销或密码已重置（版本号不匹配）返回未登录错误。
 func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (*model.TokenPair, error) {
 	claims, err := s.jwt.ParseRefresh(refreshToken)
 	if err != nil {
@@ -188,8 +188,12 @@ func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (*model.
 		}
 		return nil, err
 	}
+	// 密码版本号校验（P1：找回密码后旧 refresh 立即失效，实现全局会话退出）
+	if claims.PasswordVersion != user.PasswordVersion {
+		return nil, errs.ErrUnauthorized
+	}
 	// 签发新令牌对
-	return s.issueTokenPair(ctx, user.ID, user.Username)
+	return s.issueTokenPair(ctx, user.ID, user.Username, user.PasswordVersion)
 }
 
 // RequestPasswordReset 请求密码重置（M2 找回密码）。
@@ -234,6 +238,31 @@ func (s *AuthService) ResetPassword(ctx context.Context, token string, newPasswo
 		return err
 	}
 	return s.users.UpdatePassword(ctx, user.ID, string(hash))
+}
+
+// ChangePassword 修改密码（账号安全页，需校验当前密码）。
+// 参数：userID 当前用户；currentPassword 当前密码；newPassword 新密码（≥8 位含字母数字）。
+// 说明：更新后密码版本自增（复用 P1 机制，其他设备旧会话立即失效）。
+func (s *AuthService) ChangePassword(ctx context.Context, userID int64, currentPassword string, newPassword string) error {
+	if currentPassword == "" || newPassword == "" {
+		return errs.New(errs.CodeBadRequest, "请填写当前密码与新密码")
+	}
+	if !validPassword(newPassword) {
+		return errs.New(errs.CodeBadRequest, "密码至少 8 位，且包含字母与数字")
+	}
+	user, err := s.users.FindByID(ctx, userID)
+	if err != nil {
+		return errs.ErrNotFound
+	}
+	// 校验当前密码（错误统一提示，不泄露账号信息）
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(currentPassword)); err != nil {
+		return errs.New(errs.CodeBadRequest, "当前密码不正确")
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	return s.users.UpdatePassword(ctx, userID, string(hash))
 }
 
 // GetProfile 查询用户资料（/me 与公开主页共用）。
@@ -286,14 +315,15 @@ func (s *AuthService) GetProfile(ctx context.Context, userID int64, self bool) (
 // ---------- 内部辅助（纯函数） ----------
 
 // issueTokenPair 签发令牌对（注册/登录/刷新共用）。
-func (s *AuthService) issueTokenPair(ctx context.Context, userID int64, username string) (*model.TokenPair, error) {
+// 参数：userID 用户 ID；username 账号（casbin 查角色）；passwordVersion 密码版本号（写入 JWT claims）。
+func (s *AuthService) issueTokenPair(ctx context.Context, userID int64, username string, passwordVersion int) (*model.TokenPair, error) {
 	role := s.enforcer.GetRole(username)
 	// 生成 refresh 令牌 ID（随机，撤销用）
 	refreshID, err := randomTokenID()
 	if err != nil {
 		return nil, err
 	}
-	access, refresh, err := s.jwt.GenerateTokenPair(userID, role, refreshID)
+	access, refresh, err := s.jwt.GenerateTokenPair(userID, role, passwordVersion, refreshID)
 	if err != nil {
 		return nil, err
 	}

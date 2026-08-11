@@ -6,6 +6,7 @@ import "./globals.css";
 import { AuthProvider } from "@/lib/auth";
 import { ThemeProvider } from "@/lib/theme";
 import { AppearanceProvider } from "@/lib/appearance";
+import { MaintenanceGate } from "@/components/maintenance-gate";
 import { OfflineOverlay } from "@/components/ui/offline";
 
 // 站点元信息（与设计稿/seed 站点名一致：月言）
@@ -22,8 +23,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <ThemeProvider>
           <AppearanceProvider>
             <AuthProvider>
-              {children}
-              <OfflineOverlay />
+              {/* 全站维护拦截（M2）：维护开启时前台重定向维护页，覆盖引导页/登录页 */}
+              <MaintenanceGate>
+                {children}
+                <OfflineOverlay />
+              </MaintenanceGate>
             </AuthProvider>
           </AppearanceProvider>
         </ThemeProvider>

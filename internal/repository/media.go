@@ -4,6 +4,9 @@ package repository
 
 import (
 	"context"
+	"fmt"
+	"strconv"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -82,4 +85,124 @@ func (r *MediaRepo) FindByIDs(ctx context.Context, ids []int64) ([]MediaAsset, e
 		}
 	}
 	return result, nil
+}
+
+// ---------- 后台媒体库（M2.9，设计稿《后台媒体》） ----------
+
+// MediaAdminRow 后台媒体行（含引用数，设计稿表格：文件/类型/大小/引用/上传/操作）。
+type MediaAdminRow struct {
+	ID        int64     `json:"id"`         // 媒体 ID
+	Type      string    `json:"type"`       // 类型：image/audio/video
+	URL       string    `json:"url"`        // 访问地址
+	MimeType  string    `json:"mime_type"`  // MIME 类型
+	SizeBytes int64     `json:"size_bytes"` // 文件大小
+	Width     int       `json:"width"`      // 宽（图片/视频）
+	Height    int       `json:"height"`     // 高（图片/视频）
+	FileName  string    `json:"file_name"`  // 文件名（url 最后一段；原名未存，差异记录）
+	RefCount  int64     `json:"ref_count"`  // 被帖子引用数
+	CreatedAt time.Time `json:"created_at"` // 上传时间
+}
+
+// MediaStats 媒体统计条（设计稿：全部文件/图片/音频/视频）。
+type MediaStats struct {
+	Total int64 `json:"total"` // 全部文件
+	Image int64 `json:"image"` // 图片
+	Audio int64 `json:"audio"` // 音频
+	Video int64 `json:"video"` // 视频
+}
+
+// Stats 媒体统计条（一次查询四项）。
+func (r *MediaRepo) Stats(ctx context.Context) (*MediaStats, error) {
+	var stats MediaStats
+	err := r.pool.QueryRow(ctx, `
+		SELECT
+			count(*),
+			count(*) FILTER (WHERE type = 'image'),
+			count(*) FILTER (WHERE type = 'audio'),
+			count(*) FILTER (WHERE type = 'video')
+		FROM media_assets WHERE status = 'ready'`).Scan(&stats.Total, &stats.Image, &stats.Audio, &stats.Video)
+	if err != nil {
+		return nil, err
+	}
+	return &stats, nil
+}
+
+// ListAdmin 后台媒体列表（类型筛选 + 文件名关键词 + 分页 + 引用数）。
+func (r *MediaRepo) ListAdmin(ctx context.Context, mediaType string, keyword string, page int, pageSize int) ([]MediaAdminRow, int64, error) {
+	where := "WHERE m.status = 'ready'"
+	args := make([]any, 0, 3)
+	if mediaType != "" {
+		args = append(args, mediaType)
+		where += fmt.Sprintf(" AND m.type = $%d", len(args))
+	}
+	if keyword != "" {
+		args = append(args, "%"+keyword+"%")
+		where += fmt.Sprintf(" AND m.url ILIKE $%d", len(args))
+	}
+
+	var total int64
+	if err := r.pool.QueryRow(ctx,
+		`SELECT count(*) FROM media_assets m `+where, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	args = append(args, pageSize, (page-1)*pageSize)
+	rows, err := r.pool.Query(ctx, `
+		SELECT m.id, m.type, m.url, m.mime_type, m.size_bytes, m.width, m.height, m.created_at,
+		       (SELECT count(*) FROM posts p WHERE p.media_ids @> jsonb_build_array(m.id)),
+		       split_part(m.url, '/', array_length(string_to_array(m.url, '/'), 1))
+		FROM media_assets m `+where+`
+		ORDER BY m.created_at DESC
+		LIMIT $`+fmt.Sprintf("%d", len(args)-1)+` OFFSET $`+fmt.Sprintf("%d", len(args)),
+		args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	items := make([]MediaAdminRow, 0)
+	for rows.Next() {
+		var row MediaAdminRow
+		if err := rows.Scan(&row.ID, &row.Type, &row.URL, &row.MimeType, &row.SizeBytes,
+			&row.Width, &row.Height, &row.CreatedAt, &row.RefCount, &row.FileName); err != nil {
+			return nil, 0, err
+		}
+		items = append(items, row)
+	}
+	return items, total, rows.Err()
+}
+
+// Delete 删除媒体（事务）：解除帖子引用（media_ids 移除 + cover_url 清空）→ 删除记录。
+// 返回：storageKey（供调用方删除磁盘文件）与错误。
+func (r *MediaRepo) Delete(ctx context.Context, id int64) (string, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// 查询存储键（删除磁盘文件用）
+	var storageKey string
+	if err := tx.QueryRow(ctx,
+		`SELECT storage_key FROM media_assets WHERE id = $1`, id).Scan(&storageKey); err != nil {
+		return "", err
+	}
+
+	// 解除帖子引用：media_ids 移除该 id；cover_url 指向该媒体时清空
+	// 注意：$1 传字符串（pgx 将 $1::text 推断为 text 类型，Go int64 无法编码——历史故障）；
+	//       $3 独立参数 + ::bigint（多上下文推断冲突 42P08/42P18）。
+	if _, err := tx.Exec(ctx, `
+		UPDATE posts SET
+			media_ids = media_ids - $1::text,
+			cover_url = CASE WHEN cover_url = $2 THEN '' ELSE cover_url END
+		WHERE media_ids @> jsonb_build_array($3::bigint)`,
+		strconv.FormatInt(id, 10), "/media/"+storageKey, id); err != nil {
+		return "", err
+	}
+
+	// 删除媒体记录
+	if _, err := tx.Exec(ctx, `DELETE FROM media_assets WHERE id = $1`, id); err != nil {
+		return "", err
+	}
+	return storageKey, tx.Commit(ctx)
 }

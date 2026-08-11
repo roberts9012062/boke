@@ -39,15 +39,14 @@ type DashboardStats struct {
 
 // StatsSince 统计指定时间段内的帖子指标。
 // 参数：since 起始时间；返回浏览/新帖数。
-// 口径说明（M1.7）：浏览无独立埋点表，取区间内发布帖子的累计 view_count（近似值，
-//   真实日浏览需埋点表，规划 P1）；新帖仅统计已发布（草稿不计入「新帖」）。
+// 口径说明（P1 修复）：浏览改从 post_views 埋点表按时间聚合（真实日浏览统计，
+//   替代此前「区间发布帖累计 view_count」近似值）；新帖仅统计已发布（草稿不计入）。
 func (r *AdminRepo) StatsSince(ctx context.Context, since time.Time) (views int64, posts int64, err error) {
 	err = r.pool.QueryRow(ctx, `
 		SELECT
-			COALESCE(sum(view_count), 0),
-			count(*)
-		FROM posts
-		WHERE status = 'published' AND created_at >= $1`, since).Scan(&views, &posts)
+			(SELECT count(*) FROM post_views WHERE viewed_at >= $1),
+			(SELECT count(*) FROM posts WHERE status = 'published' AND created_at >= $1)`,
+		since).Scan(&views, &posts)
 	return views, posts, err
 }
 
@@ -235,9 +234,39 @@ func (r *AdminRepo) ListAdminComments(ctx context.Context, status string, keywor
 		); err != nil {
 			return nil, 0, err
 		}
+		// 登录用户评论：组装嵌套作者对象（与前台 CommentDTO.author 结构一致）
+		if c.AuthorID != nil && c.AuthorNickname != "" {
+			c.Author = &model.CommentAuthor{
+				ID:       *c.AuthorID,
+				Username: c.AuthorUsername,
+				Nickname: c.AuthorNickname,
+			}
+		}
 		comments = append(comments, c)
 	}
 	return comments, total, rows.Err()
+}
+
+// CommentStats 评论统计（设计稿后台评论统计条：全部评论/今日新增/已屏蔽）。
+type CommentStats struct {
+	Total  int64 `json:"total"`  // 全部评论（不含已删除）
+	Today  int64 `json:"today"`  // 今日新增
+	Hidden int64 `json:"hidden"` // 已屏蔽（hidden）
+}
+
+// CommentStats 后台评论统计条。
+func (r *AdminRepo) CommentStats(ctx context.Context) (*CommentStats, error) {
+	var stats CommentStats
+	err := r.pool.QueryRow(ctx, `
+		SELECT
+			count(*) FILTER (WHERE status != 'deleted'),
+			count(*) FILTER (WHERE status != 'deleted' AND created_at >= current_date),
+			count(*) FILTER (WHERE status = 'hidden')
+		FROM comments`).Scan(&stats.Total, &stats.Today, &stats.Hidden)
+	if err != nil {
+		return nil, err
+	}
+	return &stats, nil
 }
 
 // ListAdminUsers 用户管理列表（关键词搜索 + 分页）。
@@ -282,18 +311,29 @@ func (r *AdminRepo) ListAdminUsers(ctx context.Context, keyword string, page int
 	return users, total, rows.Err()
 }
 
-// CountUsers 全部用户数（封禁管理统计条，设计稿「全部用户」）。
-func (r *AdminRepo) CountUsers(ctx context.Context) (int64, error) {
-	var count int64
-	err := r.pool.QueryRow(ctx, `SELECT count(*) FROM users`).Scan(&count)
-	return count, err
+// UserStats 用户统计条（设计稿《后台用户》：全部用户/本周新增/活跃/已禁言）。
+// 口径：本周新增 = 近 7 日注册；活跃 = 近 7 日有登录（last_login_at，设计稿未定义，取近 7 日）。
+type UserStats struct {
+	Total    int64 `json:"total"`     // 全部用户
+	WeekNew  int64 `json:"week_new"`  // 本周新增（近 7 日注册）
+	Active   int64 `json:"active"`    // 活跃（近 7 日登录）
+	Banned   int64 `json:"banned"`    // 已禁言
 }
 
-// CountBannedUsers 已封禁用户数（设计稿「已禁言」）。
-func (r *AdminRepo) CountBannedUsers(ctx context.Context) (int64, error) {
-	var count int64
-	err := r.pool.QueryRow(ctx, `SELECT count(*) FROM users WHERE status = 'banned'`).Scan(&count)
-	return count, err
+// UserStats 用户统计条聚合（一次查询四项，替代原 CountUsers/CountBannedUsers 两查）。
+func (r *AdminRepo) UserStats(ctx context.Context) (*UserStats, error) {
+	var stats UserStats
+	err := r.pool.QueryRow(ctx, `
+		SELECT
+			count(*),
+			count(*) FILTER (WHERE created_at >= current_date - 7),
+			count(*) FILTER (WHERE last_login_at >= current_date - 7),
+			count(*) FILTER (WHERE status = 'banned')
+		FROM users`).Scan(&stats.Total, &stats.WeekNew, &stats.Active, &stats.Banned)
+	if err != nil {
+		return nil, err
+	}
+	return &stats, nil
 }
 
 // SetUserStatus 封禁/解封用户（status=active/banned）。
@@ -336,21 +376,24 @@ func (r *AdminRepo) RecentActivity(ctx context.Context) ([]ActivityRow, error) {
 // ---------- 行类型 ----------
 
 // CommentRow 评论行（后台列表，含作者信息）。
+// 说明：Author 为嵌套对象（与前台 CommentDTO.author 结构一致，前端直接消费）；
+//       AuthorNickname/AuthorUsername 为平铺冗余（供其他场景直接取用）。
 type CommentRow struct {
-	ID             int64      `json:"id"`              // 评论 ID
-	PostID         int64      `json:"post_id"`         // 所属帖子
-	AuthorID       *int64     `json:"author_id"`       // 作者（NULL = 匿名）
-	ParentID       *int64     `json:"parent_id"`       // 父评论
-	Content        string     `json:"content"`         // 内容
-	Floor          int        `json:"floor"`           // 楼层
-	Status         string     `json:"status"`          // 状态
-	LikeCount      int64      `json:"like_count"`      // 点赞
-	GuestName      string     `json:"guest_name"`      // 匿名昵称
-	GuestTokenHash string     `json:"guest_token_hash"` // 匿名哈希
-	CreatedAt      time.Time  `json:"created_at"`      // 时间
-	UpdatedAt      time.Time  `json:"updated_at"`
-	AuthorNickname string     `json:"author_nickname"` // 作者昵称（匿名空）
-	AuthorUsername string     `json:"author_username"` // 作者账号（匿名空）
+	ID             int64                `json:"id"`              // 评论 ID
+	PostID         int64                `json:"post_id"`         // 所属帖子
+	AuthorID       *int64               `json:"author_id"`       // 作者（NULL = 匿名）
+	ParentID       *int64               `json:"parent_id"`       // 父评论
+	Content        string               `json:"content"`         // 内容
+	Floor          int                  `json:"floor"`           // 楼层
+	Status         string               `json:"status"`          // 状态
+	LikeCount      int64                `json:"like_count"`      // 点赞
+	GuestName      string               `json:"guest_name"`      // 匿名昵称
+	GuestTokenHash string               `json:"guest_token_hash"` // 匿名哈希
+	CreatedAt      time.Time            `json:"created_at"`      // 时间
+	UpdatedAt      time.Time            `json:"updated_at"`
+	Author         *model.CommentAuthor `json:"author"`          // 作者（嵌套对象，匿名为 null）
+	AuthorNickname string               `json:"author_nickname"` // 作者昵称（匿名空）
+	AuthorUsername string               `json:"author_username"` // 作者账号（匿名空）
 }
 
 // UserAdminRow 用户行（后台列表）。

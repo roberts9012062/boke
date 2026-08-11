@@ -174,6 +174,7 @@ export default function SensitiveWordsPage() {
               <tr className="border-b border-line text-xs text-ink-3">
                 <th className="px-4 py-3 font-normal">敏感词</th>
                 <th className="px-4 py-3 font-normal">级别</th>
+                <th className="px-4 py-3 font-normal">命中</th>
                 <th className="px-4 py-3 font-normal">添加时间</th>
                 <th className="px-4 py-3 font-normal">操作</th>
               </tr>
@@ -191,6 +192,8 @@ export default function SensitiveWordsPage() {
                       {LEVEL_LABEL[item.level] ?? item.level}
                     </span>
                   </td>
+                  {/* 命中次数（P1 命中统计：发帖/评论拦截时 +1） */}
+                  <td className="px-4 py-3 text-ink-2">{item.hit_count}</td>
                   <td className="px-4 py-3 text-xs text-ink-3">
                     {new Date(item.created_at).toLocaleString("zh-CN")}
                   </td>

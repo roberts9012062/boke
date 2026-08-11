@@ -14,6 +14,7 @@ import { DesktopNav } from "@/components/desktop-nav";
 import { Lightbox } from "@/components/lightbox";
 import { MobileTabbar } from "@/components/mobile-tabbar";
 import { ReportDialog } from "@/components/report-dialog";
+import { SharePanel } from "@/components/share-panel";
 import {
   apiFavoritePost,
   apiLikePost,
@@ -37,6 +38,7 @@ export default function PostDetailPage() {
   const [post, setPost] = useState<PostDetail | null>(null);
   const [error, setError] = useState<string>("");
   const [reportOpen, setReportOpen] = useState<boolean>(false); // M2 举报弹层
+  const [shareOpen, setShareOpen] = useState<boolean>(false); // 分享面板（#17）
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
   // 互动状态（点赞/收藏真实落库，M1.4）
@@ -281,6 +283,15 @@ export default function PostDetailPage() {
                 <span aria-hidden>{favorited ? "🔖" : "▢"}</span>
                 <span>{favoriteCount}</span>
               </button>
+              {/* 分享（设计稿《分享面板》：复制链接/生成海报/私信好友/二维码） */}
+              <button
+                type="button"
+                onClick={() => setShareOpen(true)}
+                className="flex items-center gap-1.5 transition-colors hover:text-ink"
+              >
+                <span aria-hidden>↗</span>
+                <span>分享</span>
+              </button>
               {/* 举报（M2：设计稿《举报》弹层） */}
               <button
                 type="button"
@@ -318,6 +329,18 @@ export default function PostDetailPage() {
           targetType="post"
           targetId={post.id}
           onClose={() => setReportOpen(false)}
+        />
+      )}
+
+      {/* 分享面板（#17：设计稿《分享面板》；作者 · 话题 元信息 + 图片帖海报图） */}
+      {shareOpen && post && (
+        <SharePanel
+          title={post.title || post.summary || "分享帖子"}
+          content={post.content}
+          media={post.media.filter((m) => m.type === "image").map((m) => m.url)}
+          meta={`${post.author.nickname}${post.tags.length > 0 ? ` · ${post.tags.map((t) => t.name).join(" ")}` : ""}`}
+          shareUrl={typeof window !== "undefined" ? `${window.location.origin}/posts/${post.id}` : `/posts/${post.id}`}
+          onClose={() => setShareOpen(false)}
         />
       )}
 

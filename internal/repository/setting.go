@@ -4,7 +4,9 @@ package repository
 
 import (
 	"context"
+	"errors"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -33,14 +35,33 @@ func (r *SettingRepo) All(ctx context.Context) (map[string]string, error) {
 		if err := rows.Scan(&key, &value); err != nil {
 			return nil, err
 		}
-		// JSONB 值去除引号（seed 数据为 "月言" 形式）
-		raw := string(value)
-		if len(raw) >= 2 && raw[0] == '"' && raw[len(raw)-1] == '"' {
-			raw = raw[1 : len(raw)-1]
-		}
-		result[key] = raw
+		result[key] = unquoteJSONB(value)
 	}
 	return result, rows.Err()
+}
+
+// Get 读取单个设置项。
+// 返回：值（JSONB 去引号）与是否存在；读取失败时 ok=false（调用方按默认值处理）。
+func (r *SettingRepo) Get(ctx context.Context, key string) (string, bool, error) {
+	var value []byte
+	err := r.pool.QueryRow(ctx,
+		`SELECT value FROM settings WHERE key = $1`, key).Scan(&value)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	return unquoteJSONB(value), true, nil
+}
+
+// unquoteJSONB 去除 JSONB 值的包裹引号（seed 数据为 "月言" 形式）。
+func unquoteJSONB(raw []byte) string {
+	value := string(raw)
+	if len(value) >= 2 && value[0] == '"' && value[len(value)-1] == '"' {
+		value = value[1 : len(value)-1]
+	}
+	return value
 }
 
 // SetMany 批量保存设置（值以 JSON 字符串写入）。

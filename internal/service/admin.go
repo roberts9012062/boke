@@ -4,9 +4,11 @@ package service
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/roberts9012062/boke/internal/casbin"
+	"github.com/roberts9012062/boke/internal/media"
 	"github.com/roberts9012062/boke/internal/model"
 	"github.com/roberts9012062/boke/internal/repository"
 	"github.com/roberts9012062/boke/pkg/errs"
@@ -20,11 +22,16 @@ type AdminService struct {
 	settings *repository.SettingRepo   // 站点设置
 	enforcer *casbin.Enforcer          // 角色查询
 	bans     *repository.BanRepo       // 封禁记录（M2：封禁落库）
+	users    *repository.UserRepo      // 用户（M2：角色调整）
+	postSvc  *PostService              // 帖子服务（M2：后台编辑）
+	medias   *repository.MediaRepo     // 媒体（M2.9：媒体库）
+	tags     *repository.TagRepo       // 标签（M2.9：标签分类）
+	store    *media.Store              // 媒体存储（M2.9：删除磁盘文件）
 }
 
 // NewAdminService 创建后台服务。
-func NewAdminService(admin *repository.AdminRepo, posts *repository.PostRepo, comments *repository.CommentRepo, settings *repository.SettingRepo, enforcer *casbin.Enforcer, bans *repository.BanRepo) *AdminService {
-	return &AdminService{admin: admin, posts: posts, comments: comments, settings: settings, enforcer: enforcer, bans: bans}
+func NewAdminService(admin *repository.AdminRepo, posts *repository.PostRepo, comments *repository.CommentRepo, settings *repository.SettingRepo, enforcer *casbin.Enforcer, bans *repository.BanRepo, users *repository.UserRepo, postSvc *PostService, medias *repository.MediaRepo, tags *repository.TagRepo, store *media.Store) *AdminService {
+	return &AdminService{admin: admin, posts: posts, comments: comments, settings: settings, enforcer: enforcer, bans: bans, users: users, postSvc: postSvc, medias: medias, tags: tags, store: store}
 }
 
 // DashboardData 仪表盘数据。
@@ -132,6 +139,16 @@ func (s *AdminService) DeletePost(ctx context.Context, postID int64) error {
 	return s.posts.SetStatus(ctx, postID, model.PostStatusDeleted, nil)
 }
 
+// GetPostDetail 后台编辑详情（透传帖子服务；设计稿《后台编辑·文字/图片/音频/视频》）。
+func (s *AdminService) GetPostDetail(ctx context.Context, postID int64) (*model.AdminPostDetail, error) {
+	return s.postSvc.GetAdminDetail(ctx, postID)
+}
+
+// UpdatePost 后台编辑保存（透传帖子服务；status：draft=保存草稿 / published=更新发布）。
+func (s *AdminService) UpdatePost(ctx context.Context, postID int64, req model.AdminUpdatePostReq) error {
+	return s.postSvc.UpdateByAdmin(ctx, postID, req)
+}
+
 // ---------- 评论管理 ----------
 
 // ListComments 评论管理列表。
@@ -142,6 +159,19 @@ func (s *AdminService) ListComments(ctx context.Context, status string, keyword 
 // DeleteComment 删除评论（软删）。
 func (s *AdminService) DeleteComment(ctx context.Context, commentID int64) error {
 	return s.comments.SoftDelete(ctx, commentID)
+}
+
+// SetCommentStatus 评论隐藏/恢复（M2：visible ↔ hidden；前台详情列表仅展示 visible）。
+func (s *AdminService) SetCommentStatus(ctx context.Context, commentID int64, status string) error {
+	if status != model.CommentStatusVisible && status != model.CommentStatusHidden {
+		return errs.New(errs.CodeBadRequest, "状态仅支持 visible / hidden")
+	}
+	return s.comments.SetStatus(ctx, commentID, status)
+}
+
+// CommentStats 评论统计（设计稿后台评论统计条：全部/今日新增/已屏蔽）。
+func (s *AdminService) CommentStats(ctx context.Context) (*repository.CommentStats, error) {
+	return s.admin.CommentStats(ctx)
 }
 
 // ---------- 用户管理 ----------
@@ -184,39 +214,111 @@ func (s *AdminService) SetUserStatus(ctx context.Context, userID int64, status s
 	return nil
 }
 
-// UserStats 用户统计（封禁管理统计条：全部用户/已禁言）。
-type UserStats struct {
-	Total  int64 `json:"total"`  // 全部用户
-	Banned int64 `json:"banned"` // 已禁言
+// UserStats 用户统计条（设计稿《后台用户》：全部/本周新增/活跃/已禁言，类型定义见 repository）。
+func (s *AdminService) UserStats(ctx context.Context) (*repository.UserStats, error) {
+	return s.admin.UserStats(ctx)
 }
 
-// UserStats 用户统计（封禁管理页）。
-func (s *AdminService) UserStats(ctx context.Context) (*UserStats, error) {
-	total, err := s.admin.CountUsers(ctx)
-	if err != nil {
-		return nil, err
+// SetUserRole 角色调整（M2：admin ↔ user，users.role 落库 + casbin 内存策略即时生效）。
+// 参数：userID 目标用户；role 目标角色。差异记录：完整角色权限矩阵（5 角色）规划 M3，
+//   MVP 仅提供 admin/user 两级切换；角色调整后需该用户重新登录生效（JWT claims 登录时签发）。
+func (s *AdminService) SetUserRole(ctx context.Context, userID int64, role string) error {
+	if role != casbin.RoleAdmin && role != casbin.RoleUser {
+		return errs.New(errs.CodeBadRequest, "角色仅支持 admin / user")
 	}
-	banned, err := s.admin.CountBannedUsers(ctx)
+	user, err := s.users.FindByID(ctx, userID)
 	if err != nil {
-		return nil, err
+		return errs.ErrNotFound
 	}
-	return &UserStats{Total: total, Banned: banned}, nil
+	// 落库 + 内存策略同步（顺序：先内存后落库，失败时内存已生效不影响可用性）
+	if err := s.enforcer.SetRole(user.Username, role); err != nil {
+		return err
+	}
+	if err := s.users.SetRoleByID(ctx, userID, role); err != nil {
+		return err
+	}
+	return nil
 }
 
-// ---------- 站点设置 ----------
+// ---------- 媒体库（M2.9，设计稿《后台媒体》） ----------
 
-// Settings 站点设置读取。
+// MediaStats 媒体统计条（全部文件/图片/音频/视频）。
+func (s *AdminService) MediaStats(ctx context.Context) (*repository.MediaStats, error) {
+	return s.medias.Stats(ctx)
+}
+
+// ListMedia 后台媒体列表（类型/关键词/分页 + 引用数）。
+func (s *AdminService) ListMedia(ctx context.Context, mediaType string, keyword string, page int, pageSize int) ([]repository.MediaAdminRow, int64, error) {
+	return s.medias.ListAdmin(ctx, mediaType, keyword, page, pageSize)
+}
+
+// DeleteMedia 删除媒体（解除帖子引用 + 删记录 + 删磁盘文件；文件删除失败静默）。
+func (s *AdminService) DeleteMedia(ctx context.Context, mediaID int64) error {
+	storageKey, err := s.medias.Delete(ctx, mediaID)
+	if err != nil {
+		return err
+	}
+	_ = s.store.Remove(storageKey)
+	return nil
+}
+
+// ---------- 标签分类（M2.9，设计稿《后台标签》） ----------
+
+// TagStats 标签统计条（全部/热门/本周新建/未使用）。
+func (s *AdminService) TagStats(ctx context.Context) (*repository.TagStats, error) {
+	return s.tags.Stats(ctx)
+}
+
+// ListTags 后台标签列表（关键词/分页）。
+func (s *AdminService) ListTags(ctx context.Context, keyword string, page int, pageSize int) ([]repository.TagAdminRow, int64, error) {
+	return s.tags.ListAdmin(ctx, keyword, page, pageSize)
+}
+
+// RenameTag 重命名标签（name + slug + category 同步；重名返回冲突）。
+func (s *AdminService) RenameTag(ctx context.Context, tagID int64, name string, slug string, category string) error {
+	name = strings.TrimSpace(name)
+	slug = strings.TrimSpace(slug)
+	category = strings.TrimSpace(category)
+	if name == "" || len([]rune(name)) > 20 || slug == "" || len([]rune(slug)) > 50 {
+		return errs.New(errs.CodeBadRequest, "标签名需为 1-20 字符，别名需为 1-50 字符")
+	}
+	if len([]rune(category)) > 50 {
+		return errs.New(errs.CodeBadRequest, "分类不能超过 50 字符")
+	}
+	// 重名检查（排除自身）
+	existing, err := s.tags.FindByName(ctx, name)
+	if err == nil && existing != tagID {
+		return errs.New(errs.CodeConflict, "标签「"+name+"」已存在")
+	}
+	return s.tags.Rename(ctx, tagID, name, slug, category)
+}
+
+// MergeTag 合并标签（src → dst，src 删除，帖子关联转移）。
+func (s *AdminService) MergeTag(ctx context.Context, srcID int64, dstID int64) error {
+	if srcID == dstID {
+		return errs.New(errs.CodeBadRequest, "不能合并到自身")
+	}
+	return s.tags.Merge(ctx, srcID, dstID)
+}
+
+// DeleteTag 删除标签（解除帖子关联 + 删除标签）。
+func (s *AdminService) DeleteTag(ctx context.Context, tagID int64) error {
+	return s.tags.Delete(ctx, tagID)
+}
+
+// ---------- 站点设置 ----------// Settings 站点设置读取。
 func (s *AdminService) Settings(ctx context.Context) (map[string]string, error) {
 	return s.settings.All(ctx)
 }
 
-// SaveSettings 站点设置保存（站点名/描述/注册开关/评论开关/默认主题）。
+// SaveSettings 站点设置保存（站点名/描述/注册开关/评论开关/默认主题/维护开关）。
 func (s *AdminService) SaveSettings(ctx context.Context, updates map[string]string) error {
 	// 白名单校验（防注入任意键）
 	allowed := map[string]bool{
 		"site_name": true, "site_description": true,
 		"allow_register": true, "comment_open": true,
-		"theme": true,
+		"theme": true, "maintenance_mode": true, // 维护开关（M2）
+		"plugin_source": true, // 插件源仓库（M3.1，owner/repo）
 	}
 	for key := range updates {
 		if !allowed[key] {

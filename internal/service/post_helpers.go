@@ -5,14 +5,29 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"fmt"
+	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/roberts9012062/boke/internal/model"
 	"github.com/roberts9012062/boke/internal/repository"
 	"github.com/roberts9012062/boke/pkg/errs"
 )
+
+// viewerHash 生成浏览埋点的访客标识（登录用户 = ID 的 SHA256；访客 = 空串）。
+// 说明：不落原始用户 ID，日 UV 聚合用哈希去重；匿名无法跨设备识别（MVP 可接受）。
+func (s *PostService) viewerHash(viewerID int64) string {
+	if viewerID == 0 {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(strconv.FormatInt(viewerID, 10)))
+	return hex.EncodeToString(sum[:])
+}
 
 // validatePostReq 校验发帖参数（类型/字数/标签/可见性）。
 func validatePostReq(req model.CreatePostReq) error {
@@ -64,6 +79,88 @@ func (s *PostService) firstMediaURL(ctx context.Context, mediaIDs []int64) strin
 		return ""
 	}
 	return assets[0].URL
+}
+
+// UpdateByAdmin 后台编辑帖子（管理员权限，不校验作者；设计稿《后台编辑》四画板）。
+// 参数：postID 目标帖子；req 更新内容（status 决定按钮语义：draft=保存草稿 / published=更新发布）。
+func (s *PostService) UpdateByAdmin(ctx context.Context, postID int64, req model.AdminUpdatePostReq) error {
+	// ---------- 查询（已删除帖不可编辑） ----------
+	post, err := s.posts.FindByID(ctx, postID)
+	if err != nil {
+		return errs.ErrNotFound
+	}
+	if post.Status == model.PostStatusDeleted {
+		return errs.ErrNotFound
+	}
+
+	// ---------- 参数校验（与前台发帖规则一致） ----------
+	if utf8.RuneCountInString(req.Title) > maxTitleLen {
+		return errs.New(errs.CodeBadRequest, "标题过长")
+	}
+	if utf8.RuneCountInString(req.Content) > maxContentLen {
+		return errs.New(errs.CodeBadRequest, "正文不能超过 2000 字")
+	}
+	if len(req.Tags) > maxTags {
+		return errs.New(errs.CodeBadRequest, "标签最多 5 个")
+	}
+	for _, tag := range req.Tags {
+		if utf8.RuneCountInString(tag) > maxTagLen {
+			return errs.New(errs.CodeBadRequest, "单个标签不能超过 20 个字符")
+		}
+	}
+	if req.Visibility != model.VisibilityPublic &&
+		req.Visibility != model.VisibilityFollowers &&
+		req.Visibility != model.VisibilityPrivate {
+		return errs.New(errs.CodeBadRequest, "可见性不正确")
+	}
+	if req.Status != model.PostStatusDraft && req.Status != model.PostStatusPublished {
+		return errs.New(errs.CodeBadRequest, "状态仅支持 draft / published")
+	}
+
+	// ---------- 敏感词拦截（与前台发帖一致，防后台绕过发布违规内容；P1：命中计数） ----------
+	if word := s.moderation.CheckForbidden(req.Content); word != "" {
+		s.moderation.IncrHit(ctx, word)
+		return errs.New(errs.CodeBadRequest, "内容包含敏感词「"+word+"」，请修改后保存")
+	}
+
+	// ---------- 应用更新（内容类型不允许修改，保留原值） ----------
+	post.Title = strings.TrimSpace(req.Title)
+	post.Summary = buildSummary(req.Content)
+	post.Content = req.Content
+	post.Visibility = req.Visibility
+	post.MediaIDs = req.MediaIDs
+	// 封面策略：显式传 cover_url 优先（视频帖「更换封面」）；否则图片帖取第一张，其余保留原值
+	if req.CoverURL != nil {
+		post.CoverURL = *req.CoverURL
+	} else if post.ContentType == model.PostTypeImage {
+		post.CoverURL = s.firstMediaURL(ctx, req.MediaIDs)
+	}
+
+	found, err := s.posts.Update(ctx, post)
+	if err != nil {
+		return fmt.Errorf("更新帖子失败：%w", err)
+	}
+	if !found {
+		return errs.ErrNotFound
+	}
+
+	// ---------- 标签重建 ----------
+	if err := s.syncTags(ctx, postID, req.Tags); err != nil {
+		return err
+	}
+
+	// ---------- 状态变更（保存草稿 → draft；更新发布 → published） ----------
+	if req.Status == model.PostStatusPublished && post.Status != model.PostStatusPublished {
+		now := time.Now()
+		if err := s.posts.SetStatus(ctx, postID, model.PostStatusPublished, now); err != nil {
+			return err
+		}
+	} else if req.Status == model.PostStatusDraft && post.Status != model.PostStatusDraft {
+		if err := s.posts.SetStatus(ctx, postID, model.PostStatusDraft, nil); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // syncTags 同步帖子标签（先解除旧关联再关联新标签，计数相应增减）。

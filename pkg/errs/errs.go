@@ -70,9 +70,10 @@ const (
 // ---------- 6xxx：系统 ----------
 
 const (
-	CodeInternal   int = 6001 // 系统内部错误
-	CodeUpstream   int = 6002 // 上游依赖不可用
-	CodeRateLimit  int = 6003 // 请求过于频繁（限流）
+	CodeInternal    int = 6001 // 系统内部错误
+	CodeUpstream    int = 6002 // 上游依赖不可用
+	CodeRateLimit   int = 6003 // 请求过于频繁（限流）
+	CodeMaintenance int = 6004 // 全站维护中（维护开关开启，M2）
 )
 
 // 常用业务错误实例（避免重复构造）。
@@ -83,4 +84,5 @@ var (
 	ErrNotFound     = New(CodeNotFound, "资源不存在")
 	ErrBadRequest   = New(CodeBadRequest, "参数错误")
 	ErrRateLimit    = New(CodeRateLimit, "操作过于频繁，请稍后再试")
+	ErrMaintenance  = New(CodeMaintenance, "站点维护中，请稍后再来")
 )
