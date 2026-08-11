@@ -19,6 +19,8 @@ const ICON_PATHS: Record<string, string> = {
   health: '<path d="M3 12h4l2-6 4 12 2-6h6"/>',
   serp: '<path d="M4 6h16M4 10h16M4 14h16M4 18h10"/>',
   ai: '<path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4"/><path d="M8 12a4 4 0 0 1 8 0"/><path d="M12 12l2.5 4.5h-5z"/>',
+  report: '<path d="M4 20V10M10 20V4M16 20v-8M22 20H2"/>',
+  backup: '<path d="M12 3v12M8 11l4 4 4-4"/><path d="M4 17v3h16v-3"/>',
 };
 
 // NavIcon 侧栏图标组件。

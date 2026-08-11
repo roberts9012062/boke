@@ -147,6 +147,7 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 	aiTaskRepo := repository.NewAiTaskRepo(conn)         // AI 任务（M4）
 	aiUsageRepo := repository.NewAiUsageRepo(conn)       // AI 用量（M4）
 	seoRepo := repository.NewSeoRepo(conn)               // SEO 元数据（M4：摘要落库）
+	backupRepo := repository.NewBackupRepo(conn)         // 备份记录（M4-报表）
 
 	// ---------- 业务层 ----------
 	limiter := redis.NewRateLimiter(redisClient)
@@ -176,6 +177,10 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 	messageSvc := service.NewMessageService(messageRepo, userRepo, notifySvc) // 私信（M2）
 	pluginSvc := service.NewPluginService(ghClient, pluginRepo, settingRepo, hookDispatcher)
 	seoSvc := service.NewSeoService(seoRepo, postRepo, "http://localhost:"+cfg.ServerPort)
+	// 数据报表服务（M4-报表：统计聚合 + 趋势 CSV；复用后台聚合数据源）
+	reportSvc := service.NewReportService(repository.NewAdminRepo(conn), reportRepo)
+	// 备份导出服务（M4-报表：应用级 JSON/CSV/ZIP 导出 + 媒体库打包）
+	backupSvc := service.NewBackupService(backupRepo, cfg.DataDir, logger)
 	// 启动同步已启用插件的钩子（M3.2：重启后恢复运行态插件功能）
 	if err := pluginSvc.SyncActiveHooks(ctx); err != nil {
 		logger.Warn("插件钩子启动同步失败", zap.Error(err))
@@ -202,6 +207,8 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 		Plugin:     handler.NewPluginHandler(pluginSvc),
 		Seo:        handler.NewSeoHandler(seoSvc),
 		Ai:         handler.NewAiHandler(aiSvc, logger),
+		Report:     handler.NewReportHandler(reportSvc, logger),
+		Backup:     handler.NewBackupHandler(backupSvc, logger),
 	}
 	return handlers, jwtMgr, cleanup, nil
 }

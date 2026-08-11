@@ -32,6 +32,8 @@ type Handlers struct {
 	Plugin   *handler.PluginHandler   // 插件控制器（M3.1 商城/管理）
 	Seo      *handler.SeoHandler      // SEO 控制器（M4）
 	Ai       *handler.AiHandler       // AI 控制器（M4：供应商/任务/用量/内置场景）
+	Report   *handler.ReportHandler   // 数据报表控制器（M4-报表）
+	Backup   *handler.BackupHandler   // 备份导出控制器（M4-报表）
 }
 
 // Register 注册全部路由并返回 Gin 引擎。
@@ -233,4 +235,12 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager) {
 	adminGroup.POST("/ai/gen/summary", handlers.Ai.GenSummary)  // ?post_id= 生成摘要（seo_meta.summary）
 	adminGroup.POST("/ai/gen/tags", handlers.Ai.GenTags)        // ?post_id= 生成标签建议
 	adminGroup.POST("/ai/review/comments", handlers.Ai.ReviewComments) // 批量 AI 审核评论
+	// 数据报表（M4-报表，设计稿《数据报表》）：overview 聚合 + 趋势 CSV 导出
+	adminGroup.GET("/reports/overview", handlers.Report.Overview) // ?days=7|30
+	adminGroup.GET("/reports/export.csv", handlers.Report.ExportCSV) // ?days= 附件下载
+	// 备份导出（M4-报表，设计稿《备份导出》）：记录/创建/下载/删除
+	adminGroup.GET("/backups", handlers.Backup.List)
+	adminGroup.POST("/backups", handlers.Backup.Create)
+	adminGroup.GET("/backups/:id/download", handlers.Backup.Download)
+	adminGroup.DELETE("/backups/:id", handlers.Backup.Delete)
 }
