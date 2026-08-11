@@ -30,6 +30,7 @@ type Handlers struct {
 	Message  *handler.MessageHandler  // 私信控制器（M2）
 	Moderation *handler.ModerationHandler // 内容治理控制器（M2 举报/敏感词/封禁）
 	Plugin   *handler.PluginHandler   // 插件控制器（M3.1 商城/管理）
+	Seo      *handler.SeoHandler      // SEO 控制器（M4）
 }
 
 // Register 注册全部路由并返回 Gin 引擎。
@@ -51,6 +52,9 @@ func Register(cfg config.Config, logger *zap.Logger, handlers Handlers, jwtMgr *
 	})
 	// 媒体静态服务：/media/202608/xxx.jpg（data/media 目录）
 	engine.StaticFS("/media", http.Dir(cfg.DataDir+"/media"))
+	// SEO 公开端点（M4）：sitemap.xml / robots.txt
+	engine.GET("/sitemap.xml", handlers.Seo.Sitemap)
+	engine.GET("/robots.txt", handlers.Seo.Robots)
 
 	// ---------- API v1 路由组 ----------
 	api := engine.Group("/api/v1")
@@ -205,4 +209,13 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager) {
 	adminGroup.POST("/plugins/install", handlers.Plugin.Install)  // 安装 {plugin_id}
 	adminGroup.PUT("/plugins/:id/state", handlers.Plugin.SetState) // 启用/禁用
 	adminGroup.DELETE("/plugins/:id", handlers.Plugin.Uninstall)   // 卸载
+	// SEO（M4）：设置/元数据/健康度/批量修复/SERP
+	adminGroup.GET("/seo/settings", handlers.Seo.GetSettings)
+	adminGroup.PUT("/seo/settings", handlers.Seo.SaveSettings)
+	adminGroup.GET("/seo/meta/:postId", handlers.Seo.GetMeta)
+	adminGroup.PUT("/seo/meta/:postId", handlers.Seo.SaveMeta)
+	adminGroup.GET("/seo/health", handlers.Seo.Health)
+	adminGroup.POST("/seo/health/scan", handlers.Seo.ScanHealth)
+	adminGroup.POST("/seo/batch-fix", handlers.Seo.BatchFix)
+	adminGroup.GET("/seo/serp-preview", handlers.Seo.SerpPreview)
 }

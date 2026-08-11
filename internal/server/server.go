@@ -29,6 +29,7 @@ import (
 	"github.com/roberts9012062/boke/internal/handler"
 	"github.com/roberts9012062/boke/internal/mail"
 	"github.com/roberts9012062/boke/internal/media"
+	"github.com/roberts9012062/boke/internal/plugin"
 	"github.com/roberts9012062/boke/internal/redis"
 	"github.com/roberts9012062/boke/internal/repository"
 	"github.com/roberts9012062/boke/internal/router"
@@ -149,21 +150,30 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 	resetMgr := auth.NewResetManager()                 // 密码重置令牌（M2）
 	mailer := mail.NewSender(cfg.Mail, logger)         // 邮件发送（M2；未配置降级日志）
 	authSvc := service.NewAuthService(userRepo, auditRepo, jwtMgr, enforcer, limiter, resetMgr, mailer, cfg.SiteBaseURL)
+	// ---------- 插件钩子调度器（M3.2 扩展框架：注册表 + 故障隔离；错误记录到日志） ----------
+	hookDispatcher := plugin.NewRegistry(func(hook string, err error) {
+		logger.Warn("插件钩子执行异常", zap.String("hook", hook), zap.Error(err))
+	})
 	// 内容治理服务（M2：举报/敏感词/封禁；先建供发帖/评论拦截注入）
 	moderationSvc := service.NewModerationService(reportRepo, sensitiveRepo, banRepo, userRepo, postRepo, commentRepo)
 	// 启动时加载敏感词表（后台变更后自动刷新）
 	_ = moderationSvc.ReloadForbidden(ctx)
-	postSvc := service.NewPostService(postRepo, tagRepo, mediaRepo, userRepo, mediaStore, moderationSvc, relationRepo)
-	notifySvc := service.NewNotificationService(notificationRepo, userRepo)
-	commentSvc := service.NewCommentService(commentRepo, reactionRepo, userRepo, guestMgr, postRepo, notifySvc, moderationSvc)
+	postSvc := service.NewPostService(postRepo, tagRepo, mediaRepo, userRepo, mediaStore, moderationSvc, relationRepo, hookDispatcher)
+	notifySvc := service.NewNotificationService(notificationRepo, userRepo, hookDispatcher)
+	commentSvc := service.NewCommentService(commentRepo, reactionRepo, userRepo, guestMgr, postRepo, notifySvc, moderationSvc, hookDispatcher)
 	reactionSvc := service.NewReactionService(reactionRepo, postRepo, notifySvc)
 	followSvc := service.NewFollowService(relationRepo, userRepo, postRepo, postSvc, notifySvc)
 	topicSvc := service.NewTopicService(tagRepo, postRepo, postSvc)
-	searchSvc := service.NewSearchService(postRepo, tagRepo, userRepo, postSvc)
-	adminSvc := service.NewAdminService(adminRepo, postRepo, commentRepo, settingRepo, enforcer, banRepo, userRepo, postSvc, mediaRepo, tagRepo, mediaStore)
+	searchSvc := service.NewSearchService(postRepo, tagRepo, userRepo, postSvc, hookDispatcher)
+	adminSvc := service.NewAdminService(adminRepo, postRepo, commentRepo, settingRepo, enforcer, banRepo, userRepo, postSvc, mediaRepo, tagRepo, mediaStore, hookDispatcher)
 	siteSvc := service.NewSiteService(settingRepo) // 站点信息（meta 从 settings 实时读取，M1.7）
 	messageSvc := service.NewMessageService(messageRepo, userRepo, notifySvc) // 私信（M2）
-	pluginSvc := service.NewPluginService(ghClient, pluginRepo, settingRepo)  // 插件（M3.1）
+	pluginSvc := service.NewPluginService(ghClient, pluginRepo, settingRepo, hookDispatcher)
+	seoSvc := service.NewSeoService(repository.NewSeoRepo(conn), postRepo, "http://localhost:"+cfg.ServerPort)
+	// 启动同步已启用插件的钩子（M3.2：重启后恢复运行态插件功能）
+	if err := pluginSvc.SyncActiveHooks(ctx); err != nil {
+		logger.Warn("插件钩子启动同步失败", zap.Error(err))
+	}  // 插件（M3.1）
 
 	// ---------- 角色策略全量加载（M2：users.role 落库 → casbin 内存策略） ----------
 	if err := syncRoles(ctx, enforcer, userRepo, logger); err != nil {
@@ -184,6 +194,7 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 		Message: handler.NewMessageHandler(messageSvc, logger),
 		Moderation: handler.NewModerationHandler(moderationSvc, logger),
 		Plugin:     handler.NewPluginHandler(pluginSvc),
+		Seo:        handler.NewSeoHandler(seoSvc),
 	}
 	return handlers, jwtMgr, cleanup, nil
 }

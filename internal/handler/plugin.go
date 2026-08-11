@@ -25,12 +25,12 @@ func NewPluginHandler(plugins *service.PluginService) *PluginHandler {
 // Market 插件商城（GET /api/v1/admin/plugins/market?source=）。
 // 参数：source 自定义插件源仓库（可选，空 = settings 默认）。
 func (h *PluginHandler) Market(c *gin.Context) {
-	manifest, items, err := h.plugins.Market(c.Request.Context(), c.Query("source"))
+	manifest, items, actualSource, err := h.plugins.Market(c.Request.Context(), c.Query("source"))
 	if err != nil {
 		resp.FailFrom(c, err)
 		return
 	}
-	resp.OK(c, gin.H{"source": c.Query("source"), "name": manifest.Name, "description": manifest.Description, "items": items})
+	resp.OK(c, gin.H{"source": actualSource, "name": manifest.Name, "description": manifest.Description, "items": items})
 }
 
 // ListInstalled 已安装插件（GET /api/v1/admin/plugins）。

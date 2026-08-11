@@ -16,6 +16,7 @@ import (
 
 	"github.com/roberts9012062/boke/internal/auth"
 	"github.com/roberts9012062/boke/internal/model"
+	"github.com/roberts9012062/boke/internal/plugin"
 	"github.com/roberts9012062/boke/internal/repository"
 	"github.com/roberts9012062/boke/pkg/errs"
 )
@@ -36,6 +37,7 @@ type CommentService struct {
 	posts      *repository.PostRepo      // 帖子数据访问（作者/计数）
 	notify     *NotificationService      // 通知服务（评论/回复通知）
 	moderation *ModerationService        // 内容治理（M2：敏感词拦截）
+	hooks      plugin.Dispatcher         // 插件钩子调度器（M3.2 扩展框架）
 }
 
 // NewCommentService 创建评论服务。
@@ -47,8 +49,9 @@ func NewCommentService(
 	posts *repository.PostRepo,
 	notify *NotificationService,
 	moderation *ModerationService,
+	hooks plugin.Dispatcher,
 ) *CommentService {
-	return &CommentService{comments: comments, reactions: reactions, users: users, guests: guests, posts: posts, notify: notify, moderation: moderation}
+	return &CommentService{comments: comments, reactions: reactions, users: users, guests: guests, posts: posts, notify: notify, moderation: moderation, hooks: hooks}
 }
 
 // CommentInput 发表评论输入（顶层与回复共用）。
@@ -119,6 +122,22 @@ func (s *CommentService) Create(ctx context.Context, postID int64, viewerID int6
 	if word := s.moderation.CheckForbidden(content); word != "" {
 		s.moderation.IncrHit(ctx, word)
 		return 0, errs.New(errs.CodeBadRequest, "评论包含敏感词「"+word+"」，请修改后发送")
+	}
+
+	// ---------- 插件钩子：comment.before_save（同步，可拦截；M3.2 扩展框架） ----------
+	if res := s.hooks.Dispatch(ctx, plugin.HookCommentBeforeSave, plugin.Event{
+		ActorID: viewerID,
+		Payload: content,
+	}); !res.OK {
+		return 0, errs.New(errs.CodeValidation, res.Reason)
+	}
+
+	// ---------- 插件钩子：comment.before_save（同步，可拦截；M3.2 扩展框架） ----------
+	if res := s.hooks.Dispatch(ctx, plugin.HookCommentBeforeSave, plugin.Event{
+		ActorID: viewerID,
+		Payload: content,
+	}); !res.OK {
+		return 0, errs.New(errs.CodeValidation, res.Reason)
 	}
 
 	// 身份确定：登录用户或匿名 token

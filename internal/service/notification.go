@@ -10,6 +10,7 @@ import (
 	"strconv"
 
 	"github.com/roberts9012062/boke/internal/model"
+	"github.com/roberts9012062/boke/internal/plugin"
 	"github.com/roberts9012062/boke/internal/repository"
 )
 
@@ -30,14 +31,16 @@ type NotificationDTO struct {
 type NotificationService struct {
 	notifications *repository.NotificationRepo // 通知数据访问
 	users         *repository.UserRepo         // 用户数据访问（触发者信息）
+	hooks         plugin.Dispatcher            // 插件钩子调度器（M3.2 扩展框架）
 }
 
 // NewNotificationService 创建通知服务。
 func NewNotificationService(
 	notifications *repository.NotificationRepo,
 	users *repository.UserRepo,
+	hooks plugin.Dispatcher,
 ) *NotificationService {
-	return &NotificationService{notifications: notifications, users: users}
+	return &NotificationService{notifications: notifications, users: users, hooks: hooks}
 }
 
 // ---------- 触发（供互动/评论/关注 service 调用） ----------

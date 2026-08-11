@@ -5,6 +5,7 @@
 // + 安装弹层（免费：能力清单+确认安装；付费：永久授权+支付 ¥xx 并安装+复制授权码模拟）→ Loading → 成功。
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import {
@@ -134,7 +135,7 @@ export default function PluginMarketPage() {
           type="text"
           value={sourceInput}
           onChange={(e) => setSourceInput(e.target.value)}
-          placeholder="owner/repo（GitHub 仓库，默认 roberts9012062/boke）"
+          placeholder="owner/repo（GitHub 仓库，默认 roberts9012062/yueyan-plugins）"
           className="h-9 w-72 rounded-full border border-line bg-elevated px-4 text-sm text-ink placeholder:text-ink-3 focus:border-accent focus:outline-none"
         />
         <button
@@ -145,7 +146,7 @@ export default function PluginMarketPage() {
           拉取
         </button>
         <span className="text-xs text-ink-3">
-          当前源：{source || "roberts9012062/boke"} · {marketName}
+          当前源：{source || "roberts9012062/yueyan-plugins"} · {marketName}
         </span>
       </div>
 
@@ -233,6 +234,12 @@ export default function PluginMarketPage() {
                 </div>
               </div>
               <p className="mt-1 text-xs text-ink-3">{formatInstalls(plugin.installs)} 安装 · v{plugin.version}</p>
+              {/* 兼容性契约（M3.2：core_version / requires / conflicts） */}
+              <p className="mt-1 text-[10px] text-ink-3">
+                {plugin.core_version ? `兼容核心 ${plugin.core_version}` : "兼容任意核心版本"}
+                {plugin.requires?.length ? ` · 依赖 ${plugin.requires.join(", ")}` : ""}
+                {plugin.conflicts?.length ? ` · 冲突 ${plugin.conflicts.join(", ")}` : ""}
+              </p>
               <p className="mt-2 line-clamp-2 text-sm text-ink-2">{plugin.description}</p>
 
               <div className="mt-4">
@@ -243,14 +250,17 @@ export default function PluginMarketPage() {
                     </span>
                     <div className="flex items-center gap-2">
                       <span className="text-ink-3">已装</span>
-                      {/* 打开设置（设计稿《已装SEO》：M3.2 插件配置页激活，当前占位提示） */}
-                      <button
-                        type="button"
-                        onClick={() => setError("插件设置将在 M3.2 里程碑开放（插件配置页）")}
-                        className="rounded-full border border-line px-3 py-1 text-ink-2 hover:text-ink"
-                      >
-                        打开设置
-                      </button>
+                      {/* 打开设置（设计稿《已装SEO》：schema 驱动设置页，M3.2） */}
+                      {(plugin.settings_schema?.length ?? 0) > 0 ? (
+                        <Link
+                          href={`/admin/plugins/${plugin.id}/settings`}
+                          className="rounded-full border border-line px-3 py-1 text-ink-2 hover:text-ink"
+                        >
+                          打开设置
+                        </Link>
+                      ) : (
+                        <span className="text-[10px] text-ink-3">无配置项</span>
+                      )}
                     </div>
                   </div>
                 ) : plugin.price > 0 ? (

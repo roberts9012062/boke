@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/roberts9012062/boke/internal/model"
+	"github.com/roberts9012062/boke/internal/plugin"
 	"github.com/roberts9012062/boke/internal/repository"
 	"github.com/roberts9012062/boke/pkg/errs"
 )
@@ -121,6 +122,14 @@ func (s *PostService) UpdateByAdmin(ctx context.Context, postID int64, req model
 	if word := s.moderation.CheckForbidden(req.Content); word != "" {
 		s.moderation.IncrHit(ctx, word)
 		return errs.New(errs.CodeBadRequest, "内容包含敏感词「"+word+"」，请修改后保存")
+	}
+
+	// ---------- 插件钩子：post.before_publish（同步，可拦截；M3.2 扩展框架） ----------
+	if res := s.hooks.Dispatch(ctx, plugin.HookPostBeforePublish, plugin.Event{
+		ActorID: 0, // 后台操作者（管理员）
+		Payload: post,
+	}); !res.OK {
+		return errs.New(errs.CodeValidation, res.Reason)
 	}
 
 	// ---------- 应用更新（内容类型不允许修改，保留原值） ----------

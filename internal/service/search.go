@@ -6,6 +6,7 @@ import (
 	"context"
 
 	"github.com/roberts9012062/boke/internal/model"
+	"github.com/roberts9012062/boke/internal/plugin"
 	"github.com/roberts9012062/boke/internal/repository"
 )
 
@@ -32,6 +33,7 @@ type SearchService struct {
 	tags    *repository.TagRepo  // 标签数据访问（话题检索）
 	users   *repository.UserRepo // 用户数据访问（用户检索）
 	postSvc *PostService         // 帖子服务（摘要组装）
+	hooks   plugin.Dispatcher    // 插件钩子调度器（M3.2 扩展框架）
 }
 
 // NewSearchService 创建搜索服务。
@@ -40,13 +42,24 @@ func NewSearchService(
 	tags *repository.TagRepo,
 	users *repository.UserRepo,
 	postSvc *PostService,
+	hooks plugin.Dispatcher,
 ) *SearchService {
-	return &SearchService{posts: posts, tags: tags, users: users, postSvc: postSvc}
+	return &SearchService{posts: posts, tags: tags, users: users, postSvc: postSvc, hooks: hooks}
 }
 
 // Search 执行搜索（帖子 + 话题 + 用户三组结果）。
 // 参数：keyword 关键词；page/pageSize 帖子分页；viewerID 当前用户。
 func (s *SearchService) Search(ctx context.Context, keyword string, page int, pageSize int, viewerID int64) (*SearchResult, error) {
+	// ---------- 插件钩子：search.query（同步，可改写关键词；M3.2 扩展框架） ----------
+	if res := s.hooks.Dispatch(ctx, plugin.HookSearchQuery, plugin.Event{
+		ActorID: viewerID,
+		Payload: keyword,
+	}); !res.OK {
+		// 拒绝则按空结果返回（插件可整体禁用搜索扩展）
+		return &SearchResult{Posts: []model.PostSummary{}, Topics: []TopicDTO{}, Users: []UserHit{}}, nil
+	} else if kw, ok := res.Modify.(string); ok && kw != "" {
+		keyword = kw
+	}
 	result := &SearchResult{
 		Posts:  make([]model.PostSummary, 0),
 		Topics: make([]TopicDTO, 0),

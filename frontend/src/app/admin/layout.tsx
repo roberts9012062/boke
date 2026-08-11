@@ -10,6 +10,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { NavIcon } from "@/components/admin/nav-icons";
+import { apiInstalledPlugins } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
 // 导航项：icon 对应 NavIcon 图标键；available=false 显示建设中占位。
@@ -30,9 +31,9 @@ const MAIN_ITEMS: NavItem[] = [
   { href: "/admin/tags", label: "标签分类", icon: "tags", available: true }, // M2.9 激活
   { href: "/admin/roles", label: "角色权限", icon: "roles", available: false },
   { href: "/admin/settings", label: "站点设置", icon: "settings", available: true },
-  { href: "/admin/seo", label: "SEO 设置", icon: "seo", available: false },
-  { href: "/admin/seo-health", label: "健康度", icon: "health", available: false },
-  { href: "/admin/serp", label: "SERP 预览", icon: "serp", available: false },
+  { href: "/admin/seo", label: "SEO 设置", icon: "seo", available: true }, // M4 激活
+  { href: "/admin/seo-health", label: "健康度", icon: "health", available: true }, // M4 激活
+  { href: "/admin/serp", label: "SERP 预览", icon: "serp", available: true }, // M4 激活
 ];
 
 // 插件二级子菜单（插件为一级菜单，子项：插件商城 / 我的插件；M3.1 激活）
@@ -82,6 +83,21 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [pluginsOpen, setPluginsOpen] = useState<boolean>(true);
   // 插件子项激活时自动展开
   const pluginActive = pathname.startsWith("/admin/plugin-market") || pathname.startsWith("/admin/plugins");
+  // 已装插件侧栏声明（M3.2 前端扩展点：running 插件声明的入口合并进插件子菜单）
+  const [pluginNavItems, setPluginNavItems] = useState<{ href: string; label: string; icon: string }[]>([]);
+
+  // 加载已装插件的侧栏声明（仅 running 状态生效）
+  useEffect(() => {
+    apiInstalledPlugins()
+      .then((r) => {
+        setPluginNavItems(
+          r.items
+            .filter((p) => p.state === "running" && p.nav?.href)
+            .map((p) => ({ href: p.nav!.href, label: p.nav!.label, icon: p.nav!.icon })),
+        );
+      })
+      .catch(() => undefined);
+  }, [pathname]);
 
   // 未登录/非 admin：跳转
   useEffect(() => {
@@ -130,7 +146,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 {pluginsOpen ? "▾" : "▸"}
               </span>
             </button>
-            {/* 二级子菜单（缩进，插件相关） */}
+            {/* 二级子菜单（缩进，插件相关：内置商城/我的插件 + 已装插件动态入口） */}
             {pluginsOpen && (
               <div className="ml-[18px] mt-0.5 border-l border-line pl-2">
                 {PLUGIN_SUB_ITEMS.map((item) => {
@@ -146,6 +162,22 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                     >
                       <span className="flex-1">{item.label}</span>
                       {!item.available && <span className="text-[10px] text-ink-3">建设中</span>}
+                    </Link>
+                  );
+                })}
+                {/* 动态入口（已装 running 插件声明的侧栏项，M3.2 前端扩展点） */}
+                {pluginNavItems.map((item) => {
+                  const active = pathname.startsWith(item.href);
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className={`mb-0.5 flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors ${
+                        active ? "bg-accent-soft font-medium text-glow" : "text-ink-2 hover:bg-muted hover:text-ink"
+                      }`}
+                    >
+                      <NavIcon name={item.icon} className="h-4 w-4 shrink-0" />
+                      <span className="flex-1">{item.label}</span>
                     </Link>
                   );
                 })}

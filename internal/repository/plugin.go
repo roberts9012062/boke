@@ -53,6 +53,20 @@ func (r *PluginRepo) Exists(ctx context.Context, pluginID string) (bool, error) 
 	return exists, err
 }
 
+// FindByID 按实例 ID 查询（生命周期联动：启用/禁用/卸载前取插件 ID）。
+func (r *PluginRepo) FindByID(ctx context.Context, id int64) (PluginInstance, error) {
+	var inst PluginInstance
+	err := r.pool.QueryRow(ctx, `
+		SELECT id, plugin_id, name, version, repo_url, state, last_error, created_at
+		FROM plugin_instances WHERE id = $1`, id).Scan(
+		&inst.ID, &inst.PluginID, &inst.Name, &inst.Version,
+		&inst.RepoURL, &inst.State, &inst.LastError, &inst.CreatedAt)
+	if err != nil {
+		return PluginInstance{}, wrapNotFound(err)
+	}
+	return inst, nil
+}
+
 // FindByPluginID 查询插件全部记录（含已卸载；plugin_id 唯一约束）。
 // 返回：记录；不存在返回 ErrNotFound。
 func (r *PluginRepo) FindByPluginID(ctx context.Context, pluginID string) (PluginInstance, error) {

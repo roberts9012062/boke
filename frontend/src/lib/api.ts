@@ -607,7 +607,23 @@ export function apiAdminDeleteTag(tagId: number): Promise<void> {
 
 // ---------- 插件商城/管理（M3.1，GitHub 仓库清单驱动） ----------
 
-// 插件信息（清单项，与后端 dto 同步）。
+// 插件侧栏入口声明（前端数据驱动扩展）。
+export interface PluginNav {
+  href: string; // 后台路径
+  label: string; // 菜单名
+  icon: string; // 图标 key（nav-icons 注册表）
+}
+
+// 插件设置项（schema 驱动通用设置页）。
+export interface PluginSettingField {
+  key: string; // 设置键（存 settings：plugin_{id}_{key}）
+  label: string; // 标签
+  type: string; // text / switch / select
+  default: string; // 默认值
+  options?: string[]; // select 选项
+}
+
+// 插件信息（清单项，与后端 dto 同步，含兼容性契约字段）。
 export interface PluginInfo {
   id: string; // 插件 ID
   name: string; // 名称
@@ -619,6 +635,11 @@ export interface PluginInfo {
   description: string; // 描述
   capabilities: string[]; // 能力清单
   repo_url: string; // 来源仓库
+  core_version?: string; // 兼容核心版本（如 >=0.1.0）
+  requires?: string[]; // 依赖插件
+  conflicts?: string[]; // 冲突插件
+  nav?: PluginNav; // 侧栏入口声明
+  settings_schema?: PluginSettingField[]; // 设置项 schema
 }
 
 // 商城插件（清单 + 已安装状态）。
@@ -637,6 +658,8 @@ export interface InstalledPlugin {
   repo_url: string; // 来源
   state: string; // running/disabled/installed
   created_at: string; // 安装时间
+  nav?: PluginNav; // 侧栏入口声明（动态扩展）
+  settings_schema?: PluginSettingField[]; // 设置项 schema
 }
 
 // 插件商城清单（source 为空 = settings 默认源；返回清单 + 插件列表）。
@@ -670,6 +693,85 @@ export function apiSetPluginState(instanceId: number, state: string): Promise<vo
 // 卸载插件。
 export function apiUninstallPlugin(instanceId: number): Promise<void> {
   return del<void>(`/admin/plugins/${instanceId}`);
+}
+
+// ---------- SEO（M4） ----------
+
+// 全局 SEO 设置（seo_settings 单行）。
+export interface SeoSettings {
+  site_name: string; // 站点名称
+  site_description: string; // 默认描述
+  title_suffix: string; // 标题后缀
+  keywords: string; // 默认关键词
+  og_title: string; // 默认 OG 标题
+  robots_txt: string; // robots.txt
+  sitemap_enabled: boolean; // sitemap 开关
+}
+
+// 帖子 SEO 元数据（seo_meta）。
+export interface SeoMeta {
+  post_id: number;
+  title: string;
+  description: string;
+  keywords: string;
+  canonical_url: string;
+  og_image: string;
+  summary: string;
+}
+
+// 健康问题项。
+export interface SeoHealthIssue {
+  code: string;
+  message: string;
+}
+
+// 健康度汇总（设计稿：四卡片 + 近 7 日趋势 + 问题类型分布 + 优先修复）。
+export interface SeoHealthSummary {
+  total_posts: number; // 已扫描帖子
+  pending_issues: number; // 待修复问题
+  avg_score: number; // 综合评分（0-100）
+  meta_coverage: number; // 元信息覆盖 %
+  indexable: number; // 可收录页面
+  noindex: number; // noindex 页面
+  trend: { date: string; score: number }[]; // 近 7 日健康分趋势
+  distribution: { code: string; label: string; count: number; percent: number }[]; // 问题类型分布
+  priorities: { level: string; message: string; hint: string; where: string }[]; // 优先修复
+  items: { post_id: number; post_title: string; score: number; issues: SeoHealthIssue[]; checked_at: string }[];
+}
+
+// SERP 预览数据。
+export interface SerpPreview {
+  title: string;
+  title_len: number;
+  url: string;
+  description: string;
+  checks: string[];
+  warnings: string[];
+}
+
+export function apiSeoSettings(): Promise<SeoSettings> {
+  return get<SeoSettings>("/admin/seo/settings");
+}
+export function apiSaveSeoSettings(updates: SeoSettings): Promise<void> {
+  return put<void>("/admin/seo/settings", updates);
+}
+export function apiSeoMeta(postId: number): Promise<SeoMeta> {
+  return get<SeoMeta>(`/admin/seo/meta/${postId}`);
+}
+export function apiSaveSeoMeta(postId: number, meta: Partial<SeoMeta>): Promise<void> {
+  return put<void>(`/admin/seo/meta/${postId}`, meta);
+}
+export function apiSeoHealth(): Promise<SeoHealthSummary> {
+  return get<SeoHealthSummary>("/admin/seo/health");
+}
+export function apiSeoScan(): Promise<SeoHealthSummary> {
+  return post<SeoHealthSummary>("/admin/seo/health/scan");
+}
+export function apiSeoBatchFix(): Promise<{ fixed: number }> {
+  return post<{ fixed: number }>("/admin/seo/batch-fix");
+}
+export function apiSerpPreview(postId: number): Promise<SerpPreview> {
+  return get<SerpPreview>(`/admin/seo/serp-preview?post_id=${postId}`);
 }
 
 // ---------- 私信/消息（M2） ----------

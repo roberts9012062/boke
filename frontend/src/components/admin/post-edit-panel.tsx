@@ -3,7 +3,9 @@
 // 发布信息（类型/状态/可见性/创建/更新）+ 互动数据（赞/评/览）+ 操作（下架/删除）+ SEO 占位。
 "use client";
 
-import { apiAdminDeletePost, apiAdminSetPostStatus } from "@/lib/api";
+import { useEffect, useState } from "react";
+
+import { apiAdminDeletePost, apiAdminSetPostStatus, apiSaveSeoMeta, apiSeoMeta, ApiError } from "@/lib/api";
 import { formatCompact, formatDateTime } from "@/lib/utils";
 import type { AdminPostDetail } from "@/types/api";
 
@@ -29,6 +31,44 @@ export function PostEditPanel({
   detail: AdminPostDetail;
   onChanged: () => void;
 }) {
+  // SEO 面板状态（M4 激活：设计稿《后台编辑·文字·SEO》：SEO 标题/SEO 描述/本帖 SEO/SEO 选项）
+  const [seoTitle, setSeoTitle] = useState<string>("");
+  const [seoDesc, setSeoDesc] = useState<string>("");
+  const [seoKeywords, setSeoKeywords] = useState<string>("");
+  const [seoOgImage, setSeoOgImage] = useState<string>("");
+  const [seoLoaded, setSeoLoaded] = useState<boolean>(false);
+  const [seoSaved, setSeoSaved] = useState<boolean>(false);
+  const [seoError, setSeoError] = useState<string>("");
+
+  // 加载帖子 SEO 元数据（设计稿：SEO 标题/描述/本帖 SEO）
+  useEffect(() => {
+    apiSeoMeta(detail.id)
+      .then((meta) => {
+        setSeoTitle(meta.title);
+        setSeoDesc(meta.description);
+        setSeoKeywords(meta.keywords);
+        setSeoOgImage(meta.og_image);
+      })
+      .catch(() => undefined)
+      .finally(() => setSeoLoaded(true));
+  }, [detail.id]);
+
+  // 保存 SEO 元数据
+  const saveSeo = async () => {
+    setSeoError("");
+    setSeoSaved(false);
+    try {
+      await apiSaveSeoMeta(detail.id, {
+        title: seoTitle,
+        description: seoDesc,
+        keywords: seoKeywords,
+        og_image: seoOgImage,
+      });
+      setSeoSaved(true);
+    } catch (err) {
+      setSeoError(err instanceof ApiError ? err.message : "SEO 保存失败");
+    }
+  };
   // 下架/上架切换（复用内容管理上下架接口）
   const toggleStatus = async () => {
     const next = detail.status === "published" ? "taken_down" : "published";
@@ -115,12 +155,82 @@ export function PostEditPanel({
         </div>
       </section>
 
-      {/* SEO 面板占位（设计稿《后台编辑·文字·SEO》：SEO 标题/SEO 描述/本帖 SEO/SEO 选项） */}
-      <section className="rounded-lg border border-dashed border-line p-5">
-        <h2 className="text-sm font-semibold text-ink-2">SEO 标题 / SEO 描述</h2>
-        <p className="mt-1 text-xs text-ink-3">
-          本帖 SEO（标题字/描述字/收录）· noindex / 自定义 OG 图 —— M4 里程碑开放
-        </p>
+      {/* SEO 面板（M4 激活：设计稿《后台编辑·文字·SEO》） */}
+      <section className="rounded-lg border border-line bg-elevated p-5">
+        <h2 className="text-sm font-semibold text-ink">SEO 标题 / SEO 描述</h2>
+        <div className="mt-3 space-y-3">
+          <div>
+            <label htmlFor="seo-title" className="mb-1 block text-xs text-ink-3">
+              SEO 标题
+            </label>
+            <input
+              id="seo-title"
+              type="text"
+              value={seoTitle}
+              onChange={(e) => setSeoTitle(e.target.value)}
+              maxLength={300}
+              placeholder={`${detail.title || "帖子标题"} · 月言`}
+              className="h-9 w-full rounded-lg border border-line bg-muted px-3 text-xs text-ink placeholder:text-ink-3 focus:border-accent focus:outline-none"
+            />
+            <p className="mt-0.5 text-right text-[10px] text-ink-3">{seoTitle.length} 字</p>
+          </div>
+          <div>
+            <label htmlFor="seo-desc" className="mb-1 block text-xs text-ink-3">
+              SEO 描述
+            </label>
+            <textarea
+              id="seo-desc"
+              value={seoDesc}
+              onChange={(e) => setSeoDesc(e.target.value)}
+              rows={2}
+              maxLength={500}
+              className="w-full rounded-lg border border-line bg-muted px-3 py-2 text-xs text-ink placeholder:text-ink-3 focus:border-accent focus:outline-none"
+            />
+          </div>
+          <div>
+            <label htmlFor="seo-keywords" className="mb-1 block text-xs text-ink-3">
+              关键词（逗号分隔）
+            </label>
+            <input
+              id="seo-keywords"
+              type="text"
+              value={seoKeywords}
+              onChange={(e) => setSeoKeywords(e.target.value)}
+              className="h-9 w-full rounded-lg border border-line bg-muted px-3 text-xs text-ink focus:border-accent focus:outline-none"
+            />
+          </div>
+          <div>
+            <label htmlFor="seo-og" className="mb-1 block text-xs text-ink-3">
+              自定义 OG 图（URL）
+            </label>
+            <input
+              id="seo-og"
+              type="text"
+              value={seoOgImage}
+              onChange={(e) => setSeoOgImage(e.target.value)}
+              placeholder="/media/202608/xxx.jpg"
+              className="h-9 w-full rounded-lg border border-line bg-muted px-3 text-xs text-ink placeholder:text-ink-3 focus:border-accent focus:outline-none"
+            />
+          </div>
+          {seoError && (
+            <p className="rounded-md bg-like/10 px-3 py-2 text-xs text-like" role="alert">
+              {seoError}
+            </p>
+          )}
+          {seoSaved && (
+            <p className="rounded-md bg-accent-soft px-3 py-2 text-xs text-glow" role="status">
+              SEO 已保存
+            </p>
+          )}
+          <button
+            type="button"
+            onClick={() => void saveSeo()}
+            disabled={!seoLoaded}
+            className="rounded-full bg-accent px-5 py-1.5 text-xs font-medium text-on-accent hover:opacity-90 disabled:opacity-60"
+          >
+            保存 SEO
+          </button>
+        </div>
       </section>
     </div>
   );

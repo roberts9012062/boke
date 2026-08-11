@@ -10,6 +10,7 @@ import (
 	"github.com/roberts9012062/boke/internal/casbin"
 	"github.com/roberts9012062/boke/internal/media"
 	"github.com/roberts9012062/boke/internal/model"
+	"github.com/roberts9012062/boke/internal/plugin"
 	"github.com/roberts9012062/boke/internal/repository"
 	"github.com/roberts9012062/boke/pkg/errs"
 )
@@ -27,11 +28,12 @@ type AdminService struct {
 	medias   *repository.MediaRepo     // 媒体（M2.9：媒体库）
 	tags     *repository.TagRepo       // 标签（M2.9：标签分类）
 	store    *media.Store              // 媒体存储（M2.9：删除磁盘文件）
+	hooks    plugin.Dispatcher         // 插件钩子调度器（M3.2 扩展框架）
 }
 
 // NewAdminService 创建后台服务。
-func NewAdminService(admin *repository.AdminRepo, posts *repository.PostRepo, comments *repository.CommentRepo, settings *repository.SettingRepo, enforcer *casbin.Enforcer, bans *repository.BanRepo, users *repository.UserRepo, postSvc *PostService, medias *repository.MediaRepo, tags *repository.TagRepo, store *media.Store) *AdminService {
-	return &AdminService{admin: admin, posts: posts, comments: comments, settings: settings, enforcer: enforcer, bans: bans, users: users, postSvc: postSvc, medias: medias, tags: tags, store: store}
+func NewAdminService(admin *repository.AdminRepo, posts *repository.PostRepo, comments *repository.CommentRepo, settings *repository.SettingRepo, enforcer *casbin.Enforcer, bans *repository.BanRepo, users *repository.UserRepo, postSvc *PostService, medias *repository.MediaRepo, tags *repository.TagRepo, store *media.Store, hooks plugin.Dispatcher) *AdminService {
+	return &AdminService{admin: admin, posts: posts, comments: comments, settings: settings, enforcer: enforcer, bans: bans, users: users, postSvc: postSvc, medias: medias, tags: tags, store: store, hooks: hooks}
 }
 
 // DashboardData 仪表盘数据。
@@ -104,7 +106,7 @@ func (s *AdminService) Dashboard(ctx context.Context) (*DashboardData, error) {
 		return nil, err
 	}
 
-	return &DashboardData{
+	data := &DashboardData{
 		Views7d:       views7d,
 		ViewsTrend:    trend(views7d, viewsPrev),
 		Likes7d:       likes7d,
@@ -116,7 +118,10 @@ func (s *AdminService) Dashboard(ctx context.Context) (*DashboardData, error) {
 		TypeCounts:    typeCounts,
 		TrendSeries:   trendSeries,
 		Activities:    activities,
-	}, nil
+	}
+	// ---------- 插件钩子：admin.page（同步扩展点，M3.2；结果忽略，插件可扩展仪表盘指标） ----------
+	s.hooks.Dispatch(ctx, plugin.HookAdminPage, plugin.Event{Payload: data})
+	return data, nil
 }
 
 // ---------- 内容管理 ----------
@@ -313,7 +318,7 @@ func (s *AdminService) Settings(ctx context.Context) (map[string]string, error) 
 
 // SaveSettings 站点设置保存（站点名/描述/注册开关/评论开关/默认主题/维护开关）。
 func (s *AdminService) SaveSettings(ctx context.Context, updates map[string]string) error {
-	// 白名单校验（防注入任意键）
+	// 白名单校验（防注入任意键；plugin_ 前缀为插件配置键，M3.2 schema 驱动设置页）
 	allowed := map[string]bool{
 		"site_name": true, "site_description": true,
 		"allow_register": true, "comment_open": true,
@@ -321,7 +326,7 @@ func (s *AdminService) SaveSettings(ctx context.Context, updates map[string]stri
 		"plugin_source": true, // 插件源仓库（M3.1，owner/repo）
 	}
 	for key := range updates {
-		if !allowed[key] {
+		if !allowed[key] && !strings.HasPrefix(key, "plugin_") {
 			return errs.New(errs.CodeBadRequest, "不支持的设置项："+key)
 		}
 	}

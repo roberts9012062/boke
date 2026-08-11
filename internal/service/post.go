@@ -19,6 +19,7 @@ import (
 
 	"github.com/roberts9012062/boke/internal/media"
 	"github.com/roberts9012062/boke/internal/model"
+	"github.com/roberts9012062/boke/internal/plugin"
 	"github.com/roberts9012062/boke/internal/repository"
 	"github.com/roberts9012062/boke/pkg/errs"
 )
@@ -42,6 +43,7 @@ type PostService struct {
 	store      *media.Store             // 媒体存储（本地磁盘）
 	moderation *ModerationService       // 内容治理（M2：敏感词拦截）
 	relations  *repository.RelationRepo // 用户关系（M2：仅关注者帖互关判断）
+	hooks      plugin.Dispatcher        // 插件钩子调度器（M3.2 扩展框架）
 }
 
 // NewPostService 创建帖子服务。
@@ -53,8 +55,9 @@ func NewPostService(
 	store *media.Store,
 	moderation *ModerationService,
 	relations *repository.RelationRepo,
+	hooks plugin.Dispatcher,
 ) *PostService {
-	return &PostService{posts: posts, tags: tags, medias: medias, users: users, store: store, moderation: moderation, relations: relations}
+	return &PostService{posts: posts, tags: tags, medias: medias, users: users, store: store, moderation: moderation, relations: relations, hooks: hooks}
 }
 
 // ---------- 发帖 / 草稿 ----------
@@ -71,6 +74,14 @@ func (s *PostService) Create(ctx context.Context, userID int64, req model.Create
 	if word := s.moderation.CheckForbidden(req.Content); word != "" {
 		s.moderation.IncrHit(ctx, word)
 		return 0, errs.New(errs.CodeBadRequest, "内容包含敏感词「"+word+"」，请修改后发布")
+	}
+
+	// ---------- 插件钩子：post.before_publish（同步，可拦截；M3.2 扩展框架） ----------
+	if res := s.hooks.Dispatch(ctx, plugin.HookPostBeforePublish, plugin.Event{
+		ActorID: userID,
+		Payload: req,
+	}); !res.OK {
+		return 0, errs.New(errs.CodeValidation, res.Reason)
 	}
 
 	// 状态校验：仅允许 draft / published
@@ -186,7 +197,15 @@ func (s *PostService) Publish(ctx context.Context, userID int64, postID int64) e
 		return errs.New(errs.CodeStateConflict, "仅草稿可发布")
 	}
 	now := time.Now()
-	return s.posts.SetStatus(ctx, postID, model.PostStatusPublished, now)
+	if err := s.posts.SetStatus(ctx, postID, model.PostStatusPublished, now); err != nil {
+		return err
+	}
+	// ---------- 插件钩子：post.after_publish（异步，M3.2） ----------
+	s.hooks.Dispatch(ctx, plugin.HookPostAfterPublish, plugin.Event{
+		ActorID: userID,
+		Payload: post,
+	})
+	return nil
 }
 
 // Delete 删除帖子（软删，draft/published 均可）。
