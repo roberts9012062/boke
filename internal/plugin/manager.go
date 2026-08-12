@@ -210,6 +210,11 @@ func (m *PluginManager) Start(ctx context.Context, pluginID string) error {
 		return fmt.Errorf("插件「%s」激活失败：%s", pluginID, reason)
 	}
 
+	// 建立流式钩子通道（M3.9：异步事件经流推送；失败回退 Execute——不阻断启动）
+	if err := rpc.openStream(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "[plugin-mgr] 插件 %s 流式通道建立失败（回退 Execute）：%v\n", pluginID, err)
+	}
+
 	// 下发配置（M3.7：provider 查询，无记录/失败按空配置；失败仅告警不阻断启动——插件可用默认值）
 	if m.configProvider != nil {
 		if values, err := m.configProvider(ctx, pluginID); err == nil {

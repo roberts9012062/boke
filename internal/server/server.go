@@ -199,7 +199,7 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 	postSvc := service.NewPostService(postRepo, tagRepo, mediaRepo, userRepo, mediaStore, moderationSvc, relationRepo, hookDispatcher)
 	notifySvc := service.NewNotificationService(notificationRepo, userRepo, hookDispatcher)
 	// AI 服务（M4：供应商/任务/用量 + 三内置场景；先建供评论预审注入）
-	aiSvc := service.NewAiService(aiProviderRepo, aiTaskRepo, aiUsageRepo, seoRepo, postRepo, commentRepo, reportRepo, cfg.AIKeySecret)
+	aiSvc := service.NewAiService(aiProviderRepo, aiTaskRepo, aiUsageRepo, seoRepo, postRepo, commentRepo, reportRepo, cfg.AIKeySecret, hookDispatcher)
 	commentSvc := service.NewCommentService(commentRepo, reactionRepo, userRepo, guestMgr, postRepo, notifySvc, moderationSvc, hookDispatcher, aiSvc)
 	reactionSvc := service.NewReactionService(reactionRepo, postRepo, notifySvc)
 	followSvc := service.NewFollowService(relationRepo, userRepo, postRepo, postSvc, notifySvc)

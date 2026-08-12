@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	"github.com/hashicorp/go-plugin"
 	"google.golang.org/grpc"
@@ -49,21 +50,62 @@ func (p *coreGRPCPlugin) GRPCClient(_ context.Context, broker *plugin.GRPCBroker
 	return pc, nil
 }
 
-// pluginClient 插件进程客户端（gRPC 三服务封装）。
+// pluginClient 插件进程客户端（gRPC 三服务封装 + 流式钩子通道）。
 type pluginClient struct {
 	info         proto.PluginServiceClient // 生命周期（Info/Activate/Deactivate/SetConfig）
 	hooks        proto.HookServiceClient   // 钩子执行
 	api          proto.PluginAPIClient     // 自定义 API
 	dataBrokerID int64                     // 主进程数据服务 brokerID（M3.8；0=未授权）
+	streamMu     sync.Mutex                // 流式通道并发保护（M3.9）
+	stream       proto.HookService_StreamClient // 流式钩子通道（nil=不可用，回退 Execute）
+	streamOK     bool                      // 通道可用标志（Send 失败置 false 降级）
+}
+
+// openStream 建立流式钩子通道（M3.9：异步事件经流推送；失败回退 Execute——兼容旧插件）。
+func (c *pluginClient) openStream(ctx context.Context) error {
+	stream, err := c.hooks.Stream(ctx)
+	if err != nil {
+		return err
+	}
+	c.streamMu.Lock()
+	c.stream = stream
+	c.streamOK = true
+	c.streamMu.Unlock()
+	return nil
+}
+
+// sendStream 推送异步事件到流式通道；返回是否成功（通道不可用/断连标记降级）。
+func (c *pluginClient) sendStream(hookName string, ev Event) bool {
+	c.streamMu.Lock()
+	defer c.streamMu.Unlock()
+	if !c.streamOK || c.stream == nil {
+		return false
+	}
+	payload, err := json.Marshal(ev.Payload)
+	if err != nil {
+		return false
+	}
+	if err := c.stream.Send(&proto.StreamEvent{
+		Hook: hookName, TraceId: ev.TraceID, ActorId: ev.ActorID, Payload: payload,
+	}); err != nil {
+		// 断连：标记不可用降级 Execute（进程重启时 Start 重建通道）
+		c.streamOK = false
+		return false
+	}
+	return true
 }
 
 // ---------- 钩子适配器（进程外插件 → Dispatcher.Handler） ----------
 
 // adapterHandler 生成钩子适配器：主进程事件 JSON 序列化 → gRPC Execute → 响应还原。
 // 说明：Payload/Modify 经 JSON 往返（search.query 的 string、结构体均兼容）；
-//       gRPC 调用携带 dispatcher 传入的 ctx（已有 2s 超时 + panic 隔离，进程外同样兜底）。
+//       gRPC 调用携带 dispatcher 传入的 ctx（已有 2s 超时 + panic 隔离，进程外同样兜底）；
+//       M3.9：异步钩子优先走流式通道（sendStream），通道不可用回退 Execute。
 func (c *pluginClient) adapterHandler(hookName string) Handler {
 	return func(ctx context.Context, ev Event) (Result, error) {
+		if !IsSyncHook(hookName) && c.sendStream(hookName, ev) {
+			return Result{OK: true}, nil // 流式推送成功：异步语义，立即返回
+		}
 		payload, err := json.Marshal(ev.Payload)
 		if err != nil {
 			return Result{OK: true}, fmt.Errorf("插件钩子载荷序列化失败：%w", err)

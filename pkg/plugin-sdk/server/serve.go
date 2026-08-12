@@ -191,10 +191,31 @@ func (b *sdkDataBridge) GetSettings(ctx context.Context) (map[string]string, err
 	return snapshot.GetValues(), nil
 }
 
-// hookServiceServer HookService 实现（同步钩子执行）。
+// hookServiceServer HookService 实现（同步钩子执行 + 流式通道）。
 type hookServiceServer struct {
 	proto.UnimplementedHookServiceServer
 	hooks map[string]sdk.Hook
+}
+
+// Stream 流式钩子通道（M3.9 client-streaming）：主进程建立长期连接持续推送
+// 异步钩子事件；本端 recv 循环逐个分发到对应 handler（未订阅/失败仅记录，不阻断）。
+func (s *hookServiceServer) Stream(stream proto.HookService_StreamServer) error {
+	for {
+		ev, err := stream.Recv()
+		if err != nil {
+			return err // 对端关闭/断连：由进程生命周期管理（主进程重建）
+		}
+		hook, ok := s.hooks[ev.GetHook()]
+		if !ok {
+			continue // 未订阅：静默跳过
+		}
+		go func() {
+			defer func() { _ = recover() }() // handler panic 不拖垮流
+			_, _ = hook.Handler(stream.Context(), sdk.Event{
+				TraceID: ev.GetTraceId(), ActorID: ev.GetActorId(), Payload: ev.GetPayload(),
+			})
+		}()
+	}
 }
 
 // Execute 执行钩子（未订阅返回放行；插件内部错误记录不阻断核心）。

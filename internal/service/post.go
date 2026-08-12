@@ -297,6 +297,20 @@ func (s *PostService) GetDetail(ctx context.Context, postID int64, viewerID int6
 		IsAuthor: post.AuthorID == viewerID,
 		CanView:  true,
 	}
+
+	// ---------- 插件钩子：content.render（M3.9 同步，可改写正文；失败/拒绝不影响展示） ----------
+	if s.hooks != nil {
+		if res := s.hooks.Dispatch(ctx, plugin.HookContentRender, plugin.Event{
+			ActorID: viewerID,
+			Payload: map[string]any{"post_id": post.ID, "content": post.Content},
+		}); res.OK {
+			if modified, ok := res.Modify.(map[string]any); ok {
+				if content, ok := modified["content"].(string); ok {
+					detail.Content = content
+				}
+			}
+		}
+	}
 	if post.PublishedAt != nil {
 		detail.PublishedAt = post.PublishedAt.Format(time.RFC3339)
 	}

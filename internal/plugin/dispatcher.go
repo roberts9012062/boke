@@ -124,14 +124,19 @@ func (r *Registry) Dispatch(ctx context.Context, hook string, ev Event) Result {
 		return Result{OK: true}
 	}
 
-	// 同步钩子：串行执行，任一拒绝即阻断
+	// 同步钩子：串行执行，任一拒绝即阻断；改写结果取最后一个非空 Modify
+	// （M3.9 修复：此前循环后直接返回 OK:true，content.render/search.query 的改写被丢弃）
+	var lastModify any
 	for _, handler := range handlers {
 		result := r.dispatchOne(ctx, hook, ev, handler)
 		if !result.OK {
 			return result
 		}
+		if result.Modify != nil {
+			lastModify = result.Modify
+		}
 	}
-	return Result{OK: true}
+	return Result{OK: true, Modify: lastModify}
 }
 
 // dispatchOne 执行单个同步处理器（超时 + panic 恢复 → 故障跳过并记录，不阻断核心）。

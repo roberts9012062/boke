@@ -103,6 +103,47 @@ func (p *DemoPlugin) Hooks() []sdk.Hook {
 				return sdk.Result{OK: true}, nil
 			},
 		},
+		{
+			// content.render（同步，M3.9）：改写帖子正文（追加插件标记，演示内容渲染管道）
+			Name: "content.render", Sync: true, Priority: 100,
+			Handler: func(ctx context.Context, ev sdk.Event) (sdk.Result, error) {
+				var payload struct {
+					Content string `json:"content"`
+				}
+				if err := json.Unmarshal(ev.Payload, &payload); err != nil {
+					return sdk.Result{OK: true}, nil
+				}
+				logf("content.render 改写正文（%d 字）", len(payload.Content))
+				return sdk.Result{OK: true, Modify: []byte(`{"content":"` +
+					jsonEscape(payload.Content+"\n\n> 本文由演示插件渲染") + `"}`)}, nil
+			},
+		},
+		{
+			// api.middleware（同步，M3.9）：拦截删除帖子请求（演示"防误删"类中间件）
+			Name: "api.middleware", Sync: true, Priority: 100,
+			Handler: func(ctx context.Context, ev sdk.Event) (sdk.Result, error) {
+				var payload struct {
+					Method string `json:"method"`
+					Path   string `json:"path"`
+				}
+				if err := json.Unmarshal(ev.Payload, &payload); err != nil {
+					return sdk.Result{OK: true}, nil
+				}
+				if payload.Method == "DELETE" && strings.HasPrefix(payload.Path, "/api/v1/posts/") {
+					logf("api.middleware 拦截：%s %s", payload.Method, payload.Path)
+					return sdk.Result{OK: false, Reason: "演示插件拦截：帖子删除操作已保护"}, nil
+				}
+				return sdk.Result{OK: true}, nil
+			},
+		},
+		{
+			// ai.after_generate（异步，M3.9）：AI 生成完成通知
+			Name: "ai.after_generate", Sync: false, Priority: 100,
+			Handler: func(ctx context.Context, ev sdk.Event) (sdk.Result, error) {
+				logf("异步钩子 ai.after_generate：%s", string(ev.Payload))
+				return sdk.Result{OK: true}, nil
+			},
+		},
 	}
 }
 
@@ -148,6 +189,12 @@ func (p *DemoPlugin) RegisterAPI(api *sdk.APIMux) {
 // logf 插件日志（stderr → 主进程重定向到 logs/plugins/demo-plugin.log）。
 func logf(format string, args ...any) {
 	_, _ = fmt.Fprintf(os.Stderr, "[demo-plugin] "+format+"\n", args...)
+}
+
+// jsonEscape JSON 字符串转义（content.render 改写正文拼 JSON 用）。
+func jsonEscape(s string) string {
+	raw, _ := json.Marshal(s)
+	return string(raw[1 : len(raw)-1])
 }
 
 // main 插件进程入口（server.Serve 完成握手与 gRPC 服务注册）。

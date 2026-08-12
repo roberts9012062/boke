@@ -10,10 +10,11 @@ export interface PluginRegister {
 
 // PluginCtx 注册上下文（register 入参）。
 export interface PluginCtx {
-  slot: string; // 槽位名（theme.header/post.footer/comment.footer/admin.menu）
+  slot: string; // 槽位名（theme.header/post.footer/comment.footer/admin.menu/comment.item）
   el: HTMLElement; // 挂载点 DOM（插件渲染目标）
   api: PluginApi; // 受限 API 客户端（仅插件自定义 API，带主站凭证）
   user: PluginUser | null; // 用户信息（脱敏，不含密钥；未登录为 null）
+  props?: Record<string, unknown>; // 槽位透传参数（M3.9：评论对象/页面参数等）
 }
 
 // PluginApi 受限 API 客户端（路径为插件自定义 API，如 "/ping"）。
@@ -29,16 +30,24 @@ export interface PluginUser {
   role: string;
 }
 
-// PluginManifest 扩展点声明（包内 frontend/manifest.json）。
+// PluginManifest 扩展点声明（包内 frontend/manifest.json；pages 为独立页面声明，M3.9）。
 export interface PluginManifest {
   extensionPoints: ExtensionPoint[];
+  pages?: PluginPage[];
 }
 
-// ExtensionPoint 扩展点（slot 槽位 + entry ESM 文件 + 可选 props）。
+// ExtensionPoint 扩展点（slot 槽位 + entry ESM 文件 + 可选 props + 挂载模式）。
 export interface ExtensionPoint {
   slot: string;
   entry: string;
   props?: Record<string, unknown>;
+  mode?: "append" | "replace"; // M3.9：append=追加共存（默认）；replace=替换槽位默认内容
+}
+
+// PluginPage 插件独立页面声明（M3.9：admin.page.* 能力——壳路由 /admin/plugin-pages/{id}/{route}）。
+export interface PluginPage {
+  route: string; // 页面路由名（如 "demo"）
+  entry: string; // 页面 ESM 文件（registerPage 契约）
 }
 
 // 资源基础路径（与后端 /plugin-assets/:id 对应）。

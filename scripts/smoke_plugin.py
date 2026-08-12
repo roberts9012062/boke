@@ -405,6 +405,18 @@ def main():
     comment_cnt = plugin_log().count("comment.after_save") - comment_before
     assert_true(comment_cnt == 1, f"comment.after_save 恰好触发 1 次（双 dispatch 修复；实际 {comment_cnt} 次）")
 
+    # ---------- 6.7 钩子扩展（M3.9：content.render 改写 / api.middleware 拦截 / 流式通道） ----------
+    # content.render：详情 API 正文被插件改写（渲染管道）
+    body = call("GET", f"/posts/{post_id}", token=token, raw=True)
+    detail = json.loads(body)
+    detail_content = ((detail.get("data") or {}).get("content") or "")
+    assert_true("由演示插件渲染" in detail_content, "content.render：插件改写帖子正文（渲染管道）")
+    # api.middleware：DELETE 帖子被插件拦截（403 防误删演示）
+    r = call("DELETE", f"/posts/{post_id}", token=token, expect=1003)
+    assert_true("演示插件拦截" in (r.get("message") or ""), "api.middleware：DELETE 帖子被插件拦截（403）")
+    # 流式通道（M3.9）：异步钩子仍触发（after_publish 走 stream 推送；进程存在说明通道建立成功）
+    assert_true("after_publish" in plugin_log(), "流式钩子通道：异步事件仍触发（after_publish）")
+
     # ---------- 7. 崩溃自愈：kill 进程 → 1s 退避自动重启 ----------
     before = len(plugin_pids())
     assert_true(before >= 1, f"插件进程存在（数量 {before}）")

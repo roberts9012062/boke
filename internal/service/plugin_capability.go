@@ -12,7 +12,8 @@ const (
 	CapabilityFrontend = "frontend"  // 前端扩展（基础：槽位渲染与侧栏入口）
 	CapabilitySettings = "settings"  // 设置项（基础：schema 驱动设置页）
 	CapabilityDataRead = "data.read" // 只读数据服务（扩展：经 broker 查询脱敏数据——运行时门控）
-	// 规划能力（后置）：admin.page（后台页面）、ai（AI 能力）
+	CapabilityAdminPage = "admin.page" // 后台独立页面（M3.9：插件声明 pages 后经壳路由 /admin/plugin-pages/{id}/{route} 访问）
+	CapabilityAI       = "ai"        // AI 能力（M3.9：ai.before_generate/ai.after_generate 钩子）
 )
 
 // knownCapabilitySet 已知能力集合（安装校验依据；未知声明拒绝安装）。
@@ -20,6 +21,7 @@ var knownCapabilitySet = map[string]bool{
 	CapabilityHooks: true, CapabilityAPI: true,
 	CapabilityFrontend: true, CapabilitySettings: true,
 	CapabilityDataRead: true,
+	CapabilityAdminPage: true, CapabilityAI: true,
 }
 
 // unknownCapabilities 返回声明中不在已知能力集合内的项（空=全部合法）。
@@ -38,5 +40,6 @@ func knownCapabilitiesList() []string {
 	return []string{
 		CapabilityHooks, CapabilityAPI,
 		CapabilityFrontend, CapabilitySettings, CapabilityDataRead,
+		CapabilityAdminPage, CapabilityAI,
 	}
 }

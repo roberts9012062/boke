@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/roberts9012062/boke/internal/ai"
+	"github.com/roberts9012062/boke/internal/plugin"
 	"github.com/roberts9012062/boke/internal/repository"
 	"github.com/roberts9012062/boke/pkg/errs"
 )
@@ -145,10 +146,29 @@ func (s *AiService) runTask(ctx context.Context, taskName string, input string) 
 	}
 
 	// 4. 调用（超时保护；错误透出上游原因）
+	// ---------- 插件钩子：ai.before_generate（M3.9 同步，可改写输入） ----------
+	if s.hooks != nil {
+		if res := s.hooks.Dispatch(ctx, plugin.HookAIBeforeGenerate, plugin.Event{
+			Payload: map[string]any{"task": taskName, "input": input, "model": model},
+		}); res.OK {
+			if modified, ok := res.Modify.(map[string]any); ok {
+				if v, ok := modified["input"].(string); ok && v != "" {
+					input = v // 插件改写输入（如注入上下文/过滤敏感词）
+				}
+			}
+		}
+	}
 	client := ai.NewClient(provider.BaseURL, apiKey, model, aiRequestTimeout*time.Second)
 	result, err := client.Chat(ctx, task.PromptTemplate, input, task.MaxTokens)
 	if err != nil {
 		return nil, errs.New(errs.CodeUpstream, "AI 服务不可用："+err.Error())
+	}
+
+	// ---------- 插件钩子：ai.after_generate（M3.9 异步通知） ----------
+	if s.hooks != nil {
+		s.hooks.Dispatch(ctx, plugin.HookAIAfterGenerate, plugin.Event{
+			Payload: map[string]any{"task": taskName, "result": result.Text},
+		})
 	}
 
 	// 5. 用量落库（失败静默：统计是观测数据，不影响场景结果）

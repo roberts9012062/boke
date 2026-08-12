@@ -16,6 +16,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/roberts9012062/boke/internal/middleware"
 	"github.com/roberts9012062/boke/internal/service"
 	"github.com/roberts9012062/boke/pkg/errs"
 	"github.com/roberts9012062/boke/pkg/resp"
@@ -33,6 +34,17 @@ type PluginHandler struct {
 // NewPluginHandler 创建插件控制器。
 func NewPluginHandler(plugins *service.PluginService, oauth *service.OAuthService) *PluginHandler {
 	return &PluginHandler{plugins: plugins, oauth: oauth}
+}
+
+// HookAPI 插件 api.middleware 钩子入口（M3.9：router 中间件调用；返回 false=已阻断并写入 403）。
+// 仅对写请求生效（GET/HEAD 在中间件层已放行）。
+func (h *PluginHandler) HookAPI(c *gin.Context) bool {
+	ok, reason := h.plugins.CheckAPIMiddleware(c.Request.Context(), c.Request.Method, c.Request.URL.Path, middleware.GetUserID(c))
+	if ok {
+		return true
+	}
+	resp.Fail(c, 403, errs.New(errs.CodeForbidden, reason))
+	return false
 }
 
 // Market 插件商城（GET /api/v1/admin/plugins/market?source=）。

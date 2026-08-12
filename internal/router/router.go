@@ -90,6 +90,21 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager, e
 	// 需要登录的路由组
 	authed := api.Group("")
 	authed.Use(middleware.RequireAuth(jwtMgr))
+	// ---------- 插件钩子：api.middleware（M3.9 同步拦截写请求；无插件订阅时空跑开销极小） ----------
+	authed.Use(func(c *gin.Context) {
+		// 仅拦截写请求（GET/HEAD 只读放行——内容渲染等读取场景不阻断）
+		if c.Request.Method == http.MethodGet || c.Request.Method == http.MethodHead {
+			c.Next()
+			return
+		}
+		if handlers.Plugin != nil {
+			if !handlers.Plugin.HookAPI(c) {
+				c.Abort() // 插件拒绝：已由 HookAPI 写入响应
+				return
+			}
+		}
+		c.Next()
+	})
 	authed.POST("/auth/logout", handlers.Auth.Logout) // 登出（撤销 refresh）
 	authed.GET("/me", handlers.Auth.Me)               // 当前用户资料
 	authed.PUT("/me/password", handlers.Auth.ChangePassword) // 修改密码（账号安全页）

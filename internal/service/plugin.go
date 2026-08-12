@@ -419,8 +419,20 @@ func parseVersion(v string) [3]int {
 	return out
 }
 
-// SetState 启用/禁用插件（running / disabled；先激活/停用成功再落库）。
-// 说明（M3.3）：启用失败（如进程外插件二进制缺失）返回错误，DB 状态不变。
+// CheckAPIMiddleware 插件 api.middleware 拦截（M3.9：同步钩子；写请求经 router 中间件调用，
+// 无插件订阅时空跑——Registry 空快照直接放行；拒绝返回原因供 403 响应）。
+func (s *PluginService) CheckAPIMiddleware(ctx context.Context, method string, path string, userID int64) (bool, string) {
+	if s.dispatcher == nil {
+		return true, ""
+	}
+	res := s.dispatcher.Dispatch(ctx, plugin.HookAPIMiddleware, plugin.Event{
+		ActorID: userID,
+		Payload: map[string]any{"method": method, "path": path, "user_id": userID},
+	})
+	return res.OK, res.Reason
+}
+
+// SetState 启用/禁用插件（running / disabled；先激活/停用成功再落库）。// 说明（M3.3）：启用失败（如进程外插件二进制缺失）返回错误，DB 状态不变。
 func (s *PluginService) SetState(ctx context.Context, instanceID int64, state string) error {
 	if state != PluginRunning && state != PluginDisabled {
 		return errs.New(errs.CodeBadRequest, "状态仅支持 running / disabled")

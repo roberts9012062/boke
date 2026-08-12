@@ -166,6 +166,17 @@ message ActivateRequest {
 service HookService {
   // Execute 同步钩子执行（可拦截/改写；异步钩子由主进程后台调用）。
   rpc Execute(HookRequest) returns (HookResponse);
+  // Stream 流式钩子通道（M3.9 client-streaming：主进程建立长期连接持续推送异步事件；
+  // 插件侧 recv 循环分发到异步钩子 handler；断连由进程重启重建——stream 不可用回退 Execute）。
+  rpc Stream(stream StreamEvent) returns (Empty);
+}
+
+// StreamEvent 流式事件（主进程 → 插件：异步钩子推送，与 HookRequest 同构）。
+message StreamEvent {
+  string hook = 1;               // 钩子名（异步钩子：post.after_publish/comment.after_save/notification.send/...）
+  string trace_id = 2;           // 请求追踪 ID（贯穿日志）
+  int64 actor_id = 3;            // 操作者用户 ID（0=匿名/系统）
+  bytes payload = 4;             // 载荷 JSON（各钩子自定义结构）
 }
 
 // PluginAPI 插件自定义 API 服务（主进程按前缀路由代理）。

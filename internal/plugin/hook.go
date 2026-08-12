@@ -14,6 +14,10 @@ const (
 	HookSearchQuery       = "search.query"        // 搜索查询（同步，可改写关键词）
 	HookNotificationSend  = "notification.send"   // 通知发送（异步）
 	HookAdminPage         = "admin.page"          // 后台页面（同步，扩展点占位）
+	HookContentRender     = "content.render"      // 帖子内容渲染（M3.9 同步，可改写正文）
+	HookAPIMiddleware     = "api.middleware"      // API 请求拦截（M3.9 同步，可阻断写请求）
+	HookAIBeforeGenerate  = "ai.before_generate"  // AI 生成前（M3.9 同步，可改写输入）
+	HookAIAfterGenerate   = "ai.after_generate"   // AI 生成后（M3.9 异步）
 )
 
 // 同步钩子集合（超时 + panic 恢复；拒绝可阻断核心流程）。
@@ -22,6 +26,9 @@ var syncHooks = map[string]bool{
 	HookCommentBeforeSave: true,
 	HookSearchQuery:       true,
 	HookAdminPage:         true,
+	HookContentRender:     true,
+	HookAPIMiddleware:     true,
+	HookAIBeforeGenerate:  true,
 }
 
 // knownHooks 已知钩子全集（含同步/异步；进程外插件适配器注册时校验，契约外钩子跳过）。
@@ -33,6 +40,10 @@ var knownHooks = map[string]bool{
 	HookSearchQuery:       true,
 	HookNotificationSend:  true,
 	HookAdminPage:         true,
+	HookContentRender:     true,
+	HookAPIMiddleware:     true,
+	HookAIBeforeGenerate:  true,
+	HookAIAfterGenerate:   true,
 }
 
 // allHookNames 全部钩子名（进程外插件适配器注销时遍历）。
@@ -40,6 +51,8 @@ var allHookNames = []string{
 	HookPostBeforePublish, HookPostAfterPublish,
 	HookCommentBeforeSave, HookCommentAfterSave,
 	HookSearchQuery, HookNotificationSend, HookAdminPage,
+	HookContentRender, HookAPIMiddleware,
+	HookAIBeforeGenerate, HookAIAfterGenerate,
 }
 
 // IsHookRegistered 判断钩子名是否为主进程已知钩子（契约外扩展不注册）。

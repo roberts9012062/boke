@@ -4,18 +4,32 @@
 import { fetchManifest, loadModule, clearPlugin, type PluginUser } from "./loader";
 
 // 受限 API 客户端（插件自定义 API，带主站凭证；路径如 "/ping"）。
+// 凭证：从 localStorage 读取访问令牌（与 auth.tsx 同键；插件 API 属 authed 组）。
+function authHeader(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem("yueyan-tokens");
+    if (!raw) {
+      return {};
+    }
+    const tokens = JSON.parse(raw) as { access_token?: string };
+    return tokens.access_token ? { Authorization: `Bearer ${tokens.access_token}` } : {};
+  } catch {
+    return {};
+  }
+}
+
 function makePluginApi(pluginId: string) {
   return {
     async get<T>(path: string): Promise<T> {
       const res = await fetch(`/api/v1/plugins/${pluginId}${path}`, {
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeader() },
       });
       return (await res.json()) as T;
     },
     async post<T>(path: string, body?: unknown): Promise<T> {
       const res = await fetch(`/api/v1/plugins/${pluginId}${path}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeader() },
         body: JSON.stringify(body ?? {}),
       });
       return (await res.json()) as T;
@@ -36,16 +50,23 @@ class PluginRegistry {
   private mounted: MountedItem[] = [];
 
   // mountSlot 在指定挂载点渲染插件扩展。
-  // 参数：pluginId 插件 ID；slot 槽位名；el 挂载点 DOM；user 用户信息。
+  // 参数：pluginId 插件 ID；slot 槽位名；el 挂载点 DOM；user 用户信息；props 槽位透传参数（M3.9）。
   // 返回：清理函数（插件无该槽位声明时为空清理）。
-  async mountSlot(pluginId: string, slot: string, el: HTMLElement, user: PluginUser | null): Promise<() => void> {
+  async mountSlot(
+    pluginId: string,
+    slot: string,
+    el: HTMLElement,
+    user: PluginUser | null,
+    props?: Record<string, unknown>,
+  ): Promise<() => void> {
     const manifest = await fetchManifest(pluginId);
     const point = manifest.extensionPoints.find((p) => p.slot === slot);
     if (!point) {
       return () => undefined; // 插件未订阅该槽位
     }
     const mod = await loadModule(pluginId, point.entry);
-    const cleanup = mod.default({ slot, el, api: makePluginApi(pluginId), user }) ?? (() => undefined);
+    const cleanup =
+      mod.default({ slot, el, api: makePluginApi(pluginId), user, props }) ?? (() => undefined);
     this.mounted.push({ pluginId, slot, el, cleanup });
     return cleanup;
   }

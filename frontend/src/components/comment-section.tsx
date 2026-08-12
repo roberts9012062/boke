@@ -238,6 +238,8 @@ export function CommentSection({ postId, initialCount = 0 }: { postId: number; i
               onReply={handleReply}
               onDeleted={handleDeleted}
             />
+            {/* 插件扩展点：comment.item（M3.9 每条评论独立槽位——顶层评论；楼中楼不挂载防性能爆炸） */}
+            <PluginSlot slot="comment.item" props={{ comment }} />
             {/* 楼中楼：展开/收起回复（设计稿） */}
             {comment.reply_count > 0 && (
               <div className="ml-4 border-l border-line pl-4">

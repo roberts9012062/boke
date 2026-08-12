@@ -446,6 +446,7 @@ var PluginService_ServiceDesc = grpc.ServiceDesc{
 
 const (
 	HookService_Execute_FullMethodName = "/yueyan.plugin.v1.HookService/Execute"
+	HookService_Stream_FullMethodName  = "/yueyan.plugin.v1.HookService/Stream"
 )
 
 // HookServiceClient is the client API for HookService service.
@@ -456,6 +457,9 @@ const (
 type HookServiceClient interface {
 	// Execute 同步钩子执行（可拦截/改写；异步钩子由主进程后台调用）。
 	Execute(ctx context.Context, in *HookRequest, opts ...grpc.CallOption) (*HookResponse, error)
+	// Stream 流式钩子通道（M3.9 client-streaming：主进程建立长期连接持续推送异步事件；
+	// 插件侧 recv 循环分发到异步钩子 handler；断连由进程重启重建——stream 不可用回退 Execute）。
+	Stream(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[StreamEvent, Empty], error)
 }
 
 type hookServiceClient struct {
@@ -476,6 +480,19 @@ func (c *hookServiceClient) Execute(ctx context.Context, in *HookRequest, opts .
 	return out, nil
 }
 
+func (c *hookServiceClient) Stream(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[StreamEvent, Empty], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &HookService_ServiceDesc.Streams[0], HookService_Stream_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[StreamEvent, Empty]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type HookService_StreamClient = grpc.ClientStreamingClient[StreamEvent, Empty]
+
 // HookServiceServer is the server API for HookService service.
 // All implementations must embed UnimplementedHookServiceServer
 // for forward compatibility.
@@ -484,6 +501,9 @@ func (c *hookServiceClient) Execute(ctx context.Context, in *HookRequest, opts .
 type HookServiceServer interface {
 	// Execute 同步钩子执行（可拦截/改写；异步钩子由主进程后台调用）。
 	Execute(context.Context, *HookRequest) (*HookResponse, error)
+	// Stream 流式钩子通道（M3.9 client-streaming：主进程建立长期连接持续推送异步事件；
+	// 插件侧 recv 循环分发到异步钩子 handler；断连由进程重启重建——stream 不可用回退 Execute）。
+	Stream(grpc.ClientStreamingServer[StreamEvent, Empty]) error
 	mustEmbedUnimplementedHookServiceServer()
 }
 
@@ -496,6 +516,9 @@ type UnimplementedHookServiceServer struct{}
 
 func (UnimplementedHookServiceServer) Execute(context.Context, *HookRequest) (*HookResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Execute not implemented")
+}
+func (UnimplementedHookServiceServer) Stream(grpc.ClientStreamingServer[StreamEvent, Empty]) error {
+	return status.Error(codes.Unimplemented, "method Stream not implemented")
 }
 func (UnimplementedHookServiceServer) mustEmbedUnimplementedHookServiceServer() {}
 func (UnimplementedHookServiceServer) testEmbeddedByValue()                     {}
@@ -536,6 +559,13 @@ func _HookService_Execute_Handler(srv interface{}, ctx context.Context, dec func
 	return interceptor(ctx, in, info, handler)
 }
 
+func _HookService_Stream_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(HookServiceServer).Stream(&grpc.GenericServerStream[StreamEvent, Empty]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type HookService_StreamServer = grpc.ClientStreamingServer[StreamEvent, Empty]
+
 // HookService_ServiceDesc is the grpc.ServiceDesc for HookService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -548,7 +578,13 @@ var HookService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _HookService_Execute_Handler,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "Stream",
+			Handler:       _HookService_Stream_Handler,
+			ClientStreams: true,
+		},
+	},
 	Metadata: "plugin.proto",
 }
 

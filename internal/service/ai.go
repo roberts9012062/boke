@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/roberts9012062/boke/internal/ai"
+	"github.com/roberts9012062/boke/internal/plugin"
 	"github.com/roberts9012062/boke/internal/repository"
 	"github.com/roberts9012062/boke/pkg/errs"
 )
@@ -81,6 +82,7 @@ type AiService struct {
 	comments  *repository.CommentRepo    // 评论（审核场景）
 	reports   *repository.ReportRepo     // 举报工单（高风险标记）
 	keySecret string                     // API Key 加密密钥（config.AIKeySecret）
+	hooks     plugin.Dispatcher          // 钩子调度器（M3.9 ai.before/after_generate；可空=钩子不生效）
 }
 
 // NewAiService 创建 AI 服务。
@@ -93,8 +95,9 @@ func NewAiService(
 	comments *repository.CommentRepo,
 	reports *repository.ReportRepo,
 	keySecret string,
+	hooks plugin.Dispatcher,
 ) *AiService {
-	return &AiService{providers: providers, tasks: tasks, usage: usage, seo: seo, posts: posts, comments: comments, reports: reports, keySecret: keySecret}
+	return &AiService{providers: providers, tasks: tasks, usage: usage, seo: seo, posts: posts, comments: comments, reports: reports, keySecret: keySecret, hooks: hooks}
 }
 
 // ---------- 供应商管理 ----------
