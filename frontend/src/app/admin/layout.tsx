@@ -91,8 +91,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   // 已装插件侧栏声明（M3.2 前端扩展点：running 插件声明的入口合并进插件子菜单）
   const [pluginNavItems, setPluginNavItems] = useState<{ href: string; label: string; icon: string }[]>([]);
 
-  // 加载已装插件的侧栏声明（仅 running 状态生效）
+  // 加载已装插件的侧栏声明（仅 running 状态生效；auth 就绪后才请求——
+  // 令牌恢复完成前调用会以无凭证状态发出（401），此处以 user/loading 为依赖规避竞态）
   useEffect(() => {
+    if (loading || !user || !canAccessAdmin(user.role)) {
+      return;
+    }
     apiInstalledPlugins()
       .then((r) => {
         setPluginNavItems(
@@ -102,7 +106,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         );
       })
       .catch(() => undefined);
-  }, [pathname]);
+  }, [pathname, loading, user]);
 
   // 未登录/非 admin：跳转
   useEffect(() => {

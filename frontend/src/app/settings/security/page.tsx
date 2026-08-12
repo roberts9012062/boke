@@ -4,13 +4,15 @@
 // + 登录设备（当前设备）+ 注销账号（设计稿《注销账号》弹层，MVP 占位）。
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { SettingsLayout } from "@/components/settings-layout";
 import { apiChangePassword, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
 // 登录设备信息（当前设备：浏览器 UA 简化，设计稿「MacBook Pro · Chrome」）。
+// 注意：SSR 期间 Node 自带 navigator（userAgent=Node.js/xx），与浏览器 UA 不一致——
+// 若在渲染期直接计算会造成 hydration mismatch，故仅在客户端挂载后计算（见下方 useState/useEffect）。
 function currentDevice(): string {
   if (typeof window === "undefined") {
     return "当前设备";
@@ -40,6 +42,11 @@ function currentDevice(): string {
 // SecurityPage 账号安全设置。
 export default function SecurityPage() {
   const { user } = useAuth();
+  // 当前设备：SSR 与首帧输出占位，客户端挂载后计算真实 UA（避免 hydration mismatch）
+  const [device, setDevice] = useState<string>("当前设备");
+  useEffect(() => {
+    setDevice(currentDevice());
+  }, []);
   // 修改密码表单
   const [currentPassword, setCurrentPassword] = useState<string>("");
   const [newPassword, setNewPassword] = useState<string>("");
@@ -160,7 +167,7 @@ export default function SecurityPage() {
       <section className="mt-5 rounded-lg border border-line bg-elevated p-6">
         <h2 className="text-sm font-semibold text-ink">登录设备</h2>
         <div className="mt-3 flex items-center justify-between rounded-lg border border-line bg-muted/40 px-4 py-3 text-sm">
-          <span className="text-ink">{currentDevice()}</span>
+          <span className="text-ink">{device}</span>
           <span className="rounded-full bg-accent-soft px-2 py-0.5 text-xs text-glow">当前设备</span>
         </div>
         <p className="mt-2 text-xs text-ink-3">其他设备的会话管理将在后续版本开放（M4 规划）</p>

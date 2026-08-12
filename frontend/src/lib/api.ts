@@ -744,9 +744,9 @@ export interface PluginOAuthStatus {
   enabled: boolean; // OAuth 是否启用（凭证已配置）
 }
 
-// 查询 GitHub 连接状态。
+// 查询 GitHub 连接状态（后端 admin 组，M3.5）。
 export function apiPluginOAuthStatus(): Promise<{ status: PluginOAuthStatus }> {
-  return get<{ status: PluginOAuthStatus }>("/plugin-oauth/status");
+  return get<{ status: PluginOAuthStatus }>("/admin/plugin-oauth/status");
 }
 
 // 前台插件扩展清单（M3.6：公开——页面槽位加载 running 且含前端资产的插件，未登录可用）。
@@ -765,9 +765,9 @@ export interface PluginUpdateItem {
   latest_version: string; // 最新版本
 }
 
-// 检查可更新插件（Release latest 对比）。
+// 检查可更新插件（Release latest 对比；后端 admin 组独立前缀）。
 export function apiPluginUpdates(): Promise<{ items: PluginUpdateItem[] }> {
-  return get<{ items: PluginUpdateItem[] }>("/plugin-updates");
+  return get<{ items: PluginUpdateItem[] }>("/admin/plugin-updates");
 }
 
 // 一键升级插件（停用 → 下载新包 → 校验替换 → 启用）。
@@ -780,14 +780,14 @@ export function apiSandboxToken(): Promise<{ token: string; expires_in: number }
   return post<{ token: string; expires_in: number }>("/plugin-sandbox-token");
 }
 
-// 发起 GitHub 连接（返回跳转 URL）。
+// 发起 GitHub 连接（返回跳转 URL；后端 admin 组）。
 export function apiPluginOAuthAuthorize(): Promise<{ enabled: boolean; url?: string }> {
-  return get<{ enabled: boolean; url?: string }>("/plugin-oauth/authorize");
+  return get<{ enabled: boolean; url?: string }>("/admin/plugin-oauth/authorize");
 }
 
-// 断开 GitHub 连接。
+// 断开 GitHub 连接（后端 admin 组）。
 export function apiPluginOAuthDisconnect(): Promise<{ disconnected: boolean }> {
-  return post<{ disconnected: boolean }>("/plugin-oauth/disconnect");
+  return post<{ disconnected: boolean }>("/admin/plugin-oauth/disconnect");
 }
 
 // 插件商城清单（source 为空 = settings 默认源；返回清单 + 插件列表）。

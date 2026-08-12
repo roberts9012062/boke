@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- 月言品牌图标：天青圆角块 + 「月」字（与后台品牌块同风格） -->
+  <rect width="64" height="64" rx="14" fill="#3e5478"/>
+  <text x="32" y="45" font-size="38" text-anchor="middle" fill="#f5f7fb" font-family="'Noto Serif SC', 'Songti SC', serif">月</text>
+</svg>
