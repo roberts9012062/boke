@@ -243,6 +243,14 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager, e
 		plugins.POST("/upload", handlers.Plugin.Upload)     // 本地上传 .bpk 安装（M3.4）
 		plugins.PUT("/:id/state", handlers.Plugin.SetState) // 启用/禁用
 		plugins.DELETE("/:id", handlers.Plugin.Uninstall)   // 卸载
+		plugins.GET("/:id/license", handlers.Plugin.LicenseStatus)    // 许可证状态（M3.5）
+		plugins.POST("/:id/license", handlers.Plugin.ActivateLicense) // 激活许可证（M3.5）
+		// GitHub OAuth（M3.5：插件市场设置区连接；独立前缀避免与 /plugins/:id 参数段冲突）
+		pluginOAuth := adminGroup.Group("/plugin-oauth", perm(casbin.DomainPlugins))
+		pluginOAuth.GET("/authorize", handlers.Plugin.OAuthAuthorize)     // 发起连接（返回跳转 URL）
+		pluginOAuth.GET("/callback", handlers.Plugin.OAuthCallback)       // 授权回调（?code=）
+		pluginOAuth.GET("/status", handlers.Plugin.OAuthStatus)           // 连接状态
+		pluginOAuth.POST("/disconnect", handlers.Plugin.OAuthDisconnect)  // 断开连接
 		// SEO 域（M4）：设置/元数据/健康度/批量修复/SERP
 		seo := adminGroup.Group("/seo", perm(casbin.DomainSeo))
 		seo.GET("/settings", handlers.Seo.GetSettings)

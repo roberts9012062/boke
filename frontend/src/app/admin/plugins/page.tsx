@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import {
+  apiActivateLicense,
   apiInstalledPlugins,
   apiSetPluginState,
   apiUninstallPlugin,
@@ -37,6 +38,11 @@ export default function AdminPlugins() {
   const [uploading, setUploading] = useState<boolean>(false);
   const [uploadDone, setUploadDone] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // 许可证激活（M3.5）
+  const [licenseTarget, setLicenseTarget] = useState<InstalledPlugin | null>(null);
+  const [licenseJwt, setLicenseJwt] = useState<string>("");
+  const [activating, setActivating] = useState<boolean>(false);
+  const [licenseDone, setLicenseDone] = useState<boolean>(false);
 
   // 选择 .bpk 后上传安装（成功后刷新列表）
   const onPickFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -90,6 +96,21 @@ export default function AdminPlugins() {
       setError(err instanceof ApiError ? err.message : "卸载失败");
     } finally {
       setUninstalling(false);
+    }
+  };
+
+  // 提交激活许可证（M3.5：验签成功 → 提示 + 刷新列表）
+  const confirmActivateLicense = async () => {
+    if (!licenseTarget) return;
+    setActivating(true);
+    try {
+      await apiActivateLicense(licenseTarget.plugin_id, licenseJwt.trim());
+      setLicenseDone(true);
+      load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "激活失败");
+    } finally {
+      setActivating(false);
     }
   };
 
@@ -174,8 +195,40 @@ export default function AdminPlugins() {
                     {plugin.last_error}
                   </p>
                 )}
+                {/* 许可证状态（M3.5：付费插件） */}
+                {plugin.license && (
+                  <p className="mt-0.5 text-xs">
+                    {plugin.license.degraded ? (
+                      <span className="text-like">许可证已过期降级（demo 模式）</span>
+                    ) : plugin.license.activated ? (
+                      <span className="text-glow">
+                        Pro 已激活
+                        {plugin.license.expires_at
+                          ? ` · 至 ${new Date(plugin.license.expires_at * 1000).toLocaleDateString()}`
+                          : " · 永久"}
+                      </span>
+                    ) : (
+                      <span className="text-ink-3">demo 模式（Pro 功能未激活）</span>
+                    )}
+                  </p>
+                )}
               </div>
               <div className="flex shrink-0 gap-2 text-xs">
+                {/* 激活许可证（M3.5：付费插件 demo 或已降级时显示） */}
+                {plugin.license && (!plugin.license.activated || plugin.license.degraded) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLicenseTarget(plugin);
+                      setLicenseJwt("");
+                      setLicenseDone(false);
+                      setError("");
+                    }}
+                    className="rounded-full border border-glow/30 px-4 py-1.5 text-glow hover:bg-accent-soft"
+                  >
+                    激活许可证
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => void toggleState(plugin)}
@@ -201,8 +254,7 @@ export default function AdminPlugins() {
       )}
 
       {/* 卸载确认弹层（设计稿《插件卸载·SEO》：确认 → 成功） */}
-      {uninstallTarget && (
-        <div
+      {uninstallTarget && (        <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-6"
           role="dialog"
           aria-modal="true"
@@ -265,6 +317,77 @@ export default function AdminPlugins() {
                     className="rounded-full bg-like px-5 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60"
                   >
                     {uninstalling ? "卸载中…" : "确认卸载"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 许可证激活弹层（M3.5：输入作者签发的 license.jwt） */}
+      {licenseTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-6"
+          role="dialog"
+          aria-modal="true"
+          aria-label="激活许可证"
+          onClick={() => {
+            if (!activating && !licenseDone) setLicenseTarget(null);
+          }}
+        >
+          <div
+            className="w-full max-w-[420px] rounded-xl border border-line bg-elevated p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {licenseDone ? (
+              <div className="py-4 text-center">
+                <p className="text-4xl" aria-hidden>
+                  ✓
+                </p>
+                <h2 className="mt-3 font-display text-lg font-semibold text-ink">激活成功</h2>
+                <p className="mt-1 text-xs text-ink-3">
+                  「{licenseTarget.name}」已升级为 Pro，付费功能立即生效
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setLicenseTarget(null)}
+                  className="mt-5 rounded-full bg-accent px-8 py-2 text-sm font-medium text-on-accent hover:opacity-90"
+                >
+                  完成
+                </button>
+              </div>
+            ) : (
+              <>
+                <h2 className="font-display text-lg font-semibold text-ink">
+                  激活「{licenseTarget.name}」许可证
+                </h2>
+                <p className="mt-2 text-sm text-ink-2">
+                  粘贴作者签发的 license.jwt（购买后由插件作者发放），验签通过后 Pro 功能启用。
+                </p>
+                <textarea
+                  value={licenseJwt}
+                  onChange={(e) => setLicenseJwt(e.target.value)}
+                  rows={6}
+                  placeholder='{"sub":"plugin:xxx","edition":"pro",...}'
+                  className="mt-3 w-full rounded-lg border border-line bg-elevated p-3 font-mono text-xs text-ink outline-none focus:border-glow"
+                />
+                <div className="mt-5 flex justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setLicenseTarget(null)}
+                    disabled={activating}
+                    className="rounded-full border border-line px-5 py-2 text-sm text-ink-2 hover:text-ink disabled:opacity-60"
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void confirmActivateLicense()}
+                    disabled={activating || licenseJwt.trim() === ""}
+                    className="rounded-full bg-accent px-5 py-2 text-sm font-medium text-on-accent hover:opacity-90 disabled:opacity-60"
+                  >
+                    {activating ? "验签中…" : "激活"}
                   </button>
                 </div>
               </>

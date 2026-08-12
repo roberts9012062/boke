@@ -51,6 +51,10 @@ type ManagerEvents interface {
 	OnRestarting(pluginID string, attempt int)
 }
 
+// LicenseProvider 许可证查询回调（M3.5：service 层实现，避免 plugin→repository 依赖）。
+// 返回：许可证信息（nil=无记录，demo 模式）；错误=查询失败（按 free 兜底）。
+type LicenseProvider func(ctx context.Context, pluginID string) (*proto.LicenseInfo, error)
+
 // ManagedPlugin 单个插件进程管理项（受 PluginManager.mu 保护）。
 type ManagedPlugin struct {
 	pluginID  string        // 插件 ID
@@ -63,25 +67,28 @@ type ManagedPlugin struct {
 
 // PluginManager 插件进程管理器（连接器类）。
 type PluginManager struct {
-	mu          sync.Mutex
-	managed     map[string]*ManagedPlugin // pluginID → 管理项
-	crashCounts map[string]int            // pluginID → 连续崩溃次数（跨重启保留）
-	store       *BinStore                 // 二进制存储（校验存在）
-	registry    *Registry                 // 钩子注册表（注册/注销适配器）
-	events      ManagerEvents             // 状态事件回调（写 DB）
-	logDir      string                    // 插件日志目录（logs/plugins）
+	mu              sync.Mutex
+	managed         map[string]*ManagedPlugin // pluginID → 管理项
+	crashCounts     map[string]int            // pluginID → 连续崩溃次数（跨重启保留）
+	store           *BinStore                 // 二进制存储（校验存在）
+	registry        *Registry                 // 钩子注册表（注册/注销适配器）
+	events          ManagerEvents             // 状态事件回调（写 DB）
+	licenseProvider LicenseProvider           // 许可证查询（M3.5；可空=全部 free）
+	logDir          string                    // 插件日志目录（logs/plugins）
 }
 
 // NewPluginManager 创建进程管理器。
-// 参数：store 二进制存储；registry 钩子注册表；events 状态回调（可空）；logDir 插件日志目录。
-func NewPluginManager(store *BinStore, registry *Registry, events ManagerEvents, logDir string) *PluginManager {
+// 参数：store 二进制存储；registry 钩子注册表；events 状态回调（可空）；logDir 插件日志目录；
+//      licenseProvider 许可证查询（M3.5，可空=全部 demo）。
+func NewPluginManager(store *BinStore, registry *Registry, events ManagerEvents, logDir string, licenseProvider LicenseProvider) *PluginManager {
 	return &PluginManager{
-		managed:     make(map[string]*ManagedPlugin),
-		crashCounts: make(map[string]int),
-		store:       store,
-		registry:    registry,
-		events:      events,
-		logDir:      logDir,
+		managed:         make(map[string]*ManagedPlugin),
+		crashCounts:     make(map[string]int),
+		store:           store,
+		registry:        registry,
+		events:          events,
+		licenseProvider: licenseProvider,
+		logDir:          logDir,
 	}
 }
 
@@ -169,8 +176,14 @@ func (m *PluginManager) Start(ctx context.Context, pluginID string) error {
 		return fmt.Errorf("插件二进制声明 ID「%s」与实例「%s」不一致", info.Id, pluginID)
 	}
 
-	// Activate（失败不进入 running）
-	if st, err := rpc.info.Activate(ctx, &proto.Empty{}); err != nil || !st.Ok {
+	// Activate（携带许可证信息：provider 查询，无记录/失败按 free demo 兜底）
+	license := &proto.LicenseInfo{Edition: "free"}
+	if m.licenseProvider != nil {
+		if li, err := m.licenseProvider(ctx, pluginID); err == nil && li != nil {
+			license = li
+		}
+	}
+	if st, err := rpc.info.Activate(ctx, license); err != nil || !st.Ok {
 		reason := "未知原因"
 		if err == nil && st.Error != "" {
 			reason = st.Error

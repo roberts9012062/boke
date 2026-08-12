@@ -696,9 +696,57 @@ export interface InstalledPlugin {
   repo_url: string; // 来源
   state: string; // running/disabled/installed/crashed（M3.3 进程外）
   last_error?: string; // 最近错误（M3.3 崩溃/缺失提示）
+  license?: PluginLicenseStatus; // 许可证状态（M3.5：付费插件）
   created_at: string; // 安装时间
   nav?: PluginNav; // 侧栏入口声明（动态扩展）
   settings_schema?: PluginSettingField[]; // 设置项 schema
+}
+
+// 插件许可证状态（M3.5：Ed25519 签发/验签）。
+export interface PluginLicenseStatus {
+  plugin_id: string; // 插件 ID
+  activated: boolean; // 是否已激活
+  edition: string; // free（demo）/ pro
+  features?: string[]; // 授权功能（降级后为空）
+  expires_at?: number; // 到期时间戳（缺省=永久）
+  degraded: boolean; // 已降级（超宽限期）
+}
+
+// 插件许可证状态查询。
+export function apiPluginLicenseStatus(pluginId: string): Promise<{ license: PluginLicenseStatus }> {
+  return get<{ license: PluginLicenseStatus }>(`/admin/plugins/${pluginId}/license`);
+}
+
+// 激活插件许可证（作者签发的 license.jwt）。
+export function apiActivateLicense(
+  pluginId: string,
+  licenseJwt: string,
+): Promise<{ activated: boolean; license: PluginLicenseStatus }> {
+  return post<{ activated: boolean; license: PluginLicenseStatus }>(`/admin/plugins/${pluginId}/license`, {
+    license_jwt: licenseJwt,
+  });
+}
+
+// GitHub OAuth 连接状态（M3.5）。
+export interface PluginOAuthStatus {
+  connected: boolean; // 是否已连接
+  username?: string; // 已连接用户名
+  enabled: boolean; // OAuth 是否启用（凭证已配置）
+}
+
+// 查询 GitHub 连接状态。
+export function apiPluginOAuthStatus(): Promise<{ status: PluginOAuthStatus }> {
+  return get<{ status: PluginOAuthStatus }>("/plugin-oauth/status");
+}
+
+// 发起 GitHub 连接（返回跳转 URL）。
+export function apiPluginOAuthAuthorize(): Promise<{ enabled: boolean; url?: string }> {
+  return get<{ enabled: boolean; url?: string }>("/plugin-oauth/authorize");
+}
+
+// 断开 GitHub 连接。
+export function apiPluginOAuthDisconnect(): Promise<{ disconnected: boolean }> {
+  return post<{ disconnected: boolean }>("/plugin-oauth/disconnect");
 }
 
 // 插件商城清单（source 为空 = settings 默认源；返回清单 + 插件列表）。

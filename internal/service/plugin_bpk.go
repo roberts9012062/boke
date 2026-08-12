@@ -126,6 +126,12 @@ func (s *PluginService) installFromFile(ctx context.Context, bpkPath string, rep
 	if binPath := s.store.BinPath(manifest.ID); binPath != "" {
 		_ = os.Rename(filepath.Join(destDir, bpkg.PluginBinName), binPath)
 	}
+	// 付费插件公钥登记（M3.5：包内 pubkey.pem → plugin_instances.pubkey_pem，激活验签用）
+	if pubkey, err := os.ReadFile(filepath.Join(destDir, bpkg.PubkeyName)); err == nil && len(pubkey) > 0 {
+		if err := s.plugs.SetPubkey(ctx, manifest.ID, string(pubkey)); err != nil {
+			_ = err // 公钥登记失败不阻断安装（激活接口会提示未登记）
+		}
+	}
 
 	// 实例注册（已卸载记录复用；否则新建）→ 激活（拉起进程/注册钩子）
 	if findErr == nil {

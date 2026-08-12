@@ -96,6 +96,13 @@ func (p *DemoPlugin) RegisterAPI(api *sdk.APIMux) {
 		logf("自定义 API：%s %s", method, path)
 		return 200, []byte(`{"pong":true,"plugin":"demo-plugin"}`), nil
 	})
+	// /pro-status：付费功能演示（M3.5 许可证链路——FeatureEnabled 由主进程下发的许可决定）
+	api.Handle("GET", "/pro-status", func(ctx context.Context, method string, path string, body []byte) (int, []byte, error) {
+		lic := sdk.License(ctx)
+		pro := lic.FeatureEnabled("demo_pro")
+		logf("pro-status 查询：edition=%s pro=%v degraded=%v", lic.Edition, pro, lic.Degraded)
+		return 200, []byte(fmt.Sprintf(`{"pro":%v,"edition":%q,"degraded":%v}`, pro, lic.Edition, lic.Degraded)), nil
+	})
 }
 
 // logf 插件日志（stderr → 主进程重定向到 logs/plugins/demo-plugin.log）。

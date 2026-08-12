@@ -17,6 +17,7 @@ type PluginInstance struct {
 	Version   string    // 当前版本
 	RepoURL   string    // 来源仓库
 	State     string    // 状态：installed/running/disabled/uninstalled
+	Pubkey    string    // 许可证公钥（M3.5：付费插件包内 pubkey.pem 登记）
 	LastError string    // 最近错误
 	CreatedAt time.Time // 安装时间
 }
@@ -57,10 +58,10 @@ func (r *PluginRepo) Exists(ctx context.Context, pluginID string) (bool, error) 
 func (r *PluginRepo) FindByID(ctx context.Context, id int64) (PluginInstance, error) {
 	var inst PluginInstance
 	err := r.pool.QueryRow(ctx, `
-		SELECT id, plugin_id, name, version, repo_url, state, last_error, created_at
+		SELECT id, plugin_id, name, version, repo_url, state, pubkey_pem, last_error, created_at
 		FROM plugin_instances WHERE id = $1`, id).Scan(
 		&inst.ID, &inst.PluginID, &inst.Name, &inst.Version,
-		&inst.RepoURL, &inst.State, &inst.LastError, &inst.CreatedAt)
+		&inst.RepoURL, &inst.State, &inst.Pubkey, &inst.LastError, &inst.CreatedAt)
 	if err != nil {
 		return PluginInstance{}, wrapNotFound(err)
 	}
@@ -72,14 +73,22 @@ func (r *PluginRepo) FindByID(ctx context.Context, id int64) (PluginInstance, er
 func (r *PluginRepo) FindByPluginID(ctx context.Context, pluginID string) (PluginInstance, error) {
 	var inst PluginInstance
 	err := r.pool.QueryRow(ctx, `
-		SELECT id, plugin_id, name, version, repo_url, state, last_error, created_at
+		SELECT id, plugin_id, name, version, repo_url, state, pubkey_pem, last_error, created_at
 		FROM plugin_instances WHERE plugin_id = $1`, pluginID).Scan(
 		&inst.ID, &inst.PluginID, &inst.Name, &inst.Version,
-		&inst.RepoURL, &inst.State, &inst.LastError, &inst.CreatedAt)
+		&inst.RepoURL, &inst.State, &inst.Pubkey, &inst.LastError, &inst.CreatedAt)
 	if err != nil {
 		return PluginInstance{}, wrapNotFound(err)
 	}
 	return inst, nil
+}
+
+// SetPubkey 登记/更新插件许可证公钥（M3.5：安装解包后登记 pubkey.pem）。
+func (r *PluginRepo) SetPubkey(ctx context.Context, pluginID string, pubkeyPEM string) error {
+	_, err := r.pool.Exec(ctx,
+		`UPDATE plugin_instances SET pubkey_pem = $2, updated_at = now() WHERE plugin_id = $1`,
+		pluginID, pubkeyPEM)
+	return err
 }
 
 // Reinstall 重新安装（复用已卸载记录：状态恢复 installed + 版本/来源更新）。

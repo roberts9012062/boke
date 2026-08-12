@@ -12,6 +12,7 @@ import (
 
 	"github.com/roberts9012062/boke/internal/plugin"
 	"github.com/roberts9012062/boke/internal/repository"
+	"github.com/roberts9012062/boke/pkg/errs"
 )
 
 // isProcessPlugin 判断是否为进程外插件（无内置实现即进程外）。
@@ -49,6 +50,31 @@ func (s *PluginService) CallAPI(ctx context.Context, pluginID string, method str
 		return 0, nil, errors.New("插件进程管理器未配置")
 	}
 	return s.manager.Call(ctx, pluginID, method, path, body)
+}
+
+// IsRunning 插件进程是否在运行（M3.5 激活后重启判断）。
+func (s *PluginService) IsRunning(pluginID string) bool {
+	return s.manager != nil && s.manager.IsRunning(pluginID)
+}
+
+// Restart 重启插件进程（停用再启用；M3.5 激活许可证后让 SDK 许可缓存生效）。
+func (s *PluginService) Restart(ctx context.Context, pluginID string) error {
+	if s.manager == nil {
+		return errors.New("插件进程管理器未配置")
+	}
+	if err := s.manager.Stop(pluginID); err != nil {
+		return err
+	}
+	return s.manager.Start(ctx, pluginID)
+}
+
+// PluginIDByInstance 按实例 ID 查插件 ID（许可证激活/状态等 :id 路由用）。
+func (s *PluginService) PluginIDByInstance(ctx context.Context, instanceID int64) (string, error) {
+	inst, err := s.plugs.FindByID(ctx, instanceID)
+	if err != nil {
+		return "", errs.ErrNotFound
+	}
+	return inst.PluginID, nil
 }
 
 // PluginManagerEvents 进程管理器事件落库实现（独立类型避免 service↔manager 装配循环）。

@@ -42,8 +42,8 @@ const (
 type PluginServiceClient interface {
 	// Info 返回插件信息（启用时校验声明与安装清单一致）。
 	Info(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*PluginInfo, error)
-	// Activate 激活（启用回调，插件侧初始化资源）。
-	Activate(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Status, error)
+	// Activate 激活（携带主进程下发的许可证信息；插件侧更新内存并初始化资源）。
+	Activate(ctx context.Context, in *LicenseInfo, opts ...grpc.CallOption) (*Status, error)
 	// Deactivate 停用（停用回调，插件侧保存状态/释放资源）。
 	Deactivate(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Status, error)
 }
@@ -66,7 +66,7 @@ func (c *pluginServiceClient) Info(ctx context.Context, in *Empty, opts ...grpc.
 	return out, nil
 }
 
-func (c *pluginServiceClient) Activate(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Status, error) {
+func (c *pluginServiceClient) Activate(ctx context.Context, in *LicenseInfo, opts ...grpc.CallOption) (*Status, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Status)
 	err := c.cc.Invoke(ctx, PluginService_Activate_FullMethodName, in, out, cOpts...)
@@ -94,8 +94,8 @@ func (c *pluginServiceClient) Deactivate(ctx context.Context, in *Empty, opts ..
 type PluginServiceServer interface {
 	// Info 返回插件信息（启用时校验声明与安装清单一致）。
 	Info(context.Context, *Empty) (*PluginInfo, error)
-	// Activate 激活（启用回调，插件侧初始化资源）。
-	Activate(context.Context, *Empty) (*Status, error)
+	// Activate 激活（携带主进程下发的许可证信息；插件侧更新内存并初始化资源）。
+	Activate(context.Context, *LicenseInfo) (*Status, error)
 	// Deactivate 停用（停用回调，插件侧保存状态/释放资源）。
 	Deactivate(context.Context, *Empty) (*Status, error)
 	mustEmbedUnimplementedPluginServiceServer()
@@ -111,7 +111,7 @@ type UnimplementedPluginServiceServer struct{}
 func (UnimplementedPluginServiceServer) Info(context.Context, *Empty) (*PluginInfo, error) {
 	return nil, status.Error(codes.Unimplemented, "method Info not implemented")
 }
-func (UnimplementedPluginServiceServer) Activate(context.Context, *Empty) (*Status, error) {
+func (UnimplementedPluginServiceServer) Activate(context.Context, *LicenseInfo) (*Status, error) {
 	return nil, status.Error(codes.Unimplemented, "method Activate not implemented")
 }
 func (UnimplementedPluginServiceServer) Deactivate(context.Context, *Empty) (*Status, error) {
@@ -157,7 +157,7 @@ func _PluginService_Info_Handler(srv interface{}, ctx context.Context, dec func(
 }
 
 func _PluginService_Activate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(Empty)
+	in := new(LicenseInfo)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -169,7 +169,7 @@ func _PluginService_Activate_Handler(srv interface{}, ctx context.Context, dec f
 		FullMethod: PluginService_Activate_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(PluginServiceServer).Activate(ctx, req.(*Empty))
+		return srv.(PluginServiceServer).Activate(ctx, req.(*LicenseInfo))
 	}
 	return interceptor(ctx, in, info, handler)
 }

@@ -42,3 +42,6 @@ data/backup/
 
 # 插件安装产物（data/plugins/，M3.3 二进制 + M3.4 .bpk 解包内容）
 data/plugins/
+
+# demo 插件许可证密钥（data/demo-keys/，M3.5 私钥/许可证不入库）
+data/demo-keys/

@@ -37,8 +37,8 @@ type pluginManifest struct {
 	} `json:"author"`
 }
 
-// pack 打包子命令（单平台 .bpk）。
-func pack(pluginPath string, binPath string, goos string, goarch string, version string, outDir string) error {
+// pack 打包子命令（单平台 .bpk；-pubkey 付费插件公钥入包，M3.5）。
+func pack(pluginPath string, binPath string, pubkeyPath string, goos string, goarch string, version string, outDir string) error {
 	// 读取插件清单（id/name/version/author/description/sdk）
 	raw, err := os.ReadFile(pluginPath)
 	if err != nil {
@@ -63,9 +63,16 @@ func pack(pluginPath string, binPath string, goos string, goarch string, version
 	if err != nil {
 		return fmt.Errorf("读取插件二进制失败：%w", err)
 	}
-
-	// 组装包内文件（plugin.bin；pubkey.pem/frontend/ 后续扩展可加入）
 	files := map[string][]byte{bpkg.PluginBinName: bin}
+
+	// 付费插件公钥入包（安装时登记，激活验签用；M3.5）
+	if pubkeyPath != "" {
+		pubkey, err := os.ReadFile(pubkeyPath)
+		if err != nil {
+			return fmt.Errorf("读取公钥失败：%w", err)
+		}
+		files[bpkg.PubkeyName] = pubkey
+	}
 
 	// 打包
 	content, err := bpkg.Pack(bpkg.Manifest{
@@ -84,7 +91,12 @@ func pack(pluginPath string, binPath string, goos string, goarch string, version
 	if err := os.WriteFile(outPath, content, 0o644); err != nil {
 		return fmt.Errorf("写入安装包失败：%w", err)
 	}
-	fmt.Printf("[成功] 打包完成：%s（%d 字节）\n", outPath, len(content))
+	fmt.Printf("[成功] 打包完成：%s（%d 字节，%s）\n", outPath, len(content), func() string {
+		if pubkeyPath != "" {
+			return "含许可证公钥"
+		}
+		return "免费插件"
+	}())
 	return nil
 }
 
@@ -97,6 +109,7 @@ func main() {
 	fs := flag.NewFlagSet("bp", flag.ExitOnError)
 	pluginPath := fs.String("plugin", "yueyan-plugin.json", "插件清单路径（仓库根目录）")
 	binPath := fs.String("bin", "plugin.bin", "插件二进制路径")
+	pubkeyPath := fs.String("pubkey", "", "许可证公钥路径（付费插件必带，M3.5）")
 	goos := fs.String("os", runtime.GOOS, "目标平台 OS（linux/darwin/windows）")
 	goarch := fs.String("arch", runtime.GOARCH, "目标平台架构（amd64/arm64）")
 	version := fs.String("version", "", "版本号（缺省取清单 version）")
@@ -104,7 +117,7 @@ func main() {
 	if err := fs.Parse(args); err != nil {
 		os.Exit(1)
 	}
-	if err := pack(*pluginPath, *binPath, *goos, *goarch, *version, *outDir); err != nil {
+	if err := pack(*pluginPath, *binPath, *pubkeyPath, *goos, *goarch, *version, *outDir); err != nil {
 		fmt.Printf("[失败] %v\n", err)
 		os.Exit(1)
 	}

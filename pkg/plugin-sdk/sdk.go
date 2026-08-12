@@ -2,9 +2,13 @@
 // 插件开发 SDK（M3.3）：第三方插件作者唯一依赖的公共包。
 // 对齐 docs/architecture.md 6.3 SDK 接口设计；与主进程 internal/plugin 通过
 // proto/plugin.proto 契约通信（进程外 go-plugin + gRPC）。
+// M3.5 新增：许可查询（License/FeatureEnabled）——主进程激活时下发，插件只读。
 package sdk
 
-import "context"
+import (
+	"context"
+	"sync"
+)
 
 // Info 插件信息（Info() 返回，主进程校验与安装清单一致）。
 type Info struct {
@@ -81,4 +85,48 @@ func (m *APIMux) Handle(method string, path string, handler APIHandler) {
 // Find 查找处理器（不存在返回 nil）。
 func (m *APIMux) Find(method string, path string) APIHandler {
 	return m.routes[method+" "+path]
+}
+
+// ---------- 许可证（M3.5：主进程激活时下发，插件只读） ----------
+
+// LicenseInfo 插件许可（主进程唯一数据源；FeatureEnabled 判断付费功能）。
+type LicenseInfo struct {
+	Edition   string   // 版本：free（demo）/ pro（已激活）
+	Features  []string // 授权功能列表
+	ExpiresAt int64    // 到期时间戳（Unix 秒；0=永久）
+	Degraded  bool     // 已降级（超宽限期未续费，功能锁定）
+}
+
+// FeatureEnabled 判断付费功能是否可用（降级/未授权一律 false）。
+// 说明：付费插件在功能入口处调用（demo 降级逻辑收敛于此，勿放前端）。
+func (l *LicenseInfo) FeatureEnabled(name string) bool {
+	if l == nil || l.Degraded {
+		return false
+	}
+	for _, f := range l.Features {
+		if f == name {
+			return true
+		}
+	}
+	return false
+}
+
+// 插件许可内存状态（server.Serve 激活回调更新；并发安全）。
+var (
+	licenseMu    sync.RWMutex
+	licenseState = LicenseInfo{} // 默认 free（未激活/demo）
+)
+
+// SetLicense 更新插件许可（server 激活回调使用；插件作者不调用）。
+func SetLicense(l LicenseInfo) {
+	licenseMu.Lock()
+	licenseState = l
+	licenseMu.Unlock()
+}
+
+// License 返回当前许可只读快照（付费插件查询功能开关）。
+func License(ctx context.Context) LicenseInfo {
+	licenseMu.RLock()
+	defer licenseMu.RUnlock()
+	return licenseState
 }

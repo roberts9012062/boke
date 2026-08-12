@@ -1,9 +1,12 @@
 // internal/ghclient/client.go
 // GitHub 客户端（连接器类，外部系统接口）：拉取插件商城清单（plugins.json）+ Release 资产下载（M3.4）。
 // 说明（M3.1）：插件商城以 GitHub 仓库为内容载体——用户可自定义仓库地址（settings.plugin_source），
-//   清单文件约定为仓库根目录 plugins.json（GitHub Contents API + raw 格式返回）。
+//
+//	清单文件约定为仓库根目录 plugins.json（GitHub Contents API + raw 格式返回）。
+//
 // 说明（M3.4）：安装链路按清单 assets.pattern 匹配 Release 资产下载 .bpk——元数据走 API（8s），
-//   资产走 CDN 直链（长超时流式，公开仓库无需 token）。
+//
+//	资产走 CDN 直链（长超时流式，公开仓库无需 token）。
 package ghclient
 
 import (
@@ -16,6 +19,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -27,7 +31,8 @@ const downloadTimeout = 120 * time.Second
 
 // Client GitHub 客户端（连接器类）。
 type Client struct {
-	token  string // GitHub Token（.env GITHUB_TOKEN）
+	mu     sync.RWMutex // 保护 token（OAuth 回调后动态更新，M3.5）
+	token  string       // GitHub Token（.env GITHUB_TOKEN 或 OAuth 连接）
 	client *http.Client
 }
 
@@ -35,15 +40,35 @@ type Client struct {
 // 参数：token GitHub Token（可为空，仅公开仓库可用）。
 func NewClient(token string) *Client {
 	return &Client{
-		token: token,
+		token:  token,
 		client: &http.Client{Timeout: requestTimeout},
 	}
 }
 
+// SetToken 动态更新 GitHub Token（OAuth 连接/断开时调用，并发安全）。
+func (c *Client) SetToken(token string) {
+	c.mu.Lock()
+	c.token = token
+	c.mu.Unlock()
+}
+
+// getToken 读取当前 Token（并发安全）。
+func (c *Client) getToken() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.token
+}
+
 // validateRepo 仓库名合法性校验（防路径注入；纯函数）。
 func validateRepo(owner string, repo string) error {
-	if strings.TrimSpace(owner) == "" || strings.TrimSpace(repo) == "" {
+	owner = strings.TrimSpace(owner)
+	repo = strings.TrimSpace(repo)
+	if owner == "" || repo == "" {
 		return errors.New("插件源仓库格式不正确（应为 owner/repo）")
+	}
+	// 拒绝 . / .. 完整名（点字符本身合法，但单独成段可做路径穿越）
+	if owner == "." || owner == ".." || repo == "." || repo == ".." {
+		return errors.New("插件源仓库格式不正确")
 	}
 	for _, ch := range owner + repo {
 		if !(ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z' || ch >= '0' && ch <= '9' || ch == '-' || ch == '_' || ch == '.') {
@@ -68,8 +93,8 @@ func (c *Client) FetchManifest(ctx context.Context, owner string, repo string) (
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/vnd.github.raw+json") // 直接返回文件内容（非 base64）
-	if c.token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.token)
+	if token := c.getToken(); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 
 	resp, err := c.client.Do(req)
@@ -117,9 +142,9 @@ func decodeBase64IfJSON(raw []byte) []byte {
 
 // ReleaseAsset Release 资产信息。
 type ReleaseAsset struct {
-	Name string `json:"name"` // 资产文件名（如 demo-plugin-0.1.0-windows-amd64.bpk）
+	Name string `json:"name"`                 // 资产文件名（如 demo-plugin-0.1.0-windows-amd64.bpk）
 	URL  string `json:"browser_download_url"` // 下载直链（CDN，公开仓库无需 token）
-	Size int64  `json:"size"` // 资产大小（字节）
+	Size int64  `json:"size"`                 // 资产大小（字节）
 }
 
 // LatestRelease 最新 Release 信息。
@@ -140,8 +165,8 @@ func (c *Client) FetchLatestRelease(ctx context.Context, owner string, repo stri
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
-	if c.token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.token)
+	if token := c.getToken(); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -168,8 +193,8 @@ func (c *Client) DownloadAsset(ctx context.Context, url string, destPath string,
 		return err
 	}
 	// 私有仓库资产下载需带 token（公开直链可不带）
-	if c.token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.token)
+	if token := c.getToken(); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	dlClient := &http.Client{Timeout: downloadTimeout}
 	resp, err := dlClient.Do(req)

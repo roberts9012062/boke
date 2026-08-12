@@ -476,6 +476,75 @@ func (x *APICallResult) GetError() string {
 	return ""
 }
 
+// LicenseInfo 许可证信息（M3.5：主进程激活时下发，插件只读；主进程是唯一数据源）。
+type LicenseInfo struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Edition       string                 `protobuf:"bytes,1,opt,name=edition,proto3" json:"edition,omitempty"`                       // 版本：free（demo）/ pro（已激活）
+	Features      []string               `protobuf:"bytes,2,rep,name=features,proto3" json:"features,omitempty"`                     // 授权功能列表（FeatureEnabled 判断依据）
+	ExpiresAt     int64                  `protobuf:"varint,3,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"` // 到期时间戳（Unix 秒；0=永久）
+	Degraded      bool                   `protobuf:"varint,4,opt,name=degraded,proto3" json:"degraded,omitempty"`                    // 已降级（超宽限期未续费，功能锁定）
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LicenseInfo) Reset() {
+	*x = LicenseInfo{}
+	mi := &file_plugin_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LicenseInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LicenseInfo) ProtoMessage() {}
+
+func (x *LicenseInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_plugin_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LicenseInfo.ProtoReflect.Descriptor instead.
+func (*LicenseInfo) Descriptor() ([]byte, []int) {
+	return file_plugin_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *LicenseInfo) GetEdition() string {
+	if x != nil {
+		return x.Edition
+	}
+	return ""
+}
+
+func (x *LicenseInfo) GetFeatures() []string {
+	if x != nil {
+		return x.Features
+	}
+	return nil
+}
+
+func (x *LicenseInfo) GetExpiresAt() int64 {
+	if x != nil {
+		return x.ExpiresAt
+	}
+	return 0
+}
+
+func (x *LicenseInfo) GetDegraded() bool {
+	if x != nil {
+		return x.Degraded
+	}
+	return false
+}
+
 var File_plugin_proto protoreflect.FileDescriptor
 
 const file_plugin_proto_rawDesc = "" +
@@ -511,10 +580,16 @@ const file_plugin_proto_rawDesc = "" +
 	"\rAPICallResult\x12\x16\n" +
 	"\x06status\x18\x01 \x01(\x05R\x06status\x12\x12\n" +
 	"\x04body\x18\x02 \x01(\fR\x04body\x12\x14\n" +
-	"\x05error\x18\x03 \x01(\tR\x05error2\xce\x01\n" +
+	"\x05error\x18\x03 \x01(\tR\x05error\"~\n" +
+	"\vLicenseInfo\x12\x18\n" +
+	"\aedition\x18\x01 \x01(\tR\aedition\x12\x1a\n" +
+	"\bfeatures\x18\x02 \x03(\tR\bfeatures\x12\x1d\n" +
+	"\n" +
+	"expires_at\x18\x03 \x01(\x03R\texpiresAt\x12\x1a\n" +
+	"\bdegraded\x18\x04 \x01(\bR\bdegraded2\xd4\x01\n" +
 	"\rPluginService\x12=\n" +
-	"\x04Info\x12\x17.yueyan.plugin.v1.Empty\x1a\x1c.yueyan.plugin.v1.PluginInfo\x12=\n" +
-	"\bActivate\x12\x17.yueyan.plugin.v1.Empty\x1a\x18.yueyan.plugin.v1.Status\x12?\n" +
+	"\x04Info\x12\x17.yueyan.plugin.v1.Empty\x1a\x1c.yueyan.plugin.v1.PluginInfo\x12C\n" +
+	"\bActivate\x12\x1d.yueyan.plugin.v1.LicenseInfo\x1a\x18.yueyan.plugin.v1.Status\x12?\n" +
 	"\n" +
 	"Deactivate\x12\x17.yueyan.plugin.v1.Empty\x1a\x18.yueyan.plugin.v1.Status2W\n" +
 	"\vHookService\x12H\n" +
@@ -534,7 +609,7 @@ func file_plugin_proto_rawDescGZIP() []byte {
 	return file_plugin_proto_rawDescData
 }
 
-var file_plugin_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_plugin_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_plugin_proto_goTypes = []any{
 	(*Empty)(nil),         // 0: yueyan.plugin.v1.Empty
 	(*PluginInfo)(nil),    // 1: yueyan.plugin.v1.PluginInfo
@@ -543,10 +618,11 @@ var file_plugin_proto_goTypes = []any{
 	(*HookResponse)(nil),  // 4: yueyan.plugin.v1.HookResponse
 	(*APICall)(nil),       // 5: yueyan.plugin.v1.APICall
 	(*APICallResult)(nil), // 6: yueyan.plugin.v1.APICallResult
+	(*LicenseInfo)(nil),   // 7: yueyan.plugin.v1.LicenseInfo
 }
 var file_plugin_proto_depIdxs = []int32{
 	0, // 0: yueyan.plugin.v1.PluginService.Info:input_type -> yueyan.plugin.v1.Empty
-	0, // 1: yueyan.plugin.v1.PluginService.Activate:input_type -> yueyan.plugin.v1.Empty
+	7, // 1: yueyan.plugin.v1.PluginService.Activate:input_type -> yueyan.plugin.v1.LicenseInfo
 	0, // 2: yueyan.plugin.v1.PluginService.Deactivate:input_type -> yueyan.plugin.v1.Empty
 	3, // 3: yueyan.plugin.v1.HookService.Execute:input_type -> yueyan.plugin.v1.HookRequest
 	5, // 4: yueyan.plugin.v1.PluginAPI.Call:input_type -> yueyan.plugin.v1.APICall
@@ -573,7 +649,7 @@ func file_plugin_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_plugin_proto_rawDesc), len(file_plugin_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   7,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   3,
 		},

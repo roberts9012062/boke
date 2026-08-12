@@ -2,6 +2,7 @@
 // 插件控制器（M3.1）：插件商城（GitHub 清单）+ 插件管理（安装/启用禁用/卸载）。
 // M3.3 新增：Call 插件自定义 API 代理（/api/plugins/{id}/** 转发子进程）。
 // M3.4 新增：Upload 本地 .bpk 上传安装。
+// M3.5 新增：许可证激活/状态 + GitHub OAuth 连接。
 package handler
 
 import (
@@ -22,11 +23,12 @@ const maxBpkUpload = 50 << 20
 // PluginHandler 插件控制器（连接器类）。
 type PluginHandler struct {
 	plugins *service.PluginService // 插件服务
+	oauth   *service.OAuthService  // GitHub OAuth（M3.5，可空）
 }
 
 // NewPluginHandler 创建插件控制器。
-func NewPluginHandler(plugins *service.PluginService) *PluginHandler {
-	return &PluginHandler{plugins: plugins}
+func NewPluginHandler(plugins *service.PluginService, oauth *service.OAuthService) *PluginHandler {
+	return &PluginHandler{plugins: plugins, oauth: oauth}
 }
 
 // Market 插件商城（GET /api/v1/admin/plugins/market?source=）。
@@ -146,4 +148,118 @@ func (h *PluginHandler) Upload(c *gin.Context) {
 		return
 	}
 	resp.OK(c, gin.H{"installed": true, "name": header.Filename})
+}
+
+// ActivateLicense 激活许可证（POST /api/v1/admin/plugins/:id/license，body: {license_jwt}，M3.5）。
+// 说明：:id 为实例 ID（与 SetState 一致）；验签成功后若插件在运行则重启进程（让 SDK 许可缓存生效）。
+func (h *PluginHandler) ActivateLicense(c *gin.Context) {
+	instanceID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || instanceID <= 0 {
+		resp.Fail(c, 400, errs.ErrBadRequest)
+		return
+	}
+	var req struct {
+		LicenseJWT string `json:"license_jwt"` // 作者签发的 license.jwt 原文
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || req.LicenseJWT == "" {
+		resp.Fail(c, 400, errs.ErrBadRequest)
+		return
+	}
+	pluginID, err := h.plugins.PluginIDByInstance(c.Request.Context(), instanceID)
+	if err != nil {
+		resp.FailFrom(c, err)
+		return
+	}
+	if err := h.plugins.ActivateLicense(c.Request.Context(), pluginID, req.LicenseJWT); err != nil {
+		resp.FailFrom(c, err)
+		return
+	}
+	// 重启插件进程（running 时）让许可生效
+	if h.plugins.IsRunning(pluginID) {
+		_ = h.plugins.Restart(c.Request.Context(), pluginID)
+	}
+	status, err := h.plugins.LicenseStatus(c.Request.Context(), pluginID)
+	if err != nil {
+		resp.FailFrom(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"activated": true, "license": status})
+}
+
+// LicenseStatus 查询许可证状态（GET /api/v1/admin/plugins/:id/license，M3.5；:id 为实例 ID）。
+func (h *PluginHandler) LicenseStatus(c *gin.Context) {
+	instanceID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || instanceID <= 0 {
+		resp.Fail(c, 400, errs.ErrBadRequest)
+		return
+	}
+	pluginID, err := h.plugins.PluginIDByInstance(c.Request.Context(), instanceID)
+	if err != nil {
+		resp.FailFrom(c, err)
+		return
+	}
+	status, err := h.plugins.LicenseStatus(c.Request.Context(), pluginID)
+	if err != nil {
+		resp.FailFrom(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"license": status})
+}
+
+// OAuthAuthorize 发起 GitHub 连接（GET /api/v1/admin/plugins/oauth/authorize，M3.5）。
+// 返回：跳转 URL（前端 window.location 跳转；凭证未配置返回 enabled=false）。
+func (h *PluginHandler) OAuthAuthorize(c *gin.Context) {
+	if h.oauth == nil || !h.oauth.Enabled() {
+		resp.OK(c, gin.H{"enabled": false})
+		return
+	}
+	url, err := h.oauth.AuthorizeURL()
+	if err != nil {
+		resp.FailFrom(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"enabled": true, "url": url})
+}
+
+// OAuthCallback GitHub 授权回调（GET /api/v1/admin/plugins/oauth/callback?code=，M3.5）。
+// 说明：回调后 token 加密存储 + ghclient 更新，前端据此刷新连接状态。
+func (h *PluginHandler) OAuthCallback(c *gin.Context) {
+	if h.oauth == nil {
+		resp.Fail(c, 400, errs.ErrBadRequest)
+		return
+	}
+	status, err := h.oauth.Callback(c.Request.Context(), c.Query("code"))
+	if err != nil {
+		resp.FailFrom(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"status": status})
+}
+
+// OAuthStatus 查询连接状态（GET /api/v1/admin/plugins/oauth/status，M3.5）。
+func (h *PluginHandler) OAuthStatus(c *gin.Context) {
+	if h.oauth == nil {
+		resp.OK(c, gin.H{"status": service.OAuthStatusDTO{Enabled: false}})
+		return
+	}
+	status, err := h.oauth.Status(c.Request.Context())
+	if err != nil {
+		resp.FailFrom(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"status": status})
+}
+
+// OAuthDisconnect 断开 GitHub 连接（POST /api/v1/admin/plugins/oauth/disconnect，M3.5）。
+func (h *PluginHandler) OAuthDisconnect(c *gin.Context) {
+	if h.oauth == nil {
+		resp.Fail(c, 400, errs.ErrBadRequest)
+		return
+	}
+	// 断开后回退 .env 静态 token（由 server 装配注入到 OAuthService 的 fallback）
+	if err := h.oauth.Disconnect(c.Request.Context(), h.oauth.FallbackToken()); err != nil {
+		resp.FailFrom(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"disconnected": true})
 }

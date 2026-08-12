@@ -34,6 +34,7 @@ import (
 	"github.com/roberts9012062/boke/internal/repository"
 	"github.com/roberts9012062/boke/internal/router"
 	"github.com/roberts9012062/boke/internal/service"
+	"github.com/roberts9012062/boke/pkg/plugin-sdk/proto"
 )
 
 // NewLogger 创建 zap 日志器：控制台（开发可读）+ 文件（logs/server.log，按大小滚动）。
@@ -150,6 +151,7 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 	aiUsageRepo := repository.NewAiUsageRepo(conn)       // AI 用量（M4）
 	seoRepo := repository.NewSeoRepo(conn)               // SEO 元数据（M4：摘要落库）
 	backupRepo := repository.NewBackupRepo(conn)         // 备份记录（M4-报表）
+	licenseRepo := repository.NewLicenseRepo(conn)       // 插件许可证（M3.5）
 
 	// ---------- 业务层 ----------
 	limiter := redis.NewRateLimiter(redisClient)
@@ -163,11 +165,19 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 	})
 	// ---------- 插件进程管理器（M3.3：go-plugin 进程外化；崩溃熔断事件落库） ----------
 	binStore := plugin.NewBinStore(cfg.DataDir) // 插件二进制存储（进程拉起 + .bpk 解包共用）
+	// 许可证查询回调（M3.5）：延迟绑定——pluginSvc 在 manager 之后创建，用包装闭包捕获变量
+	var licenseProvider plugin.LicenseProvider
 	pluginManager = plugin.NewPluginManager(
 		binStore,
 		hookDispatcher,
 		service.NewPluginManagerEvents(pluginRepo),
 		"logs/plugins",
+		func(ctx context.Context, pluginID string) (*proto.LicenseInfo, error) {
+			if licenseProvider == nil {
+				return nil, nil // 未绑定：按 free（demo）处理
+			}
+			return licenseProvider(ctx, pluginID)
+		},
 	)
 	// 内容治理服务（M2：举报/敏感词/封禁；先建供发帖/评论拦截注入）
 	moderationSvc := service.NewModerationService(reportRepo, sensitiveRepo, banRepo, userRepo, postRepo, commentRepo)
@@ -185,7 +195,8 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 	adminSvc := service.NewAdminService(adminRepo, postRepo, commentRepo, settingRepo, enforcer, banRepo, userRepo, postSvc, mediaRepo, tagRepo, mediaStore, hookDispatcher, auditRepo, reportRepo)
 	siteSvc := service.NewSiteService(settingRepo) // 站点信息（meta 从 settings 实时读取，M1.7）
 	messageSvc := service.NewMessageService(messageRepo, userRepo, notifySvc) // 私信（M2）
-	pluginSvc := service.NewPluginService(ghClient, pluginRepo, settingRepo, hookDispatcher, pluginManager, binStore)
+	pluginSvc := service.NewPluginService(ghClient, pluginRepo, settingRepo, hookDispatcher, pluginManager, binStore, licenseRepo)
+	licenseProvider = pluginSvc.LicenseInfoProvider // M3.5：许可证查询回调绑定（延迟闭包生效）
 	seoSvc := service.NewSeoService(seoRepo, postRepo, "http://localhost:"+cfg.ServerPort)
 	// 数据报表服务（M4-报表：统计聚合 + 趋势 CSV；复用后台聚合数据源）
 	reportSvc := service.NewReportService(repository.NewAdminRepo(conn), reportRepo)
@@ -193,6 +204,9 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 	backupSvc := service.NewBackupService(backupRepo, cfg.DataDir, logger)
 	// 角色权限服务（M5：矩阵查询 + 权限域编辑持久化；audit 复用）
 	roleSvc := service.NewRoleService(enforcer, adminRepo, settingRepo, auditRepo)
+	// GitHub OAuth 服务（M3.5：连接 GitHub 拉取私有/加速清单；凭证未配置时入口隐藏）
+	oauthSvc := service.NewOAuthService(cfg.GitHubOAuthClientID, cfg.GitHubOAuthSecret, cfg.AIKeySecret, cfg.GitHubToken, settingRepo, ghClient)
+	oauthSvc.RestoreToken(ctx) // 启动恢复 OAuth token（有则优先于 .env 静态 token）
 	// 启动同步已启用插件（M3.2 钩子 + M3.3 进程外插件拉起子进程，重启恢复）
 	if err := pluginSvc.SyncActivePlugins(ctx); err != nil {
 		logger.Warn("插件启动同步失败", zap.Error(err))
@@ -222,7 +236,7 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 		Site:   handler.NewSiteHandler(siteSvc),
 		Message: handler.NewMessageHandler(messageSvc, logger),
 		Moderation: handler.NewModerationHandler(moderationSvc, logger),
-		Plugin:     handler.NewPluginHandler(pluginSvc),
+		Plugin:     handler.NewPluginHandler(pluginSvc, oauthSvc),
 		Seo:        handler.NewSeoHandler(seoSvc),
 		Ai:         handler.NewAiHandler(aiSvc, logger),
 		Report:     handler.NewReportHandler(reportSvc, logger),

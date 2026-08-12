@@ -1,12 +1,11 @@
 # -*- coding: utf-8 -*-
-# M3.3+M3.4 插件 后端冒烟（中文输出）：
-#   .bpk 打包上传安装（M3.4：cmd/bp pack → POST /admin/plugins/upload → 校验解包）
-#   → 启用（go-plugin 拉起子进程）→ 同步钩子拦截 → 异步钩子日志 → 自定义 API 代理
-#   → 崩溃退避重启（kill 进程验证自愈）→ 连续崩溃熔断（crashed + last_error）
-#   → 熔断后手动恢复 → 禁用/卸载。
+# M3.3+M3.4+M3.5 插件 后端冒烟（中文输出）：
+#   .bpk 打包上传安装（M3.4）→ 启用（go-plugin 拉起）→ 钩子/API 验证（M3.3）
+#   → 许可证链路（M3.5：demo 模式 → 签发 → 激活 → pro 功能 → 篡改/过期拒绝）
+#   → 崩溃自愈/熔断 → 禁用/卸载。
 # 前置：
 #   1. 后端 :8080 运行中（./scripts/dev-server.sh --daemon）
-#   2. psycopg2 可用（pip install psycopg2-binary）
+#   2. demo 密钥对已生成（data/demo-keys/private.pem + public.pem，见验收报告）
 # 注意：登录限流 5 次/分——脚本仅 1 次登录，正常不会触发。
 import json
 import os
@@ -22,6 +21,8 @@ BASE = "http://localhost:8080/api/v1"
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PLUGIN_LOG = os.path.join(ROOT, "logs", "plugins", "demo-plugin.log")
 BPK_FILE = os.path.join(ROOT, "dist", "demo-plugin-0.1.0-windows-amd64.bpk")
+KEYS_DIR = os.path.join(ROOT, "data", "demo-keys")
+LICENSE_JWT = os.path.join(KEYS_DIR, "license.jwt")
 PASS = 0
 FAIL = 0
 
@@ -120,10 +121,44 @@ def build_bpk():
                        capture_output=True, timeout=180)
     ok = r.returncode == 0 and os.path.exists(BPK_FILE)
     if ok:
-        print(f"[PASS] cmd/bp 打包成功（{os.path.getsize(BPK_FILE)} 字节）")
+        print(f"[PASS] cmd/bp 打包成功（{os.path.getsize(BPK_FILE)} 字节，含许可证公钥）")
     else:
         print(f"[FAIL] cmd/bp 打包失败：{r.stdout.decode('utf-8', errors='ignore')[-300:]}")
     return ok
+
+
+def reset_license_db():
+    """清理 demo-plugin 许可证记录（卸载保留授权语义——重装前重置为初始 demo 态）。"""
+    import psycopg2
+    env = {}
+    with open(os.path.join(ROOT, ".env"), encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, v = line.split("=", 1)
+                env[k.strip()] = v.strip().strip('"')
+    try:
+        conn = psycopg2.connect(host=env.get("POSTGRES_HOST", "localhost"), port=env.get("POSTGRES_PORT", "5432"),
+                                user=env.get("POSTGRES_USER", "postgres"), password=env.get("POSTGRES_PASSWORD", ""),
+                                dbname=env.get("POSTGRES_DB", "Blog"), connect_timeout=5)
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM plugin_licenses WHERE plugin_id = 'demo-plugin'")
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass  # DB 清理失败静默（首次运行无记录）
+
+
+def issue_license(exp_ts, out_path):
+    """license-issue 签发许可证（go run 编译一次；exp_ts 为 Unix 秒）。"""
+    r = subprocess.run(["go", "run", "./cmd/license-issue", "sign",
+                        "-sub", "plugin:demo-plugin", "-licensee", "冒烟站点",
+                        "-edition", "pro", "-features", "demo_pro",
+                        "-exp", str(exp_ts),
+                        "-key", os.path.join(KEYS_DIR, "private.pem"),
+                        "-out", out_path],
+                       cwd=ROOT, capture_output=True, timeout=180)
+    return r.returncode == 0 and os.path.exists(out_path)
 
 
 def plugin_pids():
@@ -187,10 +222,11 @@ def main():
     token = login("admin@yueyan.site")
     assert token, "超管登录失败"
 
-    # ---------- 1. 前置清理（卸载残留 + 杀进程 + 清理旧包） ----------
+    # ---------- 1. 前置清理（卸载残留 + 清许可证记录 + 杀进程 + 清理旧包） ----------
     inst = installed_item(token)
     if inst:
         call("DELETE", f"/admin/plugins/{inst['id']}", token=token)
+    reset_license_db()
     kill_plugin()
     if os.path.exists(BPK_FILE):
         os.remove(BPK_FILE)
@@ -203,6 +239,46 @@ def main():
     assert_true(wait_ping(token), "安装即启用：插件进程拉起（自定义 API 可访问）")
     inst = installed_item(token)
     assert_true(inst and inst["state"] == "running", f"安装后状态 running（实际 {inst and inst['state']}）")
+
+    # ---------- 2.5 许可证链路（M3.5：demo 模式 → 签发 → 激活 → pro → 篡改/过期拒绝） ----------
+    inst = installed_item(token)
+    # 2.5.1 demo 模式：付费插件未激活 → pro-status=false
+    body = call("GET", "/plugins/demo-plugin/pro-status", token=token, raw=True)
+    assert_true('"pro":false' in body and '"edition":"free"' in body, "付费插件 demo 模式（pro-status=false）")
+    # 2.5.2 签发许可证（有效期 1 年）
+    exp_future = int(time.time()) + 365 * 86400
+    assert_true(issue_license(exp_future, LICENSE_JWT), "license-issue 签发许可证")
+    with open(LICENSE_JWT, encoding="utf-8") as f:
+        jwt_valid = f.read()
+    # 2.5.3 激活 → 自动重启进程 → pro-status=true
+    r = call("POST", f"/admin/plugins/{inst['id']}/license", {"license_jwt": jwt_valid}, token=token)
+    assert_true(r.get("code") == 0, f"许可证激活（code={r.get('code')} {r.get('message')}）")
+    time.sleep(2)
+    body = call("GET", "/plugins/demo-plugin/pro-status", token=token, raw=True)
+    assert_true('"pro":true' in body, "激活后 pro 功能放行（pro-status=true）")
+    # 2.5.4 篡改许可证（edition 改为 free 再激活 → 验签拒绝 4004）
+    tampered = json.loads(jwt_valid)
+    tampered["edition"] = "free"
+    r = call("POST", f"/admin/plugins/{inst['id']}/license", {"license_jwt": json.dumps(tampered)}, token=token, expect=4004)
+    assert_true("签名" in (r.get("message") or ""), "篡改许可证验签拒绝（4004）")
+    # 2.5.5 过期许可证（exp 早于 8 天前，超过 7 天宽限期）：激活成功但状态 degraded（功能锁定）
+    exp_past = int(time.time()) - 8 * 86400
+    expired_jwt = os.path.join(KEYS_DIR, "license-expired.jwt")
+    assert_true(issue_license(exp_past, expired_jwt), "签发过期许可证（exp 过去）")
+    with open(expired_jwt, encoding="utf-8") as f:
+        jwt_expired = f.read()
+    r = call("POST", f"/admin/plugins/{inst['id']}/license", {"license_jwt": jwt_expired}, token=token)
+    assert_true(r.get("code") == 0, "过期许可证可激活（宽限期语义）")
+    r = call("GET", f"/admin/plugins/{inst['id']}/license", token=token)
+    lic = (r.get("data") or {}).get("license", {})
+    assert_true(lic.get("degraded") is True, f"过期许可证状态 degraded（实际 {lic.get('degraded')}）")
+    time.sleep(2)
+    body = call("GET", "/plugins/demo-plugin/pro-status", token=token, raw=True)
+    assert_true('"pro":false' in body and '"degraded":true' in body, "超宽限期功能锁定（pro=false, degraded=true）")
+    # 2.5.6 重新激活有效许可证恢复 pro（后续钩子验证不受影响）
+    r = call("POST", f"/admin/plugins/{inst['id']}/license", {"license_jwt": jwt_valid}, token=token)
+    assert_true(r.get("code") == 0, "重新激活有效许可证恢复 Pro")
+    time.sleep(2)
 
     # ---------- 3. 同步钩子拦截：标题含 [demo] 发帖 → 2003 校验拒绝 ----------
     r = call("POST", "/posts", {

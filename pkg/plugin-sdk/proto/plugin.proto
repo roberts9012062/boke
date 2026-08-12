@@ -71,14 +71,24 @@ message APICallResult {
   string error = 3;              // 插件内部错误（非 HTTP 错误）
 }
 
+// ---------- 许可证 ----------
+
+// LicenseInfo 许可证信息（M3.5：主进程激活时下发，插件只读；主进程是唯一数据源）。
+message LicenseInfo {
+  string edition = 1;              // 版本：free（demo）/ pro（已激活）
+  repeated string features = 2;    // 授权功能列表（FeatureEnabled 判断依据）
+  int64 expires_at = 3;            // 到期时间戳（Unix 秒；0=永久）
+  bool degraded = 4;               // 已降级（超宽限期未续费，功能锁定）
+}
+
 // ---------- 服务 ----------
 
 // PluginService 插件生命周期服务。
 service PluginService {
   // Info 返回插件信息（启用时校验声明与安装清单一致）。
   rpc Info(Empty) returns (PluginInfo);
-  // Activate 激活（启用回调，插件侧初始化资源）。
-  rpc Activate(Empty) returns (Status);
+  // Activate 激活（携带主进程下发的许可证信息；插件侧更新内存并初始化资源）。
+  rpc Activate(LicenseInfo) returns (Status);
   // Deactivate 停用（停用回调，插件侧保存状态/释放资源）。
   rpc Deactivate(Empty) returns (Status);
 }

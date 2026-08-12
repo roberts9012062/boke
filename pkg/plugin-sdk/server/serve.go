@@ -99,8 +99,13 @@ func (s *pluginServiceServer) Info(context.Context, *proto.Empty) (*proto.Plugin
 	}, nil
 }
 
-// Activate 启用回调（失败返回 Status.ok=false，主进程不进入 running）。
-func (s *pluginServiceServer) Activate(ctx context.Context, _ *proto.Empty) (*proto.Status, error) {
+// Activate 启用回调（携带主进程下发的许可证信息；插件侧更新许可并初始化资源）。
+func (s *pluginServiceServer) Activate(ctx context.Context, req *proto.LicenseInfo) (*proto.Status, error) {
+	// 更新插件许可（主进程唯一数据源；插件只读，demo 降级/宽限期全由主站处理）
+	sdk.SetLicense(sdk.LicenseInfo{
+		Edition: req.Edition, Features: req.Features,
+		ExpiresAt: req.ExpiresAt, Degraded: req.Degraded,
+	})
 	if err := s.impl.OnActivate(ctx); err != nil {
 		return &proto.Status{Ok: false, Error: err.Error()}, nil
 	}

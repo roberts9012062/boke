@@ -12,6 +12,9 @@ import {
   apiAdminSaveSettings,
   apiInstallPlugin,
   apiPluginMarket,
+  apiPluginOAuthAuthorize,
+  apiPluginOAuthDisconnect,
+  apiPluginOAuthStatus,
   ApiError,
   type MarketPlugin,
 } from "@/lib/api";
@@ -53,6 +56,44 @@ export default function PluginMarketPage() {
   const [installing, setInstalling] = useState<boolean>(false);
   const [installed, setInstalled] = useState<boolean>(false);
   const [installError, setInstallError] = useState<string>("");
+  // GitHub 连接（M3.5：OAuth App 凭证配置后启用）
+  const [oauthEnabled, setOAuthEnabled] = useState<boolean>(false);
+  const [oauthConnected, setOAuthConnected] = useState<boolean>(false);
+  const [oauthUsername, setOAuthUsername] = useState<string>("");
+
+  // 加载 OAuth 连接状态（凭证未配置时隐藏入口）
+  useEffect(() => {
+    apiPluginOAuthStatus()
+      .then((r) => {
+        setOAuthEnabled(r.status.enabled);
+        setOAuthConnected(r.status.connected);
+        setOAuthUsername(r.status.username ?? "");
+      })
+      .catch(() => {
+        /* 接口不可用静默（匿名模式不受影响） */
+      });
+  }, []);
+
+  // 发起 GitHub 连接（跳转授权页）
+  const connectOAuth = async () => {
+    try {
+      const r = await apiPluginOAuthAuthorize();
+      if (r.url) window.location.href = r.url;
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "连接失败");
+    }
+  };
+
+  // 断开 GitHub 连接
+  const disconnectOAuth = async () => {
+    try {
+      await apiPluginOAuthDisconnect();
+      setOAuthConnected(false);
+      setOAuthUsername("");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "断开失败");
+    }
+  };
 
   // 加载商城（源变化时）
   const load = (src: string) => {
@@ -148,6 +189,31 @@ export default function PluginMarketPage() {
         <span className="text-xs text-ink-3">
           当前源：{source || "roberts9012062/yueyan-plugins"} · {marketName}
         </span>
+        {/* GitHub 连接（M3.5：OAuth App 凭证配置后启用；未连接时匿名模式拉取公开仓库） */}
+        {oauthEnabled && (
+          <span className="ml-2 inline-flex items-center gap-2 border-l border-line pl-3 text-xs">
+            {oauthConnected ? (
+              <>
+                <span className="text-glow">✓ 已连接 {oauthUsername}</span>
+                <button
+                  type="button"
+                  onClick={() => void disconnectOAuth()}
+                  className="text-ink-3 hover:text-like"
+                >
+                  断开
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void connectOAuth()}
+                className="text-glow hover:underline"
+              >
+                连接 GitHub
+              </button>
+            )}
+          </span>
+        )}
       </div>
 
       {/* 搜索 + 一级分类 Tab（设计稿：全部/免费/付费/已安装） */}

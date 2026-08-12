@@ -25,6 +25,8 @@ type Config struct {
 	SiteBaseURL string       // 站点访问地址（生成重置链接）
 	GitHubToken string       // GitHub Token（M3.1 插件商城清单拉取；可为空仅公开仓库）
 	AIKeySecret string       // AI 供应商 API Key 加密密钥（M4：AES 派生；未配置回退 JWT_SECRET）
+	GitHubOAuthClientID string // GitHub OAuth App Client ID（M3.5；空=不启用 OAuth 入口）
+	GitHubOAuthSecret   string // GitHub OAuth App Client Secret（M3.5）
 }
 
 // MailConfig 邮件发送参数（SMTP，M2 找回密码）。
@@ -47,11 +49,13 @@ type RedisConfig struct {
 // 返回：配置；缺少必填项时返回错误。
 func Load() (Config, error) {
 	cfg := Config{
-		ServerPort: os.Getenv("SERVER_PORT"),
-		JWTSecret:  os.Getenv("JWT_SECRET"),
-		CORSOrigin: os.Getenv("CORS_ORIGIN"),
-		DataDir:    os.Getenv("DATA_DIR"),
+		ServerPort:  os.Getenv("SERVER_PORT"),
+		JWTSecret:   os.Getenv("JWT_SECRET"),
+		CORSOrigin:  os.Getenv("CORS_ORIGIN"),
+		DataDir:     os.Getenv("DATA_DIR"),
 		GitHubToken: os.Getenv("GITHUB_TOKEN"),
+		GitHubOAuthClientID: os.Getenv("GITHUB_OAUTH_CLIENT_ID"),
+		GitHubOAuthSecret:   os.Getenv("GITHUB_OAUTH_CLIENT_SECRET"),
 	}
 
 	// 默认端口：未配置时使用 8080

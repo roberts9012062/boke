@@ -73,6 +73,7 @@ const (
 	CodePluginDownload int = 4001 // 插件包下载失败（Release 资产缺失/网络错误）
 	CodePluginVerify   int = 4002 // 插件包校验失败（SHA-256 不匹配/包格式错误）
 	CodePluginUnpack   int = 4003 // 插件包解包失败（zip 损坏/路径越权/超限）
+	CodeLicenseInvalid int = 4004 // 许可证无效/过期（M3.5：验签失败/主体不符/超宽限期）
 )
 
 // ---------- 6xxx：系统 ----------

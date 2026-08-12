@@ -106,6 +106,7 @@ type InstalledPluginDTO struct {
 	RepoURL   string    `json:"repo_url"`    // 来源仓库
 	State     string    `json:"state"`       // 状态
 	LastError string    `json:"last_error,omitempty"` // 最近错误（M3.3 崩溃/缺失展示）
+	License   *LicenseStatusDTO `json:"license,omitempty"` // 许可证状态（M3.5；免费插件无）
 	CreatedAt time.Time `json:"created_at"`  // 安装时间
 	Nav       *PluginNav `json:"nav,omitempty"` // 侧栏入口声明（前端动态扩展）
 	SettingsSchema []PluginSettingField `json:"settings_schema,omitempty"` // 设置项 schema（设置页）
@@ -123,6 +124,7 @@ type manifestCache struct {
 type PluginService struct {
 	gh         *ghclient.Client      // GitHub 客户端（拉清单/Release 下载）
 	plugs      *repository.PluginRepo // 插件实例数据访问
+	licenses   *repository.LicenseRepo // 插件许可证数据访问（M3.5）
 	settings   *repository.SettingRepo // 插件源设置
 	cache      manifestCache         // 清单缓存（5 分钟）
 	dispatcher plugin.Dispatcher     // 钩子调度器（M3.2 扩展框架；生命周期联动注册/注销钩子）
@@ -133,9 +135,10 @@ type PluginService struct {
 // NewPluginService 创建插件服务。
 // 参数：dispatcher 钩子调度器（业务扩展点，可空则插件钩子不生效）；
 //      manager 进程管理器（进程外插件，可空则进程外插件仅记录安装不拉起）；
-//      store 二进制存储（.bpk 解包/临时文件，可空则上传安装不可用）。
-func NewPluginService(gh *ghclient.Client, plugs *repository.PluginRepo, settings *repository.SettingRepo, dispatcher plugin.Dispatcher, manager *plugin.PluginManager, store *plugin.BinStore) *PluginService {
-	return &PluginService{gh: gh, plugs: plugs, settings: settings, cache: manifestCache{}, dispatcher: dispatcher, manager: manager, store: store}
+//      store 二进制存储（.bpk 解包/临时文件，可空则上传安装不可用）；
+//      licenses 许可证仓库（M3.5，可空则激活接口不可用）。
+func NewPluginService(gh *ghclient.Client, plugs *repository.PluginRepo, settings *repository.SettingRepo, dispatcher plugin.Dispatcher, manager *plugin.PluginManager, store *plugin.BinStore, licenses *repository.LicenseRepo) *PluginService {
+	return &PluginService{gh: gh, plugs: plugs, licenses: licenses, settings: settings, cache: manifestCache{}, dispatcher: dispatcher, manager: manager, store: store}
 }
 
 // pluginSource 读取插件源仓库（settings.plugin_source，默认 roberts9012062/boke）。
@@ -241,11 +244,18 @@ func (s *PluginService) ListInstalled(ctx context.Context) ([]InstalledPluginDTO
 	}
 	items := make([]InstalledPluginDTO, 0, len(installed))
 	for _, inst := range installed {
-		items = append(items, InstalledPluginDTO{
+		item := InstalledPluginDTO{
 			ID: inst.ID, PluginID: inst.PluginID, Name: inst.Name,
 			Version: inst.Version, RepoURL: inst.RepoURL, State: inst.State,
 			LastError: inst.LastError, CreatedAt: inst.CreatedAt,
-		})
+		}
+		// 许可证状态（M3.5：仅已登记公钥的付费插件展示；查询失败静默）
+		if inst.Pubkey != "" && s.licenses != nil {
+			if status, err := s.LicenseStatus(ctx, inst.PluginID); err == nil {
+				item.License = status
+			}
+		}
+		items = append(items, item)
 	}
 	// 清单补充（nav/settings_schema；拉取失败静默——列表仍可用）
 	if manifest, err := s.fetchManifest(ctx, ""); err == nil {
