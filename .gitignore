@@ -34,8 +34,9 @@ UI设计/
 boke.pen
 export.zip
 
-# 内部文档（架构/插件手册，不随开源仓库分发）
-docs/
+# 内部文档（架构等，不随开源仓库分发）；插件开发手册例外——第三方插件作者需要
+docs/*
+!docs/plugin-development.md
 
 # 备份导出产物（data/backup/，M4-报表）
 data/backup/
