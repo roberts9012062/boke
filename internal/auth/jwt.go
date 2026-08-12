@@ -84,6 +84,13 @@ func (m *Manager) GenerateTokenPair(userID int64, role string, passwordVersion i
 	return access, refresh, nil
 }
 
+// GenerateShortToken 签发短期访问令牌（插件 iframe 沙箱等受限场景，自定义有效期）。
+// 说明：TokenType=access 与登录令牌一致——RequireAuth 中间件直接校验，无需改动；
+//       密码版本号传 0（短期令牌仅限当前会话上下文使用，不参与会话撤销）。
+func (m *Manager) GenerateShortToken(userID int64, role string, ttl time.Duration) (string, error) {
+	return m.sign(userID, role, 0, tokenAccess, "", ttl)
+}
+
 // parse 解析并校验令牌签名（返回 Claims）。
 func (m *Manager) parse(tokenString string) (*Claims, error) {
 	claims := &Claims{}

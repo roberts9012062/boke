@@ -86,8 +86,8 @@ def call(method, path, body=None, token=None, expect=0, raw=False):
     return resp
 
 
-def upload_bpk(token, bpk_path):
-    """multipart 上传 .bpk（urllib 手写 multipart body）。"""
+def upload_bpk(token, bpk_path, upgrade=False):
+    """multipart 上传 .bpk（urllib 手写 multipart body；?upgrade=1 本地升级通道）。"""
     with open(bpk_path, "rb") as f:
         content = f.read()
     boundary = "----bpk" + uuid.uuid4().hex
@@ -97,7 +97,8 @@ def upload_bpk(token, bpk_path):
         "Content-Type: application/octet-stream\r\n\r\n"
     ).encode()
     tail = f"\r\n--{boundary}--\r\n".encode()
-    req = urllib.request.Request(BASE + "/admin/plugins/upload", data=head + content + tail, method="POST")
+    path = BASE + "/admin/plugins/upload" + ("?upgrade=1" if upgrade else "")
+    req = urllib.request.Request(path, data=head + content + tail, method="POST")
     req.add_header("Content-Type", f"multipart/form-data; boundary={boundary}")
     req.add_header("Authorization", "Bearer " + token)
     try:
@@ -166,6 +167,20 @@ def issue_license(exp_ts, out_path):
                         "-exp", str(exp_ts),
                         "-key", os.path.join(KEYS_DIR, "private.pem"),
                         "-out", out_path],
+                       cwd=ROOT, capture_output=True, timeout=180)
+    return r.returncode == 0 and os.path.exists(out_path)
+
+
+def build_bpk_version(version, out_path):
+    """cmd/bp 打包指定版本（升级链路验证用：0.2.0 新版本）。"""
+    r = subprocess.run(["go", "run", "./cmd/bp", "pack",
+                        "-plugin", "cmd/demo-plugin/yueyan-plugin.json",
+                        "-bin", "dist/demo-plugin/plugin.bin",
+                        "-pubkey", "data/demo-keys/public.pem",
+                        "-frontend", "cmd/demo-plugin/frontend",
+                        "-os", "windows", "-arch", "amd64",
+                        "-version", version,
+                        "-out", "dist"],
                        cwd=ROOT, capture_output=True, timeout=180)
     return r.returncode == 0 and os.path.exists(out_path)
 
@@ -296,6 +311,29 @@ def main():
     r = call("POST", f"/admin/plugins/{inst['id']}/license", {"license_jwt": jwt_valid}, token=token)
     assert_true(r.get("code") == 0, "重新激活有效许可证恢复 Pro")
     time.sleep(2)
+
+    # ---------- 2.6 一键升级（插件后置：上传 0.2.0 包 ?upgrade=1 → 版本替换 + 进程重启） ----------
+    bpk_020 = os.path.join(ROOT, "dist", "demo-plugin-0.2.0-windows-amd64.bpk")
+    assert_true(build_bpk_version("0.2.0", bpk_020), "cmd/bp 打包 0.2.0 新版本")
+    r = upload_bpk(token, bpk_020, upgrade=True)
+    assert_true(r.get("code") == 0, f"本地上传升级（?upgrade=1，code={r.get('code')} {r.get('message')}）")
+    assert_true(wait_ping(token), "升级后插件进程重启（API 可用）")
+    inst = installed_item(token)
+    assert_true(inst and inst["version"] == "0.2.0", f"升级后版本 0.2.0（实际 {inst and inst['version']}）")
+    # 升级后许可证保持（plugin_licenses 未动）+ pro 功能仍可用
+    body = call("GET", "/plugins/demo-plugin/pro-status", token=token, raw=True)
+    assert_true('"pro":true' in body, "升级后 Pro 功能保持（许可证不受影响）")
+    # 更新检查接口（demo 无 Release → 空列表；接口可用性验证）
+    r = call("GET", "/admin/plugin-updates", token=token)
+    assert_true(r.get("code") == 0 and isinstance((r.get("data") or {}).get("items"), list),
+                "更新检查接口可用（items 列表）")
+
+    # ---------- 2.7 插件沙箱短期令牌（插件后置：1 小时，直接调用代理 API） ----------
+    r = call("POST", "/plugin-sandbox-token", token=token)
+    st = (r.get("data") or {})
+    assert_true(r.get("code") == 0 and st.get("token"), "短期令牌签发（1 小时）")
+    body = call("GET", "/plugins/demo-plugin/ping", token=st.get("token", ""), raw=True)
+    assert_true('"pong":true' in body, "短期令牌可直接调用插件代理 API（ping）")
 
     # ---------- 3. 同步钩子拦截：标题含 [demo] 发帖 → 2003 校验拒绝 ----------
     r = call("POST", "/posts", {

@@ -2,11 +2,11 @@
 // iframe 沙箱（M3.6）：复杂插件前端以静态站点随 .bpk 提供（frontend/index.html 等），
 // 挂载到 /plugin-assets/{id}/frontend/。
 // 通信协议（docs/plugin-dev-guide.md 8.2）：
-//   主站 → iframe：{type:"init", user}（用户基础信息，不含密钥）
+//   主站 → iframe：{type:"init", user, token}（用户基础信息 + 短期令牌 1 小时，不含密钥）
 //   iframe → 主站：{type:"api", pluginId, requestId, method, path, body} → 主站代理转发
 //   主站 → iframe：{type:"api-result", requestId, status, body}
-// 差异记录：文档的短期 token（1 小时）签发接口后置——当前以 postMessage 代理为主
-//（iframe 无直接网络权限，API 调用经主站转发并复用登录凭证）。
+// 说明：token 为插件直接调用 /api/v1/plugins/{id}/... 的短期凭证（1 小时，登录用户签发）；
+//       postMessage 代理同时可用（复用主站登录凭证）。
 import type { PluginUser } from "./loader";
 
 // mountSandbox 挂载 iframe 沙箱。
@@ -37,15 +37,34 @@ export function mountSandbox(
   };
   window.addEventListener("message", onMessage);
 
-  // 加载完成后下发用户信息
+  // 加载完成后下发用户信息与短期令牌（登录用户签发 1 小时；匿名模式无 token）
   iframe.addEventListener("load", () => {
-    iframe.contentWindow?.postMessage({ type: "init", user }, "*");
+    void issueSandboxToken(user).then((token) => {
+      iframe.contentWindow?.postMessage({ type: "init", user, token }, "*");
+    });
   });
 
   return () => {
     window.removeEventListener("message", onMessage);
     iframe.remove();
   };
+}
+
+// issueSandboxToken 请求插件沙箱短期令牌（未登录返回 null）。
+async function issueSandboxToken(user: PluginUser | null): Promise<string | null> {
+  if (!user) {
+    return null;
+  }
+  try {
+    const res = await fetch("/api/v1/plugin-sandbox-token", { method: "POST" });
+    if (!res.ok) {
+      return null;
+    }
+    const body = (await res.json()) as { data?: { token?: string } };
+    return body.data?.token ?? null;
+  } catch {
+    return null; // 令牌获取失败不影响沙箱（postMessage 代理兜底）
+  }
 }
 
 // proxyApi 转发插件 API 调用（复用主站登录凭证，路径限定插件代理域）。

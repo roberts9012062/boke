@@ -3,6 +3,8 @@
 package handler
 
 import (
+	"time"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/roberts9012062/boke/internal/auth"
@@ -19,9 +21,24 @@ type AuthHandler struct {
 	jwt  *auth.Manager
 }
 
+// 插件沙箱短期令牌有效期（1 小时；docs/plugin-dev-guide.md 8.2）。
+const sandboxTokenTTL = time.Hour
+
 // NewAuthHandler 创建认证控制器。
 func NewAuthHandler(authSvc *service.AuthService, jwtMgr *auth.Manager) *AuthHandler {
 	return &AuthHandler{auth: authSvc, jwt: jwtMgr}
+}
+
+// SandboxToken 签发插件 iframe 沙箱短期令牌（POST /api/v1/plugin-sandbox-token）。
+// 说明：与登录令牌同格式（TokenType=access），插件 iframe 凭此直接调用插件代理 API；
+//       有效期 1 小时，仅限当前登录用户上下文。
+func (h *AuthHandler) SandboxToken(c *gin.Context) {
+	token, err := h.jwt.GenerateShortToken(middleware.GetUserID(c), middleware.GetRole(c), sandboxTokenTTL)
+	if err != nil {
+		resp.FailFrom(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"token": token, "expires_in": int(sandboxTokenTTL.Seconds())})
 }
 
 // ForgotPassword 请求密码重置（POST /api/v1/auth/forgot-password，body: {email}）。

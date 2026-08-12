@@ -92,6 +92,8 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager, e
 	authed.POST("/auth/logout", handlers.Auth.Logout) // 登出（撤销 refresh）
 	authed.GET("/me", handlers.Auth.Me)               // 当前用户资料
 	authed.PUT("/me/password", handlers.Auth.ChangePassword) // 修改密码（账号安全页）
+	// 插件 iframe 沙箱短期令牌（M3.6 后置：1 小时，插件直接调用代理 API）
+	authed.POST("/plugin-sandbox-token", handlers.Auth.SandboxToken)
 
 	// 插件自定义 API 代理（M3.3：/api/plugins/{id}/** 转发子进程，登录用户可用）
 	pluginAPI := authed.Group("/plugins/:id")
@@ -245,11 +247,14 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager, e
 		plugins.GET("/market", handlers.Plugin.Market)      // 商城清单（?source= 自定义仓库）
 		plugins.GET("", handlers.Plugin.ListInstalled)      // 我的插件
 		plugins.POST("/install", handlers.Plugin.Install)   // 安装 {plugin_id}
-		plugins.POST("/upload", handlers.Plugin.Upload)     // 本地上传 .bpk 安装（M3.4）
+		plugins.POST("/upload", handlers.Plugin.Upload)     // 本地上传 .bpk 安装（?upgrade=1 升级）
 		plugins.PUT("/:id/state", handlers.Plugin.SetState) // 启用/禁用
 		plugins.DELETE("/:id", handlers.Plugin.Uninstall)   // 卸载
+		plugins.POST("/:id/upgrade", handlers.Plugin.Upgrade) // 一键升级（M3.6 后置）
 		plugins.GET("/:id/license", handlers.Plugin.LicenseStatus)    // 许可证状态（M3.5）
 		plugins.POST("/:id/license", handlers.Plugin.ActivateLicense) // 激活许可证（M3.5）
+		// 可更新检查（独立前缀——/plugins/updates 与 /:id 参数段冲突）
+		adminGroup.GET("/plugin-updates", perm(casbin.DomainPlugins), handlers.Plugin.Updates)
 		// GitHub OAuth（M3.5：插件市场设置区连接；独立前缀避免与 /plugins/:id 参数段冲突）
 		pluginOAuth := adminGroup.Group("/plugin-oauth", perm(casbin.DomainPlugins))
 		pluginOAuth.GET("/authorize", handlers.Plugin.OAuthAuthorize)     // 发起连接（返回跳转 URL）

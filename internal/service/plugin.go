@@ -299,7 +299,7 @@ func (s *PluginService) Install(ctx context.Context, pluginID string) error {
 	// 说明：本地预置二进制优先（开发/调试）；Release 下载内部完成解包校验与实例注册激活。
 	if s.isProcessPlugin(info.ID) && info.Assets != nil && info.Assets.Pattern != "" &&
 		s.store != nil && !s.store.Exists(info.ID) && s.gh != nil {
-		return s.installFromRelease(ctx, info)
+		return s.installFromRelease(ctx, info, false)
 	}
 
 	// 重复安装检查（已安装返回冲突；已卸载记录复用重装——plugin_id 唯一约束）

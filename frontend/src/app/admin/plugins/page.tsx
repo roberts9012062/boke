@@ -9,11 +9,14 @@ import { useEffect, useRef, useState } from "react";
 import {
   apiActivateLicense,
   apiInstalledPlugins,
+  apiPluginUpdates,
   apiSetPluginState,
   apiUninstallPlugin,
+  apiUpgradePlugin,
   apiUploadPluginBpk,
   ApiError,
   type InstalledPlugin,
+  type PluginUpdateItem,
 } from "@/lib/api";
 import { formatDateTime } from "@/lib/utils";
 
@@ -43,6 +46,9 @@ export default function AdminPlugins() {
   const [licenseJwt, setLicenseJwt] = useState<string>("");
   const [activating, setActivating] = useState<boolean>(false);
   const [licenseDone, setLicenseDone] = useState<boolean>(false);
+  // 可更新检查与升级（M3.6 后置：一键升级）
+  const [updates, setUpdates] = useState<PluginUpdateItem[]>([]);
+  const [upgradingId, setUpgradingId] = useState<number | null>(null);
 
   // 选择 .bpk 后上传安装（成功后刷新列表）
   const onPickFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -61,6 +67,28 @@ export default function AdminPlugins() {
         setUploading(false);
         e.target.value = ""; // 允许重复选择同一文件
       });
+  };
+
+  // 检查可更新（Release latest 对比；失败静默——列表仍可用）
+  useEffect(() => {
+    apiPluginUpdates()
+      .then((r) => setUpdates(r.items))
+      .catch(() => undefined);
+  }, []);
+
+  // 一键升级（成功后刷新列表与更新状态）
+  const upgradePlugin = async (plugin: InstalledPlugin) => {
+    setUpgradingId(plugin.id);
+    setError("");
+    try {
+      await apiUpgradePlugin(plugin.id);
+      load();
+      setUpdates((prev) => prev.filter((u) => u.instance_id !== plugin.id));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "升级失败");
+    } finally {
+      setUpgradingId(null);
+    }
   };
 
   // 加载列表
@@ -175,6 +203,13 @@ export default function AdminPlugins() {
                 <div className="flex items-center gap-2">
                   <p className="font-medium text-ink">{plugin.name}</p>
                   <span className="text-xs text-ink-3">v{plugin.version}</span>
+                  {/* 可更新徽章（M3.6 后置：Release latest 对比） */}
+                  {updates.some((u) => u.instance_id === plugin.id) && (
+                    <span className="rounded-full bg-accent-soft px-2 py-0.5 text-xs text-glow">
+                      可更新至{" "}
+                      {updates.find((u) => u.instance_id === plugin.id)?.latest_version}
+                    </span>
+                  )}
                   <span
                     className={`rounded-full px-2 py-0.5 text-xs ${
                       plugin.state === "disabled"
@@ -227,6 +262,17 @@ export default function AdminPlugins() {
                     className="rounded-full border border-glow/30 px-4 py-1.5 text-glow hover:bg-accent-soft"
                   >
                     激活许可证
+                  </button>
+                )}
+                {/* 升级按钮（M3.6 后置：有可更新版本时显示） */}
+                {updates.some((u) => u.instance_id === plugin.id) && (
+                  <button
+                    type="button"
+                    onClick={() => void upgradePlugin(plugin)}
+                    disabled={upgradingId === plugin.id}
+                    className="rounded-full border border-glow/30 px-4 py-1.5 text-glow hover:bg-accent-soft disabled:opacity-60"
+                  >
+                    {upgradingId === plugin.id ? "升级中…" : "升级"}
                   </button>
                 )}
                 <button

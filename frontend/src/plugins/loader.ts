@@ -70,7 +70,9 @@ export async function fetchManifest(pluginId: string): Promise<PluginManifest> {
   return manifest;
 }
 
-// loadModule 加载插件 ESM 模块（Blob URL + 动态 import；模块缓存）。
+// loadModule 加载插件 ESM 模块（Blob URL + 原生 ESM 桥接；模块缓存）。
+// 说明：不用 webpackIgnore 动态 import（打包器运行时走 eval，被 CSP 'unsafe-eval' 拦截）——
+//       改为内联 <script type="module"> 桥接：模块内 import(blobUrl) 为原生 ESM，不受 CSP eval 限制。
 export async function loadModule(pluginId: string, entry: string): Promise<PluginModule> {
   const key = `${pluginId}/${entry}`;
   const cached = moduleCache.get(key);
@@ -82,15 +84,49 @@ export async function loadModule(pluginId: string, entry: string): Promise<Plugi
     throw new Error(`插件 ${pluginId} 前端模块拉取失败`);
   }
   const code = await res.text();
-  // Blob URL 动态 import（webpackIgnore 注释跳过打包器解析；模块为纯 ESM 即可执行）
   const blobUrl = URL.createObjectURL(new Blob([code], { type: "text/javascript" }));
   try {
-    const mod = (await import(/* webpackIgnore: true */ blobUrl)) as PluginModule;
+    const mod = await importViaNativeEsm(blobUrl);
     moduleCache.set(key, mod);
     return mod;
   } finally {
     URL.revokeObjectURL(blobUrl);
   }
+}
+
+// 内联模块桥接的全局注册表（并发加载按唯一 id 区分；模块执行后清理）。
+declare global {
+  interface Window {
+    __yueyanPluginModules?: Record<string, { resolve: (m: PluginModule) => void; reject: (e: unknown) => void }>;
+  }
+}
+
+// importViaNativeEsm 经内联 <script type="module"> 执行原生 import(blobUrl)。
+async function importViaNativeEsm(blobUrl: string): Promise<PluginModule> {
+  return new Promise<PluginModule>((resolve, reject) => {
+    // 注册回调（按唯一 id，支持并发加载多个插件模块）
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    window.__yueyanPluginModules = window.__yueyanPluginModules ?? {};
+    window.__yueyanPluginModules[id] = { resolve, reject };
+
+    const script = document.createElement("script");
+    script.type = "module";
+    // 原生 ESM 动态导入 blob URL（非打包器运行时，不触发 CSP unsafe-eval）
+    script.textContent =
+      `import("${blobUrl}").then(m => { ` +
+      `window.__yueyanPluginModules["${id}"]?.resolve(m); ` +
+      `delete window.__yueyanPluginModules["${id}"]; ` +
+      `}).catch(e => { ` +
+      `window.__yueyanPluginModules["${id}"]?.reject(e); ` +
+      `delete window.__yueyanPluginModules["${id}"]; ` +
+      `})`;
+    document.head.appendChild(script);
+    // 脚本自身执行失败（语法错误等）时兜底清理
+    script.onerror = () => {
+      delete window.__yueyanPluginModules?.[id];
+      reject(new Error(`插件模块脚本执行失败（${blobUrl}）`));
+    };
+  });
 }
 
 // clearPlugin 清理插件缓存（停用/卸载时调用，下次启用重新加载）。

@@ -15,7 +15,8 @@ const frontendRequire = createRequire(join(ROOT, "frontend", "package.json"));
 const { chromium } = frontendRequire("playwright");
 
 const OUT_DIR = join(ROOT, "screenshots");
-const FRONT = "http://localhost:3000";
+// 端口环境变量（生产模式验证 next start -p 3100 用；默认 dev 3000）
+const FRONT = `http://localhost:${process.env.PLUGIN_SCREENSHOT_PORT ?? "3000"}`;
 const BACK = "http://localhost:8080";
 
 // 取一篇已发布帖子（时间线第一页第一条）。

@@ -147,11 +147,13 @@ func (h *PluginHandler) Upload(c *gin.Context) {
 		resp.Fail(c, 400, errs.New(errs.CodeBadRequest, "读取插件包失败"))
 		return
 	}
-	if err := h.plugins.InstallFromBPK(c.Request.Context(), content, "本地上传"); err != nil {
+	// ?upgrade=1：本地升级验证通道（跳过已安装冲突，替换版本）
+	upgrade := c.Query("upgrade") == "1"
+	if err := h.plugins.InstallFromBPK(c.Request.Context(), content, "本地上传", upgrade); err != nil {
 		resp.FailFrom(c, err)
 		return
 	}
-	resp.OK(c, gin.H{"installed": true, "name": header.Filename})
+	resp.OK(c, gin.H{"installed": true, "name": header.Filename, "upgraded": upgrade})
 }
 
 // Extensions 前台插件扩展清单（GET /api/v1/plugin-extensions，公开，M3.6）。
@@ -163,6 +165,30 @@ func (h *PluginHandler) Extensions(c *gin.Context) {
 		return
 	}
 	resp.OK(c, gin.H{"items": items})
+}
+
+// Updates 检查可更新插件（GET /api/v1/plugin-updates，M3.6 后置：一键升级角标）。
+func (h *PluginHandler) Updates(c *gin.Context) {
+	items, err := h.plugins.CheckUpdates(c.Request.Context())
+	if err != nil {
+		resp.FailFrom(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"items": items})
+}
+
+// Upgrade 一键升级插件（POST /api/v1/admin/plugins/:id/upgrade，M3.6 后置）。
+func (h *PluginHandler) Upgrade(c *gin.Context) {
+	instanceID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || instanceID <= 0 {
+		resp.Fail(c, 400, errs.ErrBadRequest)
+		return
+	}
+	if err := h.plugins.UpdatePlugin(c.Request.Context(), instanceID); err != nil {
+		resp.FailFrom(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"upgraded": true})
 }
 
 // Asset 插件前端资源静态服务（GET /plugin-assets/:id/*filepath，M3.6）。

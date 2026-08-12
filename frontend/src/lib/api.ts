@@ -744,6 +744,32 @@ export function apiPluginExtensions(): Promise<{ items: { plugin_id: string; nam
   return get<{ items: { plugin_id: string; name: string }[] }>("/plugin-extensions");
 }
 
+// ---------- 插件升级（M3.6 后置：一键升级） ----------
+
+// 可更新插件项。
+export interface PluginUpdateItem {
+  instance_id: number; // 实例 ID
+  plugin_id: string; // 插件 ID
+  name: string; // 插件名称
+  current_version: string; // 当前版本
+  latest_version: string; // 最新版本
+}
+
+// 检查可更新插件（Release latest 对比）。
+export function apiPluginUpdates(): Promise<{ items: PluginUpdateItem[] }> {
+  return get<{ items: PluginUpdateItem[] }>("/plugin-updates");
+}
+
+// 一键升级插件（停用 → 下载新包 → 校验替换 → 启用）。
+export function apiUpgradePlugin(instanceId: number): Promise<{ upgraded: boolean }> {
+  return post<{ upgraded: boolean }>(`/admin/plugins/${instanceId}/upgrade`);
+}
+
+// 插件 iframe 沙箱短期令牌（1 小时；插件直接调用代理 API）。
+export function apiSandboxToken(): Promise<{ token: string; expires_in: number }> {
+  return post<{ token: string; expires_in: number }>("/plugin-sandbox-token");
+}
+
 // 发起 GitHub 连接（返回跳转 URL）。
 export function apiPluginOAuthAuthorize(): Promise<{ enabled: boolean; url?: string }> {
   return get<{ enabled: boolean; url?: string }>("/plugin-oauth/authorize");
