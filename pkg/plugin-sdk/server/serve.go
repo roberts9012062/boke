@@ -191,6 +191,28 @@ func (b *sdkDataBridge) GetSettings(ctx context.Context) (map[string]string, err
 	return snapshot.GetValues(), nil
 }
 
+// GetAIModels 查询可用 AI 模型（脱敏；M4.1 插件 AI 辅助）。
+func (b *sdkDataBridge) GetAIModels(ctx context.Context) ([]sdk.DataAIModel, error) {
+	list, err := b.client.GetAIModels(ctx, &proto.Empty{})
+	if err != nil {
+		return nil, err
+	}
+	models := make([]sdk.DataAIModel, 0, len(list.GetModels()))
+	for _, m := range list.GetModels() {
+		models = append(models, sdk.DataAIModel{Name: m.GetName(), Models: m.GetModels()})
+	}
+	return models, nil
+}
+
+// GenerateAI 调用主进程 AI 生成文本（按模型路由供应商；M4.1 插件 AI 辅助）。
+func (b *sdkDataBridge) GenerateAI(ctx context.Context, model string, prompt string, content string) (string, error) {
+	result, err := b.client.GenerateAI(ctx, &proto.GenerateRequest{Model: model, Prompt: prompt, Content: content})
+	if err != nil {
+		return "", err
+	}
+	return result.GetText(), nil
+}
+
 // hookServiceServer HookService 实现（同步钩子执行 + 流式通道）。
 type hookServiceServer struct {
 	proto.UnimplementedHookServiceServer

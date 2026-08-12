@@ -198,6 +198,65 @@ func (s *AiService) TestProvider(ctx context.Context, id int64) error {
 	return nil
 }
 
+// AIModels 可用 AI 模型清单（脱敏：供应商名 + 模型列表；插件 AI 辅助数据源）。
+// 可用 = 启用 且 API Key 已配置（无 Key 的种子供应商不算"配置好的 AI"）。
+func (s *AiService) AIModels(ctx context.Context) ([]AiProviderDTO, error) {
+	items, err := s.ListProviders(ctx)
+	if err != nil {
+		return nil, err
+	}
+	ready := make([]AiProviderDTO, 0, len(items))
+	for _, p := range items {
+		if p.Enabled && p.APIKeySet {
+			ready = append(ready, p)
+		}
+	}
+	return ready, nil
+}
+
+// Generate 通用 AI 文本生成（插件 AI 辅助：按模型名精确匹配供应商 → 调用）。
+// 不走任务表（prompt 由调用方传入）；用量落库失败静默。
+func (s *AiService) Generate(ctx context.Context, model string, prompt string, content string) (string, error) {
+	if model == "" || prompt == "" {
+		return "", errs.New(errs.CodeBadRequest, "模型与提示词不能为空")
+	}
+	// 按模型找供应商（遍历启用供应商的 models 精确匹配）
+	providers, err := s.providers.ListAll(ctx)
+	if err != nil {
+		return "", err
+	}
+	var matched *repository.AiProvider
+	for i := range providers {
+		if !providers[i].Enabled {
+			continue
+		}
+		for _, m := range providers[i].Models {
+			if m == model {
+				matched = &providers[i]
+				break
+			}
+		}
+		if matched != nil {
+			break
+		}
+	}
+	if matched == nil {
+		return "", errs.New(errs.CodeBadRequest, "模型「"+model+"」未在已启用供应商中找到")
+	}
+	apiKey, err := decryptAPIKey(matched.APIKeyEncrypted, s.keySecret)
+	if err != nil || apiKey == "" {
+		return "", errs.New(errs.CodeUpstream, "供应商 API Key 未配置或解密失败")
+	}
+	client := ai.NewClient(matched.BaseURL, apiKey, model, aiRequestTimeout*time.Second)
+	result, err := client.Chat(ctx, prompt, content, 300)
+	if err != nil {
+		return "", errs.New(errs.CodeUpstream, "AI 生成失败："+err.Error())
+	}
+	// 用量落库（失败静默——观测数据不影响生成结果）
+	_ = s.usage.Record(ctx, repository.AiUsage{ProviderID: matched.ID, TaskName: "plugin.generate", TokensIn: result.InTokens, TokensOut: result.OutTokens})
+	return result.Text, nil
+}
+
 // validateProviderInput 供应商输入校验（新增必填 Key，编辑可留空）。
 func validateProviderInput(input AiProviderInput, requireKey bool) error {
 	if strings.TrimSpace(input.Name) == "" || len([]rune(input.Name)) > 50 {

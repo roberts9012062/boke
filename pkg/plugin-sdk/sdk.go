@@ -191,6 +191,12 @@ type DataPost struct {
 	AuthorName string // 作者昵称
 }
 
+// DataAIModel 可用 AI 供应商模型组（脱敏；json tag 供插件 API 直出——前端按小写读取）。
+type DataAIModel struct {
+	Name   string   `json:"name"`   // 供应商名称
+	Models []string `json:"models"` // 可用模型列表
+}
+
 // DataService 主进程只读数据服务（插件经 GRPCBroker 获取连接；数据均为脱敏公开信息）。
 type DataService interface {
 	// GetUser 查询用户脱敏信息。
@@ -199,6 +205,10 @@ type DataService interface {
 	GetPost(ctx context.Context, postID int64) (*DataPost, error)
 	// GetSettings 查询站点公开设置（白名单键）。
 	GetSettings(ctx context.Context) (map[string]string, error)
+	// GetAIModels 查询可用 AI 模型（脱敏；空=未配置 AI——面板提示跳转配置）。
+	GetAIModels(ctx context.Context) ([]DataAIModel, error)
+	// GenerateAI 调用主进程 AI 生成文本（按模型路由供应商；插件 AI 辅助）。
+	GenerateAI(ctx context.Context, model string, prompt string, content string) (string, error)
 }
 
 // 数据服务客户端内存状态（server Activate 回调经 broker Dial 建立；未授权为 nil）。

@@ -46,8 +46,8 @@ func (p *SeoPlugin) Info() sdk.Info {
 		Name:        "SEO 优化",
 		Version:     "1.2.0",
 		Author:      "月言官方",
-		Description: "发帖 SEO 面板（标题/描述/别名/收录）+ 元信息校验，一键提升收录。",
-		Capabilities: []string{"hooks", "frontend", "settings"},
+		Description: "发帖 SEO 面板（标题/描述/别名/收录）+ AI 辅助生成（对接主进程 AI）+ 元信息校验。",
+		Capabilities: []string{"hooks", "api", "frontend", "settings", "data.read"},
 		Settings: []sdk.SettingField{
 			{Key: "site_title_suffix", Label: "站点标题后缀", Type: "text", Default: "· 月言"},
 			{Key: "auto_sitemap", Label: "自动生成 sitemap", Type: "switch", Default: "on"},
@@ -89,6 +89,46 @@ func (p *SeoPlugin) Hooks() []sdk.Hook {
 			},
 		},
 	}
+}
+
+// RegisterAPI 自定义 API（M4.1 AI 辅助）：面板经主进程代理调用——
+//   GET  /ai/models    → 可用 AI 模型列表（无配置返回空，面板提示跳转配置）
+//   POST /ai/generate  → 按模型调用主进程 AI 生成文本（SEO 标题/描述辅助）
+func (p *SeoPlugin) RegisterAPI(api *sdk.APIMux) {
+	// 模型列表（经数据服务查询——脱敏，不含 API Key）
+	api.Handle("GET", "/ai/models", func(ctx context.Context, method string, path string, body []byte) (int, []byte, error) {
+		svc := sdk.Data(ctx)
+		if svc == nil {
+			return 200, []byte(`{"models":[],"configured":false}`), nil // 未授权数据服务：按未配置处理
+		}
+		models, err := svc.GetAIModels(ctx)
+		if err != nil {
+			return 200, []byte(`{"models":[],"configured":false}`), nil
+		}
+		raw, _ := json.Marshal(map[string]any{"models": models, "configured": len(models) > 0})
+		return 200, raw, nil
+	})
+	// AI 文本生成（body: {model, prompt, content}）
+	api.Handle("POST", "/ai/generate", func(ctx context.Context, method string, path string, body []byte) (int, []byte, error) {
+		svc := sdk.Data(ctx)
+		if svc == nil {
+			return 200, []byte(`{"error":"AI 服务未授权（需 data.read 能力）"}`), nil
+		}
+		var req struct {
+			Model   string `json:"model"`   // 模型名
+			Prompt  string `json:"prompt"`  // 生成指令（如「生成 SEO 标题」）
+			Content string `json:"content"` // 输入内容（正文）
+		}
+		if err := json.Unmarshal(body, &req); err != nil || req.Model == "" {
+			return 400, []byte(`{"error":"参数错误：model/prompt 不能为空"}`), nil
+		}
+		text, err := svc.GenerateAI(ctx, req.Model, req.Prompt, req.Content)
+		if err != nil {
+			return 200, []byte(fmt.Sprintf(`{"error":%q}`, err.Error())), nil
+		}
+		raw, _ := json.Marshal(map[string]any{"text": text})
+		return 200, raw, nil
+	})
 }
 
 // main 插件进程入口。

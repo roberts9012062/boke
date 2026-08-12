@@ -32,6 +32,8 @@ const (
 	DataService_GetUser_FullMethodName     = "/yueyan.plugin.v1.DataService/GetUser"
 	DataService_GetPost_FullMethodName     = "/yueyan.plugin.v1.DataService/GetPost"
 	DataService_GetSettings_FullMethodName = "/yueyan.plugin.v1.DataService/GetSettings"
+	DataService_GetAIModels_FullMethodName = "/yueyan.plugin.v1.DataService/GetAIModels"
+	DataService_GenerateAI_FullMethodName  = "/yueyan.plugin.v1.DataService/GenerateAI"
 )
 
 // DataServiceClient is the client API for DataService service.
@@ -46,6 +48,10 @@ type DataServiceClient interface {
 	GetPost(ctx context.Context, in *PostRequest, opts ...grpc.CallOption) (*PostInfo, error)
 	// GetSettings 查询站点公开设置（白名单键）。
 	GetSettings(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*SettingsSnapshot, error)
+	// GetAIModels 查询可用 AI 模型（插件 AI 辅助：模型选择；脱敏）。
+	GetAIModels(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*AIModelList, error)
+	// GenerateAI 调用主进程 AI 生成文本（按模型路由供应商；插件 AI 辅助）。
+	GenerateAI(ctx context.Context, in *GenerateRequest, opts ...grpc.CallOption) (*GenerateResult, error)
 }
 
 type dataServiceClient struct {
@@ -86,6 +92,26 @@ func (c *dataServiceClient) GetSettings(ctx context.Context, in *Empty, opts ...
 	return out, nil
 }
 
+func (c *dataServiceClient) GetAIModels(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*AIModelList, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AIModelList)
+	err := c.cc.Invoke(ctx, DataService_GetAIModels_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *dataServiceClient) GenerateAI(ctx context.Context, in *GenerateRequest, opts ...grpc.CallOption) (*GenerateResult, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GenerateResult)
+	err := c.cc.Invoke(ctx, DataService_GenerateAI_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // DataServiceServer is the server API for DataService service.
 // All implementations must embed UnimplementedDataServiceServer
 // for forward compatibility.
@@ -98,6 +124,10 @@ type DataServiceServer interface {
 	GetPost(context.Context, *PostRequest) (*PostInfo, error)
 	// GetSettings 查询站点公开设置（白名单键）。
 	GetSettings(context.Context, *Empty) (*SettingsSnapshot, error)
+	// GetAIModels 查询可用 AI 模型（插件 AI 辅助：模型选择；脱敏）。
+	GetAIModels(context.Context, *Empty) (*AIModelList, error)
+	// GenerateAI 调用主进程 AI 生成文本（按模型路由供应商；插件 AI 辅助）。
+	GenerateAI(context.Context, *GenerateRequest) (*GenerateResult, error)
 	mustEmbedUnimplementedDataServiceServer()
 }
 
@@ -116,6 +146,12 @@ func (UnimplementedDataServiceServer) GetPost(context.Context, *PostRequest) (*P
 }
 func (UnimplementedDataServiceServer) GetSettings(context.Context, *Empty) (*SettingsSnapshot, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetSettings not implemented")
+}
+func (UnimplementedDataServiceServer) GetAIModels(context.Context, *Empty) (*AIModelList, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetAIModels not implemented")
+}
+func (UnimplementedDataServiceServer) GenerateAI(context.Context, *GenerateRequest) (*GenerateResult, error) {
+	return nil, status.Error(codes.Unimplemented, "method GenerateAI not implemented")
 }
 func (UnimplementedDataServiceServer) mustEmbedUnimplementedDataServiceServer() {}
 func (UnimplementedDataServiceServer) testEmbeddedByValue()                     {}
@@ -192,6 +228,42 @@ func _DataService_GetSettings_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DataService_GetAIModels_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DataServiceServer).GetAIModels(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DataService_GetAIModels_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DataServiceServer).GetAIModels(ctx, req.(*Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DataService_GenerateAI_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GenerateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DataServiceServer).GenerateAI(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DataService_GenerateAI_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DataServiceServer).GenerateAI(ctx, req.(*GenerateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // DataService_ServiceDesc is the grpc.ServiceDesc for DataService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -210,6 +282,14 @@ var DataService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetSettings",
 			Handler:    _DataService_GetSettings_Handler,
+		},
+		{
+			MethodName: "GetAIModels",
+			Handler:    _DataService_GetAIModels_Handler,
+		},
+		{
+			MethodName: "GenerateAI",
+			Handler:    _DataService_GenerateAI_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

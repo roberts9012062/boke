@@ -212,7 +212,7 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 	pluginSvc := service.NewPluginService(ghClient, pluginRepo, settingRepo, hookDispatcher, pluginManager, binStore, licenseRepo, orderRepo, cfg.AIKeySecret)
 	licenseProvider = pluginSvc.LicenseInfoProvider // M3.5：许可证查询回调绑定（延迟闭包生效）
 	configProvider = pluginSvc.PluginConfigProvider // M3.7：配置查询回调绑定（启动激活时下发）
-	dataProvider = service.NewPluginDataProvider(userRepo, postRepo, settingRepo) // M3.8：只读数据服务（插件经 broker 查询脱敏数据）
+	dataProvider = service.NewPluginDataProvider(userRepo, postRepo, settingRepo, aiSvc) // M3.8：只读数据服务（M4.1：+AI 辅助）
 	seoSvc := service.NewSeoService(seoRepo, postRepo, "http://localhost:"+cfg.ServerPort)
 	// 数据报表服务（M4-报表：统计聚合 + 趋势 CSV；复用后台聚合数据源）
 	reportSvc := service.NewReportService(repository.NewAdminRepo(conn), reportRepo)

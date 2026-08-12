@@ -972,6 +972,210 @@ func (x *SettingsSnapshot) GetValues() map[string]string {
 	return nil
 }
 
+// AIModel 可用 AI 供应商模型组（脱敏：不含 API Key）。
+type AIModel struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`     // 供应商名称
+	Models        []string               `protobuf:"bytes,2,rep,name=models,proto3" json:"models,omitempty"` // 可用模型列表
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AIModel) Reset() {
+	*x = AIModel{}
+	mi := &file_plugin_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AIModel) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AIModel) ProtoMessage() {}
+
+func (x *AIModel) ProtoReflect() protoreflect.Message {
+	mi := &file_plugin_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AIModel.ProtoReflect.Descriptor instead.
+func (*AIModel) Descriptor() ([]byte, []int) {
+	return file_plugin_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *AIModel) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *AIModel) GetModels() []string {
+	if x != nil {
+		return x.Models
+	}
+	return nil
+}
+
+// AIModelList 可用 AI 模型清单（插件 AI 辅助：模型下拉数据源）。
+type AIModelList struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Models        []*AIModel             `protobuf:"bytes,1,rep,name=models,proto3" json:"models,omitempty"` // 供应商模型组（空=未配置 AI）
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AIModelList) Reset() {
+	*x = AIModelList{}
+	mi := &file_plugin_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AIModelList) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AIModelList) ProtoMessage() {}
+
+func (x *AIModelList) ProtoReflect() protoreflect.Message {
+	mi := &file_plugin_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AIModelList.ProtoReflect.Descriptor instead.
+func (*AIModelList) Descriptor() ([]byte, []int) {
+	return file_plugin_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *AIModelList) GetModels() []*AIModel {
+	if x != nil {
+		return x.Models
+	}
+	return nil
+}
+
+// GenerateRequest AI 文本生成请求（插件 AI 辅助：SEO 标题/描述生成）。
+type GenerateRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Model         string                 `protobuf:"bytes,1,opt,name=model,proto3" json:"model,omitempty"`     // 模型名（精确匹配供应商 models）
+	Prompt        string                 `protobuf:"bytes,2,opt,name=prompt,proto3" json:"prompt,omitempty"`   // 生成指令（如「为以下内容生成 SEO 标题」）
+	Content       string                 `protobuf:"bytes,3,opt,name=content,proto3" json:"content,omitempty"` // 输入内容（正文/描述）
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GenerateRequest) Reset() {
+	*x = GenerateRequest{}
+	mi := &file_plugin_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GenerateRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GenerateRequest) ProtoMessage() {}
+
+func (x *GenerateRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_plugin_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GenerateRequest.ProtoReflect.Descriptor instead.
+func (*GenerateRequest) Descriptor() ([]byte, []int) {
+	return file_plugin_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *GenerateRequest) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
+}
+
+func (x *GenerateRequest) GetPrompt() string {
+	if x != nil {
+		return x.Prompt
+	}
+	return ""
+}
+
+func (x *GenerateRequest) GetContent() string {
+	if x != nil {
+		return x.Content
+	}
+	return ""
+}
+
+// GenerateResult AI 生成结果。
+type GenerateResult struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Text          string                 `protobuf:"bytes,1,opt,name=text,proto3" json:"text,omitempty"` // 生成文本
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GenerateResult) Reset() {
+	*x = GenerateResult{}
+	mi := &file_plugin_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GenerateResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GenerateResult) ProtoMessage() {}
+
+func (x *GenerateResult) ProtoReflect() protoreflect.Message {
+	mi := &file_plugin_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GenerateResult.ProtoReflect.Descriptor instead.
+func (*GenerateResult) Descriptor() ([]byte, []int) {
+	return file_plugin_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *GenerateResult) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
 // ActivateRequest 激活请求（M3.8：许可证 + 数据服务 broker ID 一次性下发）。
 type ActivateRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -983,7 +1187,7 @@ type ActivateRequest struct {
 
 func (x *ActivateRequest) Reset() {
 	*x = ActivateRequest{}
-	mi := &file_plugin_proto_msgTypes[15]
+	mi := &file_plugin_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -995,7 +1199,7 @@ func (x *ActivateRequest) String() string {
 func (*ActivateRequest) ProtoMessage() {}
 
 func (x *ActivateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_plugin_proto_msgTypes[15]
+	mi := &file_plugin_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1008,7 +1212,7 @@ func (x *ActivateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ActivateRequest.ProtoReflect.Descriptor instead.
 func (*ActivateRequest) Descriptor() ([]byte, []int) {
-	return file_plugin_proto_rawDescGZIP(), []int{15}
+	return file_plugin_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ActivateRequest) GetLicense() *LicenseInfo {
@@ -1038,7 +1242,7 @@ type StreamEvent struct {
 
 func (x *StreamEvent) Reset() {
 	*x = StreamEvent{}
-	mi := &file_plugin_proto_msgTypes[16]
+	mi := &file_plugin_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1050,7 +1254,7 @@ func (x *StreamEvent) String() string {
 func (*StreamEvent) ProtoMessage() {}
 
 func (x *StreamEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_plugin_proto_msgTypes[16]
+	mi := &file_plugin_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1063,7 +1267,7 @@ func (x *StreamEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamEvent.ProtoReflect.Descriptor instead.
 func (*StreamEvent) Descriptor() ([]byte, []int) {
-	return file_plugin_proto_rawDescGZIP(), []int{16}
+	return file_plugin_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *StreamEvent) GetHook() string {
@@ -1172,7 +1376,18 @@ const file_plugin_proto_rawDesc = "" +
 	"\x06values\x18\x01 \x03(\v2..yueyan.plugin.v1.SettingsSnapshot.ValuesEntryR\x06values\x1a9\n" +
 	"\vValuesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"p\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"5\n" +
+	"\aAIModel\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x16\n" +
+	"\x06models\x18\x02 \x03(\tR\x06models\"@\n" +
+	"\vAIModelList\x121\n" +
+	"\x06models\x18\x01 \x03(\v2\x19.yueyan.plugin.v1.AIModelR\x06models\"Y\n" +
+	"\x0fGenerateRequest\x12\x14\n" +
+	"\x05model\x18\x01 \x01(\tR\x05model\x12\x16\n" +
+	"\x06prompt\x18\x02 \x01(\tR\x06prompt\x12\x18\n" +
+	"\acontent\x18\x03 \x01(\tR\acontent\"$\n" +
+	"\x0eGenerateResult\x12\x12\n" +
+	"\x04text\x18\x01 \x01(\tR\x04text\"p\n" +
 	"\x0fActivateRequest\x127\n" +
 	"\alicense\x18\x01 \x01(\v2\x1d.yueyan.plugin.v1.LicenseInfoR\alicense\x12$\n" +
 	"\x0edata_broker_id\x18\x02 \x01(\x03R\fdataBrokerId\"q\n" +
@@ -1180,11 +1395,14 @@ const file_plugin_proto_rawDesc = "" +
 	"\x04hook\x18\x01 \x01(\tR\x04hook\x12\x19\n" +
 	"\btrace_id\x18\x02 \x01(\tR\atraceId\x12\x19\n" +
 	"\bactor_id\x18\x03 \x01(\x03R\aactorId\x12\x18\n" +
-	"\apayload\x18\x04 \x01(\fR\apayload2\xe5\x01\n" +
+	"\apayload\x18\x04 \x01(\fR\apayload2\xff\x02\n" +
 	"\vDataService\x12D\n" +
 	"\aGetUser\x12\x1d.yueyan.plugin.v1.UserRequest\x1a\x1a.yueyan.plugin.v1.UserInfo\x12D\n" +
 	"\aGetPost\x12\x1d.yueyan.plugin.v1.PostRequest\x1a\x1a.yueyan.plugin.v1.PostInfo\x12J\n" +
-	"\vGetSettings\x12\x17.yueyan.plugin.v1.Empty\x1a\".yueyan.plugin.v1.SettingsSnapshot2\x9d\x02\n" +
+	"\vGetSettings\x12\x17.yueyan.plugin.v1.Empty\x1a\".yueyan.plugin.v1.SettingsSnapshot\x12E\n" +
+	"\vGetAIModels\x12\x17.yueyan.plugin.v1.Empty\x1a\x1d.yueyan.plugin.v1.AIModelList\x12Q\n" +
+	"\n" +
+	"GenerateAI\x12!.yueyan.plugin.v1.GenerateRequest\x1a .yueyan.plugin.v1.GenerateResult2\x9d\x02\n" +
 	"\rPluginService\x12=\n" +
 	"\x04Info\x12\x17.yueyan.plugin.v1.Empty\x1a\x1c.yueyan.plugin.v1.PluginInfo\x12G\n" +
 	"\bActivate\x12!.yueyan.plugin.v1.ActivateRequest\x1a\x18.yueyan.plugin.v1.Status\x12?\n" +
@@ -1209,7 +1427,7 @@ func file_plugin_proto_rawDescGZIP() []byte {
 	return file_plugin_proto_rawDescData
 }
 
-var file_plugin_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
+var file_plugin_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
 var file_plugin_proto_goTypes = []any{
 	(*Empty)(nil),            // 0: yueyan.plugin.v1.Empty
 	(*PluginInfo)(nil),       // 1: yueyan.plugin.v1.PluginInfo
@@ -1226,41 +1444,50 @@ var file_plugin_proto_goTypes = []any{
 	(*PostRequest)(nil),      // 12: yueyan.plugin.v1.PostRequest
 	(*PostInfo)(nil),         // 13: yueyan.plugin.v1.PostInfo
 	(*SettingsSnapshot)(nil), // 14: yueyan.plugin.v1.SettingsSnapshot
-	(*ActivateRequest)(nil),  // 15: yueyan.plugin.v1.ActivateRequest
-	(*StreamEvent)(nil),      // 16: yueyan.plugin.v1.StreamEvent
-	nil,                      // 17: yueyan.plugin.v1.ConfigInfo.ValuesEntry
-	nil,                      // 18: yueyan.plugin.v1.SettingsSnapshot.ValuesEntry
+	(*AIModel)(nil),          // 15: yueyan.plugin.v1.AIModel
+	(*AIModelList)(nil),      // 16: yueyan.plugin.v1.AIModelList
+	(*GenerateRequest)(nil),  // 17: yueyan.plugin.v1.GenerateRequest
+	(*GenerateResult)(nil),   // 18: yueyan.plugin.v1.GenerateResult
+	(*ActivateRequest)(nil),  // 19: yueyan.plugin.v1.ActivateRequest
+	(*StreamEvent)(nil),      // 20: yueyan.plugin.v1.StreamEvent
+	nil,                      // 21: yueyan.plugin.v1.ConfigInfo.ValuesEntry
+	nil,                      // 22: yueyan.plugin.v1.SettingsSnapshot.ValuesEntry
 }
 var file_plugin_proto_depIdxs = []int32{
 	2,  // 0: yueyan.plugin.v1.PluginInfo.settings:type_name -> yueyan.plugin.v1.SettingField
-	17, // 1: yueyan.plugin.v1.ConfigInfo.values:type_name -> yueyan.plugin.v1.ConfigInfo.ValuesEntry
-	18, // 2: yueyan.plugin.v1.SettingsSnapshot.values:type_name -> yueyan.plugin.v1.SettingsSnapshot.ValuesEntry
-	9,  // 3: yueyan.plugin.v1.ActivateRequest.license:type_name -> yueyan.plugin.v1.LicenseInfo
-	10, // 4: yueyan.plugin.v1.DataService.GetUser:input_type -> yueyan.plugin.v1.UserRequest
-	12, // 5: yueyan.plugin.v1.DataService.GetPost:input_type -> yueyan.plugin.v1.PostRequest
-	0,  // 6: yueyan.plugin.v1.DataService.GetSettings:input_type -> yueyan.plugin.v1.Empty
-	0,  // 7: yueyan.plugin.v1.PluginService.Info:input_type -> yueyan.plugin.v1.Empty
-	15, // 8: yueyan.plugin.v1.PluginService.Activate:input_type -> yueyan.plugin.v1.ActivateRequest
-	0,  // 9: yueyan.plugin.v1.PluginService.Deactivate:input_type -> yueyan.plugin.v1.Empty
-	3,  // 10: yueyan.plugin.v1.PluginService.SetConfig:input_type -> yueyan.plugin.v1.ConfigInfo
-	5,  // 11: yueyan.plugin.v1.HookService.Execute:input_type -> yueyan.plugin.v1.HookRequest
-	16, // 12: yueyan.plugin.v1.HookService.Stream:input_type -> yueyan.plugin.v1.StreamEvent
-	7,  // 13: yueyan.plugin.v1.PluginAPI.Call:input_type -> yueyan.plugin.v1.APICall
-	11, // 14: yueyan.plugin.v1.DataService.GetUser:output_type -> yueyan.plugin.v1.UserInfo
-	13, // 15: yueyan.plugin.v1.DataService.GetPost:output_type -> yueyan.plugin.v1.PostInfo
-	14, // 16: yueyan.plugin.v1.DataService.GetSettings:output_type -> yueyan.plugin.v1.SettingsSnapshot
-	1,  // 17: yueyan.plugin.v1.PluginService.Info:output_type -> yueyan.plugin.v1.PluginInfo
-	4,  // 18: yueyan.plugin.v1.PluginService.Activate:output_type -> yueyan.plugin.v1.Status
-	4,  // 19: yueyan.plugin.v1.PluginService.Deactivate:output_type -> yueyan.plugin.v1.Status
-	4,  // 20: yueyan.plugin.v1.PluginService.SetConfig:output_type -> yueyan.plugin.v1.Status
-	6,  // 21: yueyan.plugin.v1.HookService.Execute:output_type -> yueyan.plugin.v1.HookResponse
-	0,  // 22: yueyan.plugin.v1.HookService.Stream:output_type -> yueyan.plugin.v1.Empty
-	8,  // 23: yueyan.plugin.v1.PluginAPI.Call:output_type -> yueyan.plugin.v1.APICallResult
-	14, // [14:24] is the sub-list for method output_type
-	4,  // [4:14] is the sub-list for method input_type
-	4,  // [4:4] is the sub-list for extension type_name
-	4,  // [4:4] is the sub-list for extension extendee
-	0,  // [0:4] is the sub-list for field type_name
+	21, // 1: yueyan.plugin.v1.ConfigInfo.values:type_name -> yueyan.plugin.v1.ConfigInfo.ValuesEntry
+	22, // 2: yueyan.plugin.v1.SettingsSnapshot.values:type_name -> yueyan.plugin.v1.SettingsSnapshot.ValuesEntry
+	15, // 3: yueyan.plugin.v1.AIModelList.models:type_name -> yueyan.plugin.v1.AIModel
+	9,  // 4: yueyan.plugin.v1.ActivateRequest.license:type_name -> yueyan.plugin.v1.LicenseInfo
+	10, // 5: yueyan.plugin.v1.DataService.GetUser:input_type -> yueyan.plugin.v1.UserRequest
+	12, // 6: yueyan.plugin.v1.DataService.GetPost:input_type -> yueyan.plugin.v1.PostRequest
+	0,  // 7: yueyan.plugin.v1.DataService.GetSettings:input_type -> yueyan.plugin.v1.Empty
+	0,  // 8: yueyan.plugin.v1.DataService.GetAIModels:input_type -> yueyan.plugin.v1.Empty
+	17, // 9: yueyan.plugin.v1.DataService.GenerateAI:input_type -> yueyan.plugin.v1.GenerateRequest
+	0,  // 10: yueyan.plugin.v1.PluginService.Info:input_type -> yueyan.plugin.v1.Empty
+	19, // 11: yueyan.plugin.v1.PluginService.Activate:input_type -> yueyan.plugin.v1.ActivateRequest
+	0,  // 12: yueyan.plugin.v1.PluginService.Deactivate:input_type -> yueyan.plugin.v1.Empty
+	3,  // 13: yueyan.plugin.v1.PluginService.SetConfig:input_type -> yueyan.plugin.v1.ConfigInfo
+	5,  // 14: yueyan.plugin.v1.HookService.Execute:input_type -> yueyan.plugin.v1.HookRequest
+	20, // 15: yueyan.plugin.v1.HookService.Stream:input_type -> yueyan.plugin.v1.StreamEvent
+	7,  // 16: yueyan.plugin.v1.PluginAPI.Call:input_type -> yueyan.plugin.v1.APICall
+	11, // 17: yueyan.plugin.v1.DataService.GetUser:output_type -> yueyan.plugin.v1.UserInfo
+	13, // 18: yueyan.plugin.v1.DataService.GetPost:output_type -> yueyan.plugin.v1.PostInfo
+	14, // 19: yueyan.plugin.v1.DataService.GetSettings:output_type -> yueyan.plugin.v1.SettingsSnapshot
+	16, // 20: yueyan.plugin.v1.DataService.GetAIModels:output_type -> yueyan.plugin.v1.AIModelList
+	18, // 21: yueyan.plugin.v1.DataService.GenerateAI:output_type -> yueyan.plugin.v1.GenerateResult
+	1,  // 22: yueyan.plugin.v1.PluginService.Info:output_type -> yueyan.plugin.v1.PluginInfo
+	4,  // 23: yueyan.plugin.v1.PluginService.Activate:output_type -> yueyan.plugin.v1.Status
+	4,  // 24: yueyan.plugin.v1.PluginService.Deactivate:output_type -> yueyan.plugin.v1.Status
+	4,  // 25: yueyan.plugin.v1.PluginService.SetConfig:output_type -> yueyan.plugin.v1.Status
+	6,  // 26: yueyan.plugin.v1.HookService.Execute:output_type -> yueyan.plugin.v1.HookResponse
+	0,  // 27: yueyan.plugin.v1.HookService.Stream:output_type -> yueyan.plugin.v1.Empty
+	8,  // 28: yueyan.plugin.v1.PluginAPI.Call:output_type -> yueyan.plugin.v1.APICallResult
+	17, // [17:29] is the sub-list for method output_type
+	5,  // [5:17] is the sub-list for method input_type
+	5,  // [5:5] is the sub-list for extension type_name
+	5,  // [5:5] is the sub-list for extension extendee
+	0,  // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_plugin_proto_init() }
@@ -1274,7 +1501,7 @@ func file_plugin_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_plugin_proto_rawDesc), len(file_plugin_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   19,
+			NumMessages:   23,
 			NumExtensions: 0,
 			NumServices:   4,
 		},

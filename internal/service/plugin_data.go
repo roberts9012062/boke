@@ -27,11 +27,12 @@ type PluginDataProvider struct {
 	users    *repository.UserRepo    // 用户查询
 	posts    *repository.PostRepo    // 帖子查询
 	settings *repository.SettingRepo // 站点设置
+	aiSvc    *AiService              // AI 服务（M4.1 插件 AI 辅助：模型列表/文本生成）
 }
 
 // NewPluginDataProvider 创建数据服务提供者。
-func NewPluginDataProvider(users *repository.UserRepo, posts *repository.PostRepo, settings *repository.SettingRepo) *PluginDataProvider {
-	return &PluginDataProvider{users: users, posts: posts, settings: settings}
+func NewPluginDataProvider(users *repository.UserRepo, posts *repository.PostRepo, settings *repository.SettingRepo, aiSvc *AiService) *PluginDataProvider {
+	return &PluginDataProvider{users: users, posts: posts, settings: settings, aiSvc: aiSvc}
 }
 
 // GetUser 查询用户脱敏信息（数据服务；不存在返回空结构——插件按 nil 场景兜底）。
@@ -76,4 +77,32 @@ func (p *PluginDataProvider) GetSettings(ctx context.Context) (*proto.SettingsSn
 		}
 	}
 	return &proto.SettingsSnapshot{Values: values}, nil
+}
+
+// GetAIModels 查询可用 AI 模型（M4.1 插件 AI 辅助：脱敏——仅启用供应商名 + 模型列表）。
+func (p *PluginDataProvider) GetAIModels(ctx context.Context) (*proto.AIModelList, error) {
+	if p.aiSvc == nil {
+		return &proto.AIModelList{Models: []*proto.AIModel{}}, nil
+	}
+	items, err := p.aiSvc.AIModels(ctx)
+	if err != nil {
+		return &proto.AIModelList{Models: []*proto.AIModel{}}, nil // 查询失败按无模型（面板提示配置）
+	}
+	models := make([]*proto.AIModel, 0, len(items))
+	for _, pv := range items {
+		models = append(models, &proto.AIModel{Name: pv.Name, Models: pv.Models})
+	}
+	return &proto.AIModelList{Models: models}, nil
+}
+
+// GenerateAI 调用主进程 AI 生成文本（M4.1 插件 AI 辅助：按模型路由供应商）。
+func (p *PluginDataProvider) GenerateAI(ctx context.Context, model string, prompt string, content string) (*proto.GenerateResult, error) {
+	if p.aiSvc == nil {
+		return &proto.GenerateResult{Text: ""}, nil
+	}
+	text, err := p.aiSvc.Generate(ctx, model, prompt, content)
+	if err != nil {
+		return &proto.GenerateResult{Text: ""}, err
+	}
+	return &proto.GenerateResult{Text: text}, nil
 }

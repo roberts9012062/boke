@@ -375,6 +375,14 @@ def main():
         assert_true(seo_out.get("title") == "SEO 冒烟标题" and seo_out.get("url_alias") == seo_alias
                     and seo_out.get("robots") == "index, follow",
                     f"详情 SEO 输出（标题/别名/收录；实际 {seo_out}）")
+        # AI 辅助接口（M4.1：模型列表 + 生成参数校验——经插件 API → 数据服务链路）
+        body = call("GET", "/plugins/seo-optimizer/ai/models", token=token, raw=True)
+        ai_models = json.loads(body)
+        assert_true("configured" in ai_models and "models" in ai_models,
+                    f"AI 模型接口可用（configured/models 字段；实际 {body[:100]}）")
+        body = call("POST", "/plugins/seo-optimizer/ai/generate",
+                    {"model": "", "prompt": "x", "content": "x"}, token=token, raw=True)
+        assert_true("参数错误" in body, f"AI 生成参数校验（空模型拒绝；实际 {body[:80]}）")
         # 卸载还原（compose 面板由插件渲染——卸载后插件扩展消失；后端通道闲置）
         call("DELETE", f"/admin/plugins/{seo_inst['id']}", token=token)
         assert_true(installed_item(token, "seo-optimizer") is None, "SEO 插件卸载（软删标记）")

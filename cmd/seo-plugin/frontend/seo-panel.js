@@ -33,6 +33,21 @@ export default function register(ctx) {
     "<p class='text-sm font-medium text-ink'>SEO</p>" +
     "<p class='text-[10px] text-ink-3'>SEO 插件已启用 · 可自定义收录</p>" +
     "</div>" +
+    // AI 辅助区（M4.1：模型选择 + 生成按钮；无配置时提示跳转 /admin/ai）
+    '<div class="mt-2 rounded-md bg-muted px-3 py-2" data-ai-zone>' +
+    '<div class="flex items-center gap-2">' +
+    '<span class="text-xs text-ink-3">AI 辅助</span>' +
+    '<select data-ai-model class="h-7 min-w-0 flex-1 rounded-md border border-line bg-elevated px-2 text-xs text-ink focus:border-accent focus:outline-none" disabled>' +
+    '<option value="">（未配置 AI）</option>' +
+    "</select>" +
+    "</div>" +
+    '<div class="mt-1.5 flex items-center gap-2" data-ai-actions hidden>' +
+    '<button type="button" data-ai-title class="rounded-full bg-accent-soft px-3 py-1 text-xs text-glow hover:opacity-90">✨ 生成标题</button>' +
+    '<button type="button" data-ai-desc class="rounded-full bg-accent-soft px-3 py-1 text-xs text-glow hover:opacity-90">✨ 生成描述</button>' +
+    '<span class="text-[10px] text-ink-3" data-ai-status></span>' +
+    "</div>" +
+    '<p class="mt-1 text-[10px] text-ink-3" data-ai-hint></p>' +
+    "</div>" +
     '<div class="mt-3 space-y-3">' +
     // SEO 标题
     '<div><label class="mb-1 block text-xs text-ink-3">SEO 标题（可选，默认用正文摘要）</label>' +
@@ -76,6 +91,86 @@ export default function register(ctx) {
   robotsSelect.value = state.robots;
   titleCount.textContent = count(state.seo_title, 60);
   descCount.textContent = count(state.seo_description, 160);
+
+  // ---------- AI 辅助（M4.1）：模型列表 → 有模型可选可生成；无模型提示跳转 ----------
+  const aiZone = wrapper.querySelector("[data-ai-zone]");
+  const aiModel = wrapper.querySelector("[data-ai-model]");
+  const aiActions = wrapper.querySelector("[data-ai-actions]");
+  const aiHint = wrapper.querySelector("[data-ai-hint]");
+  const aiStatus = wrapper.querySelector("[data-ai-status]");
+  let models = []; // [{name, models: []}]
+  const prompts = {
+    title: "你是一名 SEO 专家。请为以下内容生成一个简洁有吸引力的 SEO 标题（不超过 30 字，不要引号）。内容：",
+    desc: "你是一名 SEO 专家。请为以下内容生成一段 SEO 描述（不超过 60 字，不要引号）。内容：",
+  };
+  // 加载模型（经插件 API 代理 → 数据服务）
+  ctx.api
+    .get("/ai/models")
+    .then((r) => {
+      models = r.models || [];
+      const configured = (r.configured ?? models.length > 0) && models.length > 0;
+      if (!configured) {
+        // 无 AI 配置：提示 + 跳转链接（管理员前往配置；普通用户提示联系）
+        aiHint.innerHTML =
+          "未配置 AI 供应商，AI 辅助生成不可用。" +
+          '<a href="/admin/ai" class="text-glow underline">去配置 AI</a>' +
+          "（需管理员权限）";
+        return;
+      }
+      // 有模型：填充下拉（供应商 · 模型）
+      aiModel.disabled = false;
+      const opts = [];
+      for (const m of models) {
+        for (const model of m.models || []) {
+          opts.push(`<option value="${model}">${m.name} · ${model}</option>`);
+        }
+      }
+      aiModel.innerHTML = '<option value="">选择模型…</option>' + opts.join("");
+      aiActions.hidden = false;
+      aiHint.textContent = "选择模型后可 AI 生成 SEO 标题/描述";
+    })
+    .catch(() => {
+      aiHint.textContent = "AI 服务暂不可用";
+    });
+  // AI 生成（标题/描述；内容源 = 面板已有内容——插件与发帖表单隔离，拿不到页面正文）
+  const generate = (kind) => {
+    const model = aiModel.value;
+    if (!model) {
+      aiStatus.textContent = "请先选择模型";
+      return;
+    }
+    const source = state.seo_title || state.seo_description || aliasInput.value;
+    if (!source) {
+      aiStatus.textContent = "请先填写 SEO 标题或描述（AI 基于面板内容生成）";
+      return;
+    }
+    aiStatus.textContent = "生成中…";
+    ctx.api
+      .post("/ai/generate", { model, prompt: prompts[kind], content: source })
+      .then((r) => {
+        if (r.error) {
+          aiStatus.textContent = r.error;
+          return;
+        }
+        const text = (r.text || "").trim();
+        if (kind === "title") {
+          state.seo_title = text;
+          titleInput.value = text;
+          titleCount.textContent = count(text, 60);
+        } else {
+          state.seo_description = text;
+          descInput.value = text;
+          descCount.textContent = count(text, 160);
+        }
+        aiStatus.textContent = "已生成";
+        emit();
+      })
+      .catch(() => {
+        aiStatus.textContent = "生成失败，请稍后再试";
+      });
+  };
+  wrapper.querySelector("[data-ai-title]").addEventListener("click", () => generate("title"));
+  wrapper.querySelector("[data-ai-desc]").addEventListener("click", () => generate("desc"));
 
   titleInput.addEventListener("input", () => {
     state.seo_title = titleInput.value;

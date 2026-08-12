@@ -132,6 +132,29 @@ message SettingsSnapshot {
   map<string, string> values = 1; // 白名单键值对
 }
 
+// AIModel 可用 AI 供应商模型组（脱敏：不含 API Key）。
+message AIModel {
+  string name = 1;               // 供应商名称
+  repeated string models = 2;    // 可用模型列表
+}
+
+// AIModelList 可用 AI 模型清单（插件 AI 辅助：模型下拉数据源）。
+message AIModelList {
+  repeated AIModel models = 1;   // 供应商模型组（空=未配置 AI）
+}
+
+// GenerateRequest AI 文本生成请求（插件 AI 辅助：SEO 标题/描述生成）。
+message GenerateRequest {
+  string model = 1;              // 模型名（精确匹配供应商 models）
+  string prompt = 2;             // 生成指令（如「为以下内容生成 SEO 标题」）
+  string content = 3;            // 输入内容（正文/描述）
+}
+
+// GenerateResult AI 生成结果。
+message GenerateResult {
+  string text = 1;               // 生成文本
+}
+
 // DataService 主进程只读数据服务（插件声明 data.read 能力并经 broker 获取连接）。
 service DataService {
   // GetUser 查询用户脱敏信息。
@@ -140,6 +163,10 @@ service DataService {
   rpc GetPost(PostRequest) returns (PostInfo);
   // GetSettings 查询站点公开设置（白名单键）。
   rpc GetSettings(Empty) returns (SettingsSnapshot);
+  // GetAIModels 查询可用 AI 模型（插件 AI 辅助：模型选择；脱敏）。
+  rpc GetAIModels(Empty) returns (AIModelList);
+  // GenerateAI 调用主进程 AI 生成文本（按模型路由供应商；插件 AI 辅助）。
+  rpc GenerateAI(GenerateRequest) returns (GenerateResult);
 }
 
 // ---------- 服务 ----------

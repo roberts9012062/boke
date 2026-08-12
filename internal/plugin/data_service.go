@@ -19,6 +19,10 @@ type DataProvider interface {
 	GetPost(ctx context.Context, postID int64) (*proto.PostInfo, error)
 	// GetSettings 查询站点公开设置（白名单键）。
 	GetSettings(ctx context.Context) (*proto.SettingsSnapshot, error)
+	// GetAIModels 查询可用 AI 模型（脱敏：供应商名 + 模型列表，不含 Key；插件 AI 辅助）。
+	GetAIModels(ctx context.Context) (*proto.AIModelList, error)
+	// GenerateAI 调用主进程 AI 生成文本（按模型路由供应商；插件 AI 辅助）。
+	GenerateAI(ctx context.Context, model string, prompt string, content string) (*proto.GenerateResult, error)
 }
 
 // dataServiceServer DataService gRPC 实现（broker 注册时构造）。
@@ -49,4 +53,20 @@ func (s *dataServiceServer) GetSettings(ctx context.Context, _ *proto.Empty) (*p
 		return &proto.SettingsSnapshot{Values: map[string]string{}}, nil
 	}
 	return s.provider.GetSettings(ctx)
+}
+
+// GetAIModels 查询可用 AI 模型（脱敏；未注入返回空列表）。
+func (s *dataServiceServer) GetAIModels(ctx context.Context, _ *proto.Empty) (*proto.AIModelList, error) {
+	if s.provider == nil {
+		return &proto.AIModelList{Models: []*proto.AIModel{}}, nil
+	}
+	return s.provider.GetAIModels(ctx)
+}
+
+// GenerateAI 调用主进程 AI 生成文本（未注入返回空文本）。
+func (s *dataServiceServer) GenerateAI(ctx context.Context, req *proto.GenerateRequest) (*proto.GenerateResult, error) {
+	if s.provider == nil {
+		return &proto.GenerateResult{Text: ""}, nil
+	}
+	return s.provider.GenerateAI(ctx, req.GetModel(), req.GetPrompt(), req.GetContent())
 }
