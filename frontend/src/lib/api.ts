@@ -62,9 +62,14 @@ export function setTokenProvider(provider: TokenProvider | null): void {
 
 // ---------- 核心请求 ----------
 
+// RequestOptions 扩展：skipAuthRefresh 标记 refresh 请求自身（401 时不再触发刷新，防递归循环）。
+interface RequestOptions extends RequestInit {
+  skipAuthRefresh?: boolean;
+}
+
 // request 核心请求方法：携带凭证、解析统一响应、401 静默刷新一次。
 // 返回：业务数据 data（成功时）。
-async function request<T>(path: string, options: RequestInit = {}, retried = false): Promise<T> {
+async function request<T>(path: string, options: RequestOptions = {}, retried = false): Promise<T> {
   // 拼接 API 前缀（相对路径，由 Next 代理转发）
   const url = path.startsWith("/api/") ? path : `/api/v1${path}`;
 
@@ -80,8 +85,8 @@ async function request<T>(path: string, options: RequestInit = {}, retried = fal
 
   const response = await fetch(url, { ...options, headers });
 
-  // 401：未登录或 token 过期 → 静默刷新一次后重试
-  if (response.status === 401 && !retried && tokenProvider) {
+  // 401：未登录或 token 过期 → 静默刷新一次后重试（refresh 请求自身跳过，防无限递归）
+  if (response.status === 401 && !retried && tokenProvider && !options.skipAuthRefresh) {
     const refreshed = await tokenProvider.refreshTokens();
     if (refreshed) {
       return request<T>(path, options, true);
@@ -153,9 +158,14 @@ export function apiRegister(nickname: string, email: string, password: string): 
   return post<AuthTokens>("/auth/register", { nickname, email, password });
 }
 
-// 刷新令牌对（静默刷新）。
+// 刷新令牌对（静默刷新；skipAuthRefresh——refresh 自身 401 时不再触发刷新，防递归循环）。
 export function apiRefresh(refreshToken: string): Promise<AuthTokens> {
-  return post<AuthTokens>("/auth/refresh", { refresh_token: refreshToken });
+  return request<AuthTokens>("/auth/refresh", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refresh_token: refreshToken }),
+    skipAuthRefresh: true,
+  });
 }
 
 // 登出（撤销 refresh token）。

@@ -86,29 +86,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // 令牌对内存引用（供 api.ts 同步读取，避免每次读 localStorage）
   const tokensRef = useRef<AuthTokens | null>(null);
+  // 刷新防重入（并发 401 时只执行一次刷新，其余调用等待同一 Promise——防递归风暴）
+  const refreshingRef = useRef<Promise<boolean> | null>(null);
 
   // ---------- 凭证存取实现（注入 api.ts） ----------
   useEffect(() => {
     setTokenProvider({
       getAccessToken: () => tokensRef.current?.access_token ?? "",
       getRefreshToken: () => tokensRef.current?.refresh_token ?? "",
-      refreshTokens: async () => {
-        const refresh = tokensRef.current?.refresh_token;
-        if (!refresh) {
-          return false;
+      refreshTokens: () => {
+        // 正在刷新：复用进行中的 Promise（并发 401 只刷一次）
+        if (refreshingRef.current) {
+          return refreshingRef.current;
         }
-        try {
-          const tokens = await apiRefresh(refresh);
-          tokensRef.current = tokens;
-          persistTokens(tokens);
-          return true;
-        } catch {
-          // 刷新失败：清理会话（refresh 过期或被撤销）
-          tokensRef.current = null;
-          clearAuth();
-          setUser(null);
-          return false;
-        }
+        refreshingRef.current = (async () => {
+          const refresh = tokensRef.current?.refresh_token;
+          if (!refresh) {
+            return false;
+          }
+          try {
+            const tokens = await apiRefresh(refresh);
+            tokensRef.current = tokens;
+            persistTokens(tokens);
+            return true;
+          } catch {
+            // 刷新失败：清理会话（refresh 过期或被撤销；apiRefresh 自身 401 不触发递归）
+            tokensRef.current = null;
+            clearAuth();
+            setUser(null);
+            return false;
+          } finally {
+            refreshingRef.current = null;
+          }
+        })();
+        return refreshingRef.current;
       },
     });
   }, []);
