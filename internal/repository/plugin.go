@@ -126,9 +126,11 @@ func (r *PluginRepo) ListInstalled(ctx context.Context) ([]PluginInstance, error
 }
 
 // SetState 启用/禁用插件（running / disabled）。
+// 说明：主动状态变更视为恢复操作，同时清除 last_error（避免「已熔断」等历史错误残留误导展示）。
 func (r *PluginRepo) SetState(ctx context.Context, instanceID int64, state string) error {
 	_, err := r.pool.Exec(ctx,
-		`UPDATE plugin_instances SET state = $2, updated_at = now() WHERE id = $1`, instanceID, state)
+		`UPDATE plugin_instances SET state = $2, last_error = '', updated_at = now() WHERE id = $1`,
+		instanceID, state)
 	return err
 }
 

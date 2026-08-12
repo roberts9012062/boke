@@ -202,6 +202,7 @@ func (m *PluginManager) Start(ctx context.Context, pluginID string) error {
 	}
 	m.managed[pluginID] = mp
 	go m.watchExit(mp)
+	fmt.Fprintf(os.Stderr, "[plugin-mgr] 插件 %s 启动完成，已注册管理项\n", pluginID)
 	return nil
 }
 
@@ -271,6 +272,7 @@ func (m *PluginManager) watchExit(mp *ManagedPlugin) {
 	m.mu.Lock()
 	// 已被替换/移除/主动停止 → 忽略
 	if m.managed[mp.pluginID] != mp || mp.state != stateRunning {
+		fmt.Fprintf(os.Stderr, "[plugin-mgr] 插件 %s 退出被忽略（管理项已变更/状态 %s）\n", mp.pluginID, mp.state)
 		m.mu.Unlock()
 		return
 	}
@@ -278,6 +280,7 @@ func (m *PluginManager) watchExit(mp *ManagedPlugin) {
 	delete(m.managed, mp.pluginID)
 	m.crashCounts[mp.pluginID]++
 	attempt := m.crashCounts[mp.pluginID]
+	fmt.Fprintf(os.Stderr, "[plugin-mgr] 插件 %s 进程退出，崩溃计数=%d（连续崩溃达 %d 次将熔断）\n", mp.pluginID, attempt, maxRestarts)
 	m.mu.Unlock()
 
 	if mp.logFile != nil {
@@ -292,9 +295,11 @@ func (m *PluginManager) watchExit(mp *ManagedPlugin) {
 
 	// 退避重启（异步，避免阻塞其他插件管理）
 	delay := backoffDuration(attempt)
+	fmt.Fprintf(os.Stderr, "[plugin-mgr] 插件 %s 退避重启（第 %d 次，延迟 %s）\n", mp.pluginID, attempt, delay)
 	m.reportRestarting(mp.pluginID, attempt, delay)
 	time.Sleep(delay)
 	if err := m.Start(context.Background(), mp.pluginID); err != nil {
+		fmt.Fprintf(os.Stderr, "[plugin-mgr] 插件 %s 重启失败：%v\n", mp.pluginID, err)
 		m.reportCrash(mp.pluginID, err.Error())
 	}
 }

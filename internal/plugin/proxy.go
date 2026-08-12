@@ -6,6 +6,7 @@ package plugin
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/roberts9012062/boke/pkg/plugin-sdk/proto"
@@ -21,6 +22,7 @@ func (m *PluginManager) Call(ctx context.Context, pluginID string, method string
 	m.mu.Lock()
 	mp, ok := m.managed[pluginID]
 	if !ok || mp.state != stateRunning {
+		fmt.Fprintf(os.Stderr, "[plugin-mgr] Call 拒绝：插件 %s 未在运行（ok=%v）\n", pluginID, ok)
 		m.mu.Unlock()
 		return 0, nil, fmt.Errorf("插件「%s」未在运行", pluginID)
 	}
@@ -31,6 +33,7 @@ func (m *PluginManager) Call(ctx context.Context, pluginID string, method string
 	defer cancel()
 	resp, err := rpc.api.Call(callCtx, &proto.APICall{Method: method, Path: path, Body: body})
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "[plugin-mgr] Call 失败：插件 %s %s %s → %v\n", pluginID, method, path, err)
 		return 0, nil, fmt.Errorf("插件「%s」API 调用失败：%w", pluginID, err)
 	}
 	if resp.Error != "" {
