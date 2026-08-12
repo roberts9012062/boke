@@ -848,21 +848,22 @@ export interface PluginDetail {
 }
 
 // 插件详情（schema 聚合：进程上报优先、市场清单兜底；本地安装插件可用）。
-export function apiPluginDetail(instanceId: number): Promise<{ plugin: PluginDetail }> {
-  return get<{ plugin: PluginDetail }>(`/admin/plugins/${instanceId}`);
+// 参数兼容实例 ID 数字与插件 ID 字符串（nav 动态入口/直达链接用插件 ID，后端解析）。
+export function apiPluginDetail(pluginRef: string | number): Promise<{ plugin: PluginDetail }> {
+  return get<{ plugin: PluginDetail }>(`/admin/plugins/${pluginRef}`);
 }
 
 // 读取插件配置。
-export function apiPluginConfig(instanceId: number): Promise<{ config: Record<string, string> }> {
-  return get<{ config: Record<string, string> }>(`/admin/plugins/${instanceId}/config`);
+export function apiPluginConfig(pluginRef: string | number): Promise<{ config: Record<string, string> }> {
+  return get<{ config: Record<string, string> }>(`/admin/plugins/${pluginRef}/config`);
 }
 
 // 保存插件配置（service 按 schema 过滤未声明键；运行中推送即时生效）。
 export function apiPluginSaveConfig(
-  instanceId: number,
+  pluginRef: string | number,
   values: Record<string, string>,
 ): Promise<{ config: Record<string, string> }> {
-  return put<{ config: Record<string, string> }>(`/admin/plugins/${instanceId}/config`, { values });
+  return put<{ config: Record<string, string> }>(`/admin/plugins/${pluginRef}/config`, { values });
 }
 
 // ---------- 插件购买（M3.9 支付渠道：订单 + dev 模拟支付 + 服务端签发） ----------

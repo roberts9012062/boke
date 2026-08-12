@@ -41,6 +41,17 @@ func (s *PluginService) PluginConfigProvider(ctx context.Context, pluginID strin
 	return values, nil
 }
 
+// PluginIDByInstance 已存在（plugin_runner.go）。此处补充反向：
+// InstanceIDByPluginID 按插件 ID 查实例 ID（设置页/详情接口兼容插件 ID 直达——
+// nav 动态入口声明的 href 用插件 ID，需解析为实例 ID；不存在返回 ErrNotFound）。
+func (s *PluginService) InstanceIDByPluginID(ctx context.Context, pluginID string) (int64, error) {
+	inst, err := s.plugs.FindByPluginID(ctx, pluginID)
+	if err != nil {
+		return 0, errs.ErrNotFound
+	}
+	return inst.ID, nil
+}
+
 // Detail 插件详情（设置页数据源）：进程 Info 上报 schema 优先，市场清单兜底；附已存配置。
 func (s *PluginService) Detail(ctx context.Context, instanceID int64) (*PluginDetailDTO, error) {
 	inst, err := s.plugs.FindByID(ctx, instanceID)

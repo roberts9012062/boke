@@ -23,12 +23,28 @@ func NewPluginConfigHandler(plugins *service.PluginService) *PluginConfigHandler
 	return &PluginConfigHandler{plugins: plugins}
 }
 
+// resolveInstanceID 解析 :id 参数为实例 ID：兼容「数字实例 ID」与「插件 ID 字符串」——
+// nav 动态入口/直达链接用插件 ID（如 /admin/plugins/seo-optimizer/settings），
+// 需解析为实例 ID 再走设置接口（否则前端 Number() 得 NaN → 400）。
+func (h *PluginConfigHandler) resolveInstanceID(c *gin.Context) (int64, bool) {
+	raw := c.Param("id")
+	if id, err := strconv.ParseInt(raw, 10, 64); err == nil && id > 0 {
+		return id, true
+	}
+	// 插件 ID → 实例 ID（未安装返回 false → 404）
+	instanceID, err := h.plugins.InstanceIDByPluginID(c.Request.Context(), raw)
+	if err != nil {
+		return 0, false
+	}
+	return instanceID, true
+}
+
 // Detail 插件详情（GET /api/v1/admin/plugins/:id，M3.7 设置页数据源）。
 // 返回：{plugin: {id, plugin_id, name, version, state, settings_schema, config}}。
 func (h *PluginConfigHandler) Detail(c *gin.Context) {
-	instanceID, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil || instanceID <= 0 {
-		resp.Fail(c, 400, errs.ErrBadRequest)
+	instanceID, ok := h.resolveInstanceID(c)
+	if !ok {
+		resp.FailFrom(c, errs.ErrNotFound)
 		return
 	}
 	detail, err := h.plugins.Detail(c.Request.Context(), instanceID)
@@ -41,9 +57,9 @@ func (h *PluginConfigHandler) Detail(c *gin.Context) {
 
 // GetConfig 读取插件配置（GET /api/v1/admin/plugins/:id/config，M3.7 设置页回显）。
 func (h *PluginConfigHandler) GetConfig(c *gin.Context) {
-	instanceID, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil || instanceID <= 0 {
-		resp.Fail(c, 400, errs.ErrBadRequest)
+	instanceID, ok := h.resolveInstanceID(c)
+	if !ok {
+		resp.FailFrom(c, errs.ErrNotFound)
 		return
 	}
 	values, err := h.plugins.GetConfig(c.Request.Context(), instanceID)
@@ -57,9 +73,9 @@ func (h *PluginConfigHandler) GetConfig(c *gin.Context) {
 // SaveConfig 保存插件配置（PUT /api/v1/admin/plugins/:id/config，body: {values:{...}}）。
 // service 层按 schema 过滤未声明键并推送运行中进程（即时生效）。
 func (h *PluginConfigHandler) SaveConfig(c *gin.Context) {
-	instanceID, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil || instanceID <= 0 {
-		resp.Fail(c, 400, errs.ErrBadRequest)
+	instanceID, ok := h.resolveInstanceID(c)
+	if !ok {
+		resp.FailFrom(c, errs.ErrNotFound)
 		return
 	}
 	var req struct {

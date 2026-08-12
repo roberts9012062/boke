@@ -16,10 +16,10 @@ import {
   type PluginSettingField,
 } from "@/lib/api";
 
-// PluginSettings 插件设置页（:id 为实例 ID）。
+// PluginSettings 插件设置页（:id 兼容实例 ID 数字与插件 ID 字符串——nav 动态入口/直达链接用插件 ID）。
 export default function PluginSettings() {
   const params = useParams<{ id: string }>();
-  const instanceId = Number(params.id);
+  const pluginRef = params.id; // 原样传给后端（后端解析：数字=实例 ID，字符串=插件 ID）
 
   const [plugin, setPlugin] = useState<PluginDetail | null>(null);
   const [values, setValues] = useState<Record<string, string>>({});
@@ -32,7 +32,7 @@ export default function PluginSettings() {
     let cancelled = false;
     (async () => {
       try {
-        const { plugin: detail } = await apiPluginDetail(instanceId);
+        const { plugin: detail } = await apiPluginDetail(pluginRef);
         if (cancelled) return;
         setPlugin(detail);
         // 初始化表单值：已存配置优先，未设置项用 schema 默认值
@@ -50,7 +50,7 @@ export default function PluginSettings() {
     return () => {
       cancelled = true;
     };
-  }, [instanceId]);
+  }, [pluginRef]);
 
   // 保存（service 按 schema 过滤未声明键；运行中推送即时生效）
   const handleSave = async () => {
@@ -58,7 +58,7 @@ export default function PluginSettings() {
     setError("");
     setSaved(false);
     try {
-      const { config } = await apiPluginSaveConfig(instanceId, values);
+      const { config } = await apiPluginSaveConfig(pluginRef, values);
       setValues(config); // 回显过滤后的实际保存值
       setSaved(true);
     } catch (err) {
