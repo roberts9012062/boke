@@ -1,8 +1,11 @@
 // internal/handler/plugin.go
 // 插件控制器（M3.1）：插件商城（GitHub 清单）+ 插件管理（安装/启用禁用/卸载）。
+// M3.3 新增：Call 插件自定义 API 代理（/api/plugins/{id}/** 转发子进程）。
 package handler
 
 import (
+	"io"
+	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -92,4 +95,25 @@ func (h *PluginHandler) Uninstall(c *gin.Context) {
 		return
 	}
 	resp.OK(c, gin.H{"uninstalled": true})
+}
+
+// Call 插件自定义 API 代理（/api/v1/plugins/:id/*path，M3.3）。
+// 说明：转发到插件子进程 PluginAPI.Call；响应为插件自定义格式（非统一包装）。
+func (h *PluginHandler) Call(c *gin.Context) {
+	pluginID := c.Param("id")
+	path := c.Param("path")
+	if path == "" {
+		path = "/"
+	}
+	// 请求体（GET 无体；其余方法读取）
+	var body []byte
+	if c.Request.Method != http.MethodGet && c.Request.Method != http.MethodHead {
+		body, _ = io.ReadAll(c.Request.Body)
+	}
+	status, data, err := h.plugins.CallAPI(c.Request.Context(), pluginID, c.Request.Method, path, body)
+	if err != nil {
+		resp.FailFrom(c, err)
+		return
+	}
+	c.Data(status, "application/json; charset=utf-8", data)
 }

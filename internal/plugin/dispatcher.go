@@ -33,12 +33,21 @@ type Dispatcher interface {
 // OnError 钩子执行错误回调（写 plugin_instances.last_error，由装配方注入）。
 type OnError func(hook string, err error)
 
+// registeredHandler 已注册处理器（带可选唯一标识）。
+// 说明：旧式 Register/Unregister 以函数指针匹配（builtin 顶层函数可用）；
+//       进程外插件适配器是闭包（同一函数字面量共享 code 指针，%p 无法区分），
+//       必须用 RegisterWithID/UnregisterWithID 按 id 精确匹配。
+type registeredHandler struct {
+	handler Handler // 处理器
+	id      string  // 唯一标识（空=旧式，按函数指针匹配）
+}
+
 // Registry 内存钩子注册表（Dispatcher 的进程内实现）。
 type Registry struct {
-	mu       sync.RWMutex          // 保护 handlers
-	handlers map[string][]Handler  // hook → 处理器（按注册顺序执行）
-	onError  OnError               // 错误回调（可空）
-	timeout  time.Duration         // 同步钩子执行超时（默认 2s）
+	mu       sync.RWMutex                    // 保护 handlers
+	handlers map[string][]registeredHandler  // hook → 处理器（按注册顺序执行）
+	onError  OnError                         // 错误回调（可空）
+	timeout  time.Duration                   // 同步钩子执行超时（默认 2s）
 }
 
 // NewRegistry 创建钩子注册表（同步钩子超时 2 秒）。
@@ -49,29 +58,50 @@ func NewRegistry(onError OnError) *Registry {
 
 // NewRegistryWithTimeout 创建钩子注册表（自定义超时，测试用）。
 func NewRegistryWithTimeout(onError OnError, timeout time.Duration) *Registry {
-	return &Registry{handlers: make(map[string][]Handler), onError: onError, timeout: timeout}
+	return &Registry{handlers: make(map[string][]registeredHandler), onError: onError, timeout: timeout}
 }
 
-// Register 注册钩子处理器（同一 handler 幂等，重复注册忽略）。
+// Register 注册钩子处理器（旧式：按函数指针去重，builtin 顶层函数适用）。
 func (r *Registry) Register(hook string, handler Handler) {
+	r.register(hook, handler, "")
+}
+
+// RegisterWithID 注册带唯一标识的处理器（进程外插件适配器用；同 id 幂等）。
+// 参数：id 插件级唯一标识（如 "pluginID/hook"），注销时按 id 精确移除。
+func (r *Registry) RegisterWithID(hook string, id string, handler Handler) {
+	r.register(hook, handler, id)
+}
+
+// register 内部注册（id 非空按 id 去重；id 空按函数指针去重）。
+func (r *Registry) register(hook string, handler Handler, id string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, h := range r.handlers[hook] {
-		if sameHandler(h, handler) {
-			return
+		if (id != "" && h.id == id) || (id == "" && h.id == "" && sameHandler(h.handler, handler)) {
+			return // 已注册（幂等）
 		}
 	}
-	r.handlers[hook] = append(r.handlers[hook], handler)
+	r.handlers[hook] = append(r.handlers[hook], registeredHandler{handler: handler, id: id})
 }
 
-// Unregister 注销钩子处理器（按函数指针匹配）。
+// Unregister 注销钩子处理器（旧式：按函数指针匹配）。
 func (r *Registry) Unregister(hook string, handler Handler) {
+	r.unregister(hook, handler, "")
+}
+
+// UnregisterWithID 按唯一标识注销处理器（进程外插件适配器用）。
+func (r *Registry) UnregisterWithID(hook string, id string) {
+	r.unregister(hook, nil, id)
+}
+
+// unregister 内部注销（id 非空按 id 匹配；id 空按函数指针匹配）。
+func (r *Registry) unregister(hook string, handler Handler, id string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	handlers := r.handlers[hook]
-	for i, h := range handlers {
-		if sameHandler(h, handler) {
-			r.handlers[hook] = append(handlers[:i], handlers[i+1:]...)
+	items := r.handlers[hook]
+	for i, h := range items {
+		if (id != "" && h.id == id) || (id == "" && h.id == "" && sameHandler(h.handler, handler)) {
+			r.handlers[hook] = append(items[:i], items[i+1:]...)
 			return
 		}
 	}
@@ -81,8 +111,12 @@ func (r *Registry) Unregister(hook string, handler Handler) {
 func (r *Registry) Dispatch(ctx context.Context, hook string, ev Event) Result {
 	// 快照处理器列表（避免执行中注册表变更竞争）
 	r.mu.RLock()
-	handlers := append([]Handler(nil), r.handlers[hook]...)
+	registered := append([]registeredHandler(nil), r.handlers[hook]...)
 	r.mu.RUnlock()
+	handlers := make([]Handler, 0, len(registered))
+	for _, h := range registered {
+		handlers = append(handlers, h.handler)
+	}
 
 	// 异步钩子：后台执行，失败静默（记录错误）
 	if !IsSyncHook(hook) {

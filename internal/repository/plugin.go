@@ -82,11 +82,12 @@ func (r *PluginRepo) FindByPluginID(ctx context.Context, pluginID string) (Plugi
 	return inst, nil
 }
 
-// Reinstall 重新安装（复用已卸载记录：状态恢复 running + 版本/来源更新）。
-// 说明（M3.1）：plugin_id 唯一约束，卸载为软删（uninstalled），重装需 UPDATE 复用而非 INSERT。
+// Reinstall 重新安装（复用已卸载记录：状态恢复 installed + 版本/来源更新）。
+// 说明（M3.1）：plugin_id 唯一约束，卸载为软删（uninstalled），重装需 UPDATE 复用而非 INSERT；
+//              M3.3 起安装默认 installed，激活成功（内置注册/进程外拉起）后转 running。
 func (r *PluginRepo) Reinstall(ctx context.Context, instanceID int64, version string, repoURL string) error {
 	_, err := r.pool.Exec(ctx, `
-		UPDATE plugin_instances SET state = 'running', version = $2, repo_url = $3, updated_at = now()
+		UPDATE plugin_instances SET state = 'installed', version = $2, repo_url = $3, updated_at = now()
 		WHERE id = $1`, instanceID, version, repoURL)
 	return err
 }
@@ -119,6 +120,14 @@ func (r *PluginRepo) ListInstalled(ctx context.Context) ([]PluginInstance, error
 func (r *PluginRepo) SetState(ctx context.Context, instanceID int64, state string) error {
 	_, err := r.pool.Exec(ctx,
 		`UPDATE plugin_instances SET state = $2, updated_at = now() WHERE id = $1`, instanceID, state)
+	return err
+}
+
+// SetStateByPluginID 按插件 ID 更新状态与最近错误（M3.3 进程管理器崩溃熔断回调）。
+func (r *PluginRepo) SetStateByPluginID(ctx context.Context, pluginID string, state string, lastError string) error {
+	_, err := r.pool.Exec(ctx,
+		`UPDATE plugin_instances SET state = $2, last_error = $3, updated_at = now() WHERE plugin_id = $1`,
+		pluginID, state, lastError)
 	return err
 }
 

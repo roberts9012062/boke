@@ -30,9 +30,10 @@ const manifestCacheTTL = 5 * time.Minute
 
 // 插件状态（plugin_instances.state，架构附录 B 状态字典）。
 const (
-	PluginInstalled  = "installed"  // 已安装（默认）
-	PluginRunning    = "running"    // 已启用
-	PluginDisabled   = "disabled"   // 已禁用
+	PluginInstalled   = "installed"   // 已安装（默认）
+	PluginRunning     = "running"     // 已启用
+	PluginDisabled    = "disabled"    // 已禁用
+	PluginCrashed     = "crashed"     // 已熔断（连续崩溃，M3.3 进程外插件）
 	PluginUninstalled = "uninstalled" // 已卸载（软删标记）
 )
 
@@ -96,6 +97,7 @@ type InstalledPluginDTO struct {
 	Version   string    `json:"version"`     // 版本
 	RepoURL   string    `json:"repo_url"`    // 来源仓库
 	State     string    `json:"state"`       // 状态
+	LastError string    `json:"last_error,omitempty"` // 最近错误（M3.3 崩溃/缺失展示）
 	CreatedAt time.Time `json:"created_at"`  // 安装时间
 	Nav       *PluginNav `json:"nav,omitempty"` // 侧栏入口声明（前端动态扩展）
 	SettingsSchema []PluginSettingField `json:"settings_schema,omitempty"` // 设置项 schema（设置页）
@@ -116,12 +118,14 @@ type PluginService struct {
 	settings   *repository.SettingRepo // 插件源设置
 	cache      manifestCache         // 清单缓存（5 分钟）
 	dispatcher plugin.Dispatcher     // 钩子调度器（M3.2 扩展框架；生命周期联动注册/注销钩子）
+	manager    *plugin.PluginManager // 进程管理器（M3.3 进程外插件；可空=纯内置模式）
 }
 
 // NewPluginService 创建插件服务。
-// 参数：dispatcher 钩子调度器（业务扩展点，可空则插件钩子不生效）。
-func NewPluginService(gh *ghclient.Client, plugs *repository.PluginRepo, settings *repository.SettingRepo, dispatcher plugin.Dispatcher) *PluginService {
-	return &PluginService{gh: gh, plugs: plugs, settings: settings, cache: manifestCache{}, dispatcher: dispatcher}
+// 参数：dispatcher 钩子调度器（业务扩展点，可空则插件钩子不生效）；
+//      manager 进程管理器（进程外插件，可空则进程外插件仅记录安装不拉起）。
+func NewPluginService(gh *ghclient.Client, plugs *repository.PluginRepo, settings *repository.SettingRepo, dispatcher plugin.Dispatcher, manager *plugin.PluginManager) *PluginService {
+	return &PluginService{gh: gh, plugs: plugs, settings: settings, cache: manifestCache{}, dispatcher: dispatcher, manager: manager}
 }
 
 // pluginSource 读取插件源仓库（settings.plugin_source，默认 roberts9012062/boke）。
@@ -230,7 +234,7 @@ func (s *PluginService) ListInstalled(ctx context.Context) ([]InstalledPluginDTO
 		items = append(items, InstalledPluginDTO{
 			ID: inst.ID, PluginID: inst.PluginID, Name: inst.Name,
 			Version: inst.Version, RepoURL: inst.RepoURL, State: inst.State,
-			CreatedAt: inst.CreatedAt,
+			LastError: inst.LastError, CreatedAt: inst.CreatedAt,
 		})
 	}
 	// 清单补充（nav/settings_schema；拉取失败静默——列表仍可用）
@@ -277,30 +281,42 @@ func (s *PluginService) Install(ctx context.Context, pluginID string) error {
 		if existing.State != PluginUninstalled {
 			return errs.New(errs.CodeConflict, "插件「"+info.Name+"」已安装")
 		}
-		// 重新安装：复用记录（恢复 running + 更新版本/来源）
+		// 重新安装：复用记录（恢复 installed + 更新版本/来源），再尝试激活
 		if err := s.plugs.Reinstall(ctx, existing.ID, info.Version, info.RepoURL); err != nil {
 			return fmt.Errorf("重新安装插件失败：%w", err)
 		}
-		// 注册插件钩子（M3.2 生命周期联动）
-		s.registerHooks(info.ID)
+		s.activateInstalled(ctx, existing.ID, info.ID)
 		return nil
 	}
 	if !errors.Is(err, repository.ErrNotFound) {
 		return err
 	}
-	_, err = s.plugs.Create(ctx, repository.PluginInstance{
+	// 新建实例（默认 installed；激活成功转 running——M3.3 进程外插件需二进制）
+	instanceID, err := s.plugs.Create(ctx, repository.PluginInstance{
 		PluginID: info.ID,
 		Name:     info.Name,
 		Version:  info.Version,
 		RepoURL:  info.RepoURL,
-		State:    PluginRunning,
+		State:    PluginInstalled,
 	})
 	if err != nil {
 		return fmt.Errorf("安装插件失败：%w", err)
 	}
-	// 注册插件钩子（安装即启用 running）
-	s.registerHooks(info.ID)
+	// 安装即启用（内置注册钩子 / 进程外拉起进程；二进制缺失时保持 installed）
+	s.activateInstalled(ctx, instanceID, info.ID)
 	return nil
+}
+
+// activateInstalled 安装后的激活尝试：成功转 running；失败保持 installed（last_error 提示）。
+// 说明（M3.3）：进程外插件二进制缺失不阻断安装（Release 安装功能后置 M3.4）。
+func (s *PluginService) activateInstalled(ctx context.Context, instanceID int64, pluginID string) {
+	if err := s.activate(ctx, pluginID); err != nil {
+		_ = s.plugs.SetStateByPluginID(ctx, pluginID, PluginInstalled, err.Error())
+		return
+	}
+	if err := s.plugs.SetState(ctx, instanceID, PluginRunning); err != nil {
+		_ = err
+	}
 }
 
 // checkCompatibility 插件兼容性校验（core_version 匹配 / requires 已装 / conflicts 未装）。
@@ -358,7 +374,8 @@ func parseVersion(v string) [3]int {
 	return out
 }
 
-// SetState 启用/禁用插件（running / disabled；生命周期联动注册/注销钩子）。
+// SetState 启用/禁用插件（running / disabled；先激活/停用成功再落库）。
+// 说明（M3.3）：启用失败（如进程外插件二进制缺失）返回错误，DB 状态不变。
 func (s *PluginService) SetState(ctx context.Context, instanceID int64, state string) error {
 	if state != PluginRunning && state != PluginDisabled {
 		return errs.New(errs.CodeBadRequest, "状态仅支持 running / disabled")
@@ -367,28 +384,29 @@ func (s *PluginService) SetState(ctx context.Context, instanceID int64, state st
 	if err != nil {
 		return errs.ErrNotFound
 	}
-	if err := s.plugs.SetState(ctx, instanceID, state); err != nil {
-		return err
-	}
-	// 钩子联动：启用注册、禁用注销
+	// 先执行激活/停用（失败不改 DB），成功后再落库
 	if state == PluginRunning {
-		s.registerHooks(inst.PluginID)
-	} else {
-		s.unregisterHooks(inst.PluginID)
+		if err := s.activate(ctx, inst.PluginID); err != nil {
+			return errs.New(errs.CodeUpstream, err.Error())
+		}
+	} else if err := s.deactivate(inst.PluginID); err != nil {
+		return errs.New(errs.CodeUpstream, err.Error())
 	}
-	return nil
+	return s.plugs.SetState(ctx, instanceID, state)
 }
 
-// Uninstall 卸载插件（软删；生命周期联动注销钩子）。
+// Uninstall 卸载插件（软删；生命周期联动停进程/注销钩子）。
 func (s *PluginService) Uninstall(ctx context.Context, instanceID int64) error {
 	inst, err := s.plugs.FindByID(ctx, instanceID)
 	if err != nil {
 		return errs.ErrNotFound
 	}
+	if err := s.deactivate(inst.PluginID); err != nil {
+		return errs.New(errs.CodeUpstream, err.Error())
+	}
 	if err := s.plugs.Delete(ctx, instanceID); err != nil {
 		return err
 	}
-	s.unregisterHooks(inst.PluginID)
 	return nil
 }
 
@@ -405,16 +423,21 @@ var pluginHooks = struct {
 	byPlugin map[string]*hookRegistrations
 }{byPlugin: make(map[string]*hookRegistrations)}
 
-// SyncActiveHooks 启动时同步已启用插件的钩子（服务重启后恢复运行态钩子）。
-// 说明（M3.2 修复）：钩子注册在安装/启用时进行，重启后需按 DB 中 running 状态重新注册。
-func (s *PluginService) SyncActiveHooks(ctx context.Context) error {
+// SyncActivePlugins 启动时恢复已启用插件（重启后：内置注册钩子 / 进程外拉起子进程）。
+// 说明（M3.2 修复）：钩子注册在安装/启用时进行，重启后需按 DB 中 running 状态恢复；
+//              M3.3 扩展：进程外插件同时拉起子进程（二进制缺失置回 installed 提示）。
+func (s *PluginService) SyncActivePlugins(ctx context.Context) error {
 	installed, err := s.plugs.ListInstalled(ctx)
 	if err != nil {
 		return err
 	}
 	for _, inst := range installed {
-		if inst.State == PluginRunning {
-			s.registerHooks(inst.PluginID)
+		if inst.State != PluginRunning {
+			continue
+		}
+		if err := s.activate(ctx, inst.PluginID); err != nil {
+			// 恢复失败（如二进制缺失）：置回 installed + last_error，避免僵在 running
+			_ = s.plugs.SetStateByPluginID(ctx, inst.PluginID, PluginInstalled, err.Error())
 		}
 	}
 	return nil

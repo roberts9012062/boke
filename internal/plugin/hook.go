@@ -24,6 +24,29 @@ var syncHooks = map[string]bool{
 	HookAdminPage:         true,
 }
 
+// knownHooks 已知钩子全集（含同步/异步；进程外插件适配器注册时校验，契约外钩子跳过）。
+var knownHooks = map[string]bool{
+	HookPostBeforePublish: true,
+	HookPostAfterPublish:  true,
+	HookCommentBeforeSave: true,
+	HookCommentAfterSave:  true,
+	HookSearchQuery:       true,
+	HookNotificationSend:  true,
+	HookAdminPage:         true,
+}
+
+// allHookNames 全部钩子名（进程外插件适配器注销时遍历）。
+var allHookNames = []string{
+	HookPostBeforePublish, HookPostAfterPublish,
+	HookCommentBeforeSave, HookCommentAfterSave,
+	HookSearchQuery, HookNotificationSend, HookAdminPage,
+}
+
+// IsHookRegistered 判断钩子名是否为主进程已知钩子（契约外扩展不注册）。
+func IsHookRegistered(hook string) bool {
+	return knownHooks[hook]
+}
+
 // IsSyncHook 判断钩子是否为同步（可拦截/改写）。
 func IsSyncHook(hook string) bool {
 	return syncHooks[hook]

@@ -6,7 +6,7 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 
 import { AudioUploader } from "@/components/compose/audio-uploader";
 import { collectMediaIds, MAX_CONTENT, MAX_TAGS, TYPE_TABS, VISIBILITY_OPTIONS } from "@/components/compose/config";
@@ -19,7 +19,17 @@ import { useAuth } from "@/lib/auth";
 import type { MediaDTO, PostContentType } from "@/types/api";
 
 // ComposePage 发帖中心（未登录跳登录页；?draft= 草稿继续编辑 / ?edit= 编辑已发布）。
+// 说明：useSearchParams 需 Suspense 包裹（Next.js CSR bailout 要求，生产构建必检）。
 export default function ComposePage() {
+  return (
+    <Suspense fallback={null}>
+      <ComposeContent />
+    </Suspense>
+  );
+}
+
+// ComposeContent 发帖中心主体（含 useSearchParams 读取编辑参数）。
+function ComposeContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, loading } = useAuth();

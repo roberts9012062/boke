@@ -1,0 +1,11 @@
+# pkg/plugin-sdk/proto/buf.gen.yaml
+# buf 生成配置（M3.3）：生成 Go 桩代码到当前目录（paths=source_relative）。
+# 调用方式：cd pkg/plugin-sdk/proto && buf generate（由 scripts/gen-proto.sh 封装）
+version: v2
+plugins:
+  - local: protoc-gen-go
+    out: .
+    opt: paths=source_relative
+  - local: protoc-gen-go-grpc
+    out: .
+    opt: paths=source_relative

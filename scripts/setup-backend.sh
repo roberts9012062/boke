@@ -31,6 +31,10 @@ DEPS=(
   "golang.org/x/crypto"
   "github.com/casbin/casbin/v2"
   "github.com/redis/go-redis/v9"
+  # M3.3 插件进程外化：go-plugin 握手 + gRPC 通信 + protobuf 消息
+  "github.com/hashicorp/go-plugin"
+  "google.golang.org/grpc"
+  "google.golang.org/protobuf"
 )
 for dep in "${DEPS[@]}"; do
   go get "$dep" 2>&1 | tee -a "$LOG_FILE" || true

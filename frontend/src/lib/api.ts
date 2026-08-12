@@ -694,7 +694,8 @@ export interface InstalledPlugin {
   name: string; // 名称
   version: string; // 版本
   repo_url: string; // 来源
-  state: string; // running/disabled/installed
+  state: string; // running/disabled/installed/crashed（M3.3 进程外）
+  last_error?: string; // 最近错误（M3.3 崩溃/缺失提示）
   created_at: string; // 安装时间
   nav?: PluginNav; // 侧栏入口声明（动态扩展）
   settings_schema?: PluginSettingField[]; // 设置项 schema

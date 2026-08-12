@@ -98,8 +98,10 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 	if err != nil {
 		return router.Handlers{}, nil, nil, nil, fmt.Errorf("连接数据库失败：%w", err)
 	}
-	// 退出时关闭数据库连接池
+	// 退出时关闭数据库连接池（插件子进程先停，防止孤儿进程）
+	var pluginManager *plugin.PluginManager
 	cleanup := func() {
+		pluginManager.Shutdown()
 		conn.Close()
 	}
 
@@ -159,6 +161,13 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 	hookDispatcher := plugin.NewRegistry(func(hook string, err error) {
 		logger.Warn("插件钩子执行异常", zap.String("hook", hook), zap.Error(err))
 	})
+	// ---------- 插件进程管理器（M3.3：go-plugin 进程外化；崩溃熔断事件落库） ----------
+	pluginManager = plugin.NewPluginManager(
+		plugin.NewBinStore(cfg.DataDir),
+		hookDispatcher,
+		service.NewPluginManagerEvents(pluginRepo),
+		"logs/plugins",
+	)
 	// 内容治理服务（M2：举报/敏感词/封禁；先建供发帖/评论拦截注入）
 	moderationSvc := service.NewModerationService(reportRepo, sensitiveRepo, banRepo, userRepo, postRepo, commentRepo)
 	// 启动时加载敏感词表（后台变更后自动刷新）
@@ -175,7 +184,7 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 	adminSvc := service.NewAdminService(adminRepo, postRepo, commentRepo, settingRepo, enforcer, banRepo, userRepo, postSvc, mediaRepo, tagRepo, mediaStore, hookDispatcher, auditRepo, reportRepo)
 	siteSvc := service.NewSiteService(settingRepo) // 站点信息（meta 从 settings 实时读取，M1.7）
 	messageSvc := service.NewMessageService(messageRepo, userRepo, notifySvc) // 私信（M2）
-	pluginSvc := service.NewPluginService(ghClient, pluginRepo, settingRepo, hookDispatcher)
+	pluginSvc := service.NewPluginService(ghClient, pluginRepo, settingRepo, hookDispatcher, pluginManager)
 	seoSvc := service.NewSeoService(seoRepo, postRepo, "http://localhost:"+cfg.ServerPort)
 	// 数据报表服务（M4-报表：统计聚合 + 趋势 CSV；复用后台聚合数据源）
 	reportSvc := service.NewReportService(repository.NewAdminRepo(conn), reportRepo)
@@ -183,10 +192,10 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 	backupSvc := service.NewBackupService(backupRepo, cfg.DataDir, logger)
 	// 角色权限服务（M5：矩阵查询 + 权限域编辑持久化；audit 复用）
 	roleSvc := service.NewRoleService(enforcer, adminRepo, settingRepo, auditRepo)
-	// 启动同步已启用插件的钩子（M3.2：重启后恢复运行态插件功能）
-	if err := pluginSvc.SyncActiveHooks(ctx); err != nil {
-		logger.Warn("插件钩子启动同步失败", zap.Error(err))
-	}  // 插件（M3.1）
+	// 启动同步已启用插件（M3.2 钩子 + M3.3 进程外插件拉起子进程，重启恢复）
+	if err := pluginSvc.SyncActivePlugins(ctx); err != nil {
+		logger.Warn("插件启动同步失败", zap.Error(err))
+	}
 
 	// ---------- 角色策略加载（M5：自定义矩阵恢复 → 用户角色全量同步） ----------
 	// 先恢复后台编辑过的权限矩阵（settings.role_permissions），再同步用户角色分组

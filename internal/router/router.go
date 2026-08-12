@@ -88,6 +88,10 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager, e
 	authed.GET("/me", handlers.Auth.Me)               // 当前用户资料
 	authed.PUT("/me/password", handlers.Auth.ChangePassword) // 修改密码（账号安全页）
 
+	// 插件自定义 API 代理（M3.3：/api/plugins/{id}/** 转发子进程，登录用户可用）
+	pluginAPI := authed.Group("/plugins/:id")
+	pluginAPI.Any("/*path", handlers.Plugin.Call)
+
 	// 前台写操作拦截（M5：受限访客仅可阅读；路由级挂 RequireNotRestricted，
 	// 发帖/编辑/评论/回复/私信发送——评论接口在 OptionalAuth 组，匿名按 visitor 放行）
 

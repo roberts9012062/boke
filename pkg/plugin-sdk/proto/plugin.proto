@@ -1,0 +1,96 @@
+// pkg/plugin-sdk/proto/plugin.proto
+// 插件通信契约（M3.3）：主进程（internal/plugin）与插件子进程（pkg/plugin-sdk/server）共用。
+// 对齐 docs/architecture.md 6.2 三服务设计：
+//   - PluginService：生命周期（Info/Activate/Deactivate）
+//   - HookService：同步钩子执行（Execute；流式 Stream 后置）
+//   - PluginAPI：插件自定义 API（主进程按 /api/plugins/{id}/** 代理）
+//
+// 生成方式：./scripts/gen-proto.sh（buf + protoc-gen-go/protoc-gen-go-grpc）
+// 生成的 .pb.go 提交仓库，第三方插件作者无需安装工具链。
+syntax = "proto3";
+
+package yueyan.plugin.v1;
+
+option go_package = "github.com/roberts9012062/boke/pkg/plugin-sdk/proto";
+
+// ---------- 通用消息 ----------
+
+// Empty 空请求（无参数 RPC）。
+message Empty {}
+
+// PluginInfo 插件信息（Info 返回，主进程校验插件声明与清单一致）。
+message PluginInfo {
+  string id = 1;                 // 插件 ID（唯一，与清单 id 一致）
+  string name = 2;               // 插件名称
+  string version = 3;            // 版本号
+  string author = 4;             // 作者
+  string description = 5;        // 一句话描述
+  repeated string hooks = 6;     // 声明的钩子（对齐主进程钩子表，如 "post.after_publish"）
+  repeated string apis = 7;      // 自定义 API 路径（如 "/ping"，主进程挂 /api/plugins/{id}/**）
+}
+
+// Status 激活/停用结果。
+message Status {
+  bool ok = 1;                   // 是否成功
+  string error = 2;              // 错误信息（ok=false 时）
+}
+
+// ---------- 钩子 ----------
+
+// HookRequest 钩子执行请求（主进程 → 插件；payload 为 JSON bytes）。
+message HookRequest {
+  string hook = 1;               // 钩子名（对齐主进程钩子常量）
+  string trace_id = 2;           // 请求追踪 ID（贯穿日志）
+  int64 actor_id = 3;            // 操作者用户 ID（0=匿名/系统）
+  bytes payload = 4;             // 载荷 JSON（各钩子自定义结构，主进程传值副本）
+}
+
+// HookResponse 钩子执行响应。
+//   - ok=false：同步拦截钩子拒绝（reason 为用户可读原因，阻断核心流程）
+//   - modify：可改写钩子（search.query）返回改写后的载荷 JSON
+message HookResponse {
+  bool ok = 1;                   // 是否放行（false=拒绝）
+  string reason = 2;             // 拒绝原因（用户可读）
+  bytes modify = 3;              // 改写结果 JSON（可空）
+  string error = 4;              // 插件内部错误（主进程记录 last_error，不阻断核心）
+}
+
+// ---------- 自定义 API ----------
+
+// APICall 插件自定义 API 调用（主进程代理转发）。
+message APICall {
+  string method = 1;             // HTTP 方法（GET/POST/PUT/DELETE...）
+  string path = 2;               // 路径（如 "/ping"）
+  bytes body = 3;                // 请求体 JSON（可空）
+}
+
+// APICallResult 插件 API 响应。
+message APICallResult {
+  int32 status = 1;              // HTTP 状态码（200 正常）
+  bytes body = 2;                // 响应体 JSON
+  string error = 3;              // 插件内部错误（非 HTTP 错误）
+}
+
+// ---------- 服务 ----------
+
+// PluginService 插件生命周期服务。
+service PluginService {
+  // Info 返回插件信息（启用时校验声明与安装清单一致）。
+  rpc Info(Empty) returns (PluginInfo);
+  // Activate 激活（启用回调，插件侧初始化资源）。
+  rpc Activate(Empty) returns (Status);
+  // Deactivate 停用（停用回调，插件侧保存状态/释放资源）。
+  rpc Deactivate(Empty) returns (Status);
+}
+
+// HookService 钩子执行服务。
+service HookService {
+  // Execute 同步钩子执行（可拦截/改写；异步钩子由主进程后台调用）。
+  rpc Execute(HookRequest) returns (HookResponse);
+}
+
+// PluginAPI 插件自定义 API 服务（主进程按前缀路由代理）。
+service PluginAPI {
+  // Call 分发插件自定义 API 调用。
+  rpc Call(APICall) returns (APICallResult);
+}

@@ -14,11 +14,12 @@ import {
 } from "@/lib/api";
 import { formatDateTime } from "@/lib/utils";
 
-// 状态文案（插件实例状态字典）
+// 状态文案（插件实例状态字典；crashed = 连续崩溃熔断，M3.3 进程外插件）
 const STATE_LABEL: Record<string, string> = {
   running: "已启用",
   disabled: "已禁用",
   installed: "已安装",
+  crashed: "已熔断",
 };
 
 // AdminPlugins 我的插件。
@@ -41,9 +42,9 @@ export default function AdminPlugins() {
   };
   useEffect(load, []);
 
-  // 启用/禁用
+  // 启用/禁用（非运行态 → 启用；运行态 → 禁用；含 crashed 熔断后重新启用）
   const toggleState = async (plugin: InstalledPlugin) => {
-    const next = plugin.state === "disabled" ? "running" : "disabled";
+    const next = plugin.state === "running" ? "disabled" : "running";
     try {
       await apiSetPluginState(plugin.id, next);
       setItems((prev) => prev.map((p) => (p.id === plugin.id ? { ...p, state: next } : p)));
@@ -104,7 +105,11 @@ export default function AdminPlugins() {
                   <span className="text-xs text-ink-3">v{plugin.version}</span>
                   <span
                     className={`rounded-full px-2 py-0.5 text-xs ${
-                      plugin.state === "disabled" ? "bg-muted text-ink-3" : "bg-accent-soft text-glow"
+                      plugin.state === "disabled"
+                        ? "bg-muted text-ink-3"
+                        : plugin.state === "crashed"
+                          ? "bg-like/10 text-like"
+                          : "bg-accent-soft text-glow"
                     }`}
                   >
                     {STATE_LABEL[plugin.state] ?? plugin.state}
@@ -113,6 +118,11 @@ export default function AdminPlugins() {
                 <p className="mt-0.5 truncate text-xs text-ink-3">
                   {plugin.repo_url || "内置"} · 安装于 {formatDateTime(plugin.created_at)}
                 </p>
+                {plugin.last_error && (
+                  <p className="mt-0.5 truncate text-xs text-like" title={plugin.last_error}>
+                    {plugin.last_error}
+                  </p>
+                )}
               </div>
               <div className="flex shrink-0 gap-2 text-xs">
                 <button
@@ -120,7 +130,7 @@ export default function AdminPlugins() {
                   onClick={() => void toggleState(plugin)}
                   className="rounded-full border border-line px-4 py-1.5 text-ink-2 hover:text-ink"
                 >
-                  {plugin.state === "disabled" ? "启用" : "禁用"}
+                  {plugin.state === "running" ? "禁用" : "启用"}
                 </button>
                 <button
                   type="button"

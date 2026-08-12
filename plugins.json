@@ -92,6 +92,19 @@
       "capabilities": ["定时导出", "云本地双通道"],
       "repo_url": "https://github.com/roberts9012062/boke",
       "core_version": ">=0.1.0"
+    },
+    {
+      "id": "demo-plugin",
+      "name": "演示插件",
+      "version": "0.1.0",
+      "category": "enhancement",
+      "price": 0,
+      "installs": 0,
+      "official": true,
+      "description": "M3.3 进程外插件演示：go-plugin 隔离、同步/异步钩子、自定义 API。",
+      "capabilities": ["进程外隔离", "同步/异步钩子", "自定义 API"],
+      "repo_url": "https://github.com/roberts9012062/boke",
+      "core_version": ">=0.1.0"
     }
   ]
 }
