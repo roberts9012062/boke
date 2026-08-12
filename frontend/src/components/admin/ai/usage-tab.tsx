@@ -8,16 +8,16 @@ import { useEffect, useState } from "react";
 import { apiAiUsage, type AiDayStat, type AiUsageSummary } from "@/lib/api-ai";
 
 // BarChart 近 7 日调用次数柱状图（SVG 自绘，零依赖）。
-// 参数：days 按日统计（calls）；宽高固定 560×200，标尺 + 数值 + 星期标签。
+// 参数：days 按日统计（calls）；宽固定 560、高紧凑 140（后台卡片内不喧宾夺主），标尺 + 数值 + 星期标签。
 function BarChart({ days }: { days: AiDayStat[] }) {
   const width = 560;
-  const height = 200;
+  const height = 140;
   const pad = 28;
   const max = Math.max(1, ...days.map((d) => d.calls)); // 峰值（防除零取 1）
   const barW = (width - pad * 2) / days.length;
 
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="w-full" role="img" aria-label="近 7 日 AI 调用趋势">
+    <svg viewBox={`0 0 ${width} ${height}`} className="w-full max-w-[560px]" role="img" aria-label="近 7 日 AI 调用趋势">
       {/* 横轴基线 */}
       <line x1={pad} y1={height - 24} x2={width - 8} y2={height - 24} className="stroke-line" strokeWidth="1" />
       {days.map((d, i) => {

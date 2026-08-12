@@ -274,7 +274,7 @@ function TrendChart({ data }: { data: { date: string; score: number }[] }) {
   const area = `${path} L${points[points.length - 1]?.x ?? pad},${H - pad} L${pad},${H - pad} Z`;
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="mt-3 w-full" role="img" aria-label="近 7 日健康分趋势折线图">
+    <svg viewBox={`0 0 ${W} ${H}`} className="mt-3 w-full max-w-[560px]" role="img" aria-label="近 7 日健康分趋势折线图">
       {/* 网格线（0/50/100） */}
       {[0, 50, 100].map((v) => (
         <g key={v}>

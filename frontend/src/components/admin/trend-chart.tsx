@@ -21,10 +21,10 @@ interface TrendChartProps {
 export function TrendChart({ data }: TrendChartProps) {
   // 最大值（0 兜底，避免除零）
   const max = Math.max(1, ...data.flatMap((d) => [d.posts, d.likes, d.comments]));
-  // 布局参数（视图坐标）
+  // 布局参数（视图坐标；高度紧凑化——后台卡片内不喧宾夺主）
   const groupWidth = 44; // 每组宽度（柱 12 + 间距 2）
   const barWidth = 12;
-  const height = 180;
+  const height = 120;
   const chartWidth = Math.max(data.length * groupWidth, 120);
 
   return (
@@ -38,10 +38,10 @@ export function TrendChart({ data }: TrendChartProps) {
         ))}
       </div>
 
-      {/* 柱状图（SVG，高度按最大值归一化） */}
+      {/* 柱状图（SVG，高度按最大值归一化；max-w 限制防止 w-full 等比拉伸放大——7 日 viewBox 窄，满宽拉伸高度会爆炸） */}
       <svg
         viewBox={`0 0 ${chartWidth} ${height + 24}`}
-        className="mt-3 w-full"
+        className="mt-3 w-full max-w-[320px]"
         role="img"
         aria-label="近 7 日互动趋势柱状图"
       >

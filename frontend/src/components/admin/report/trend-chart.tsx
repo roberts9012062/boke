@@ -18,10 +18,10 @@ const SERIES: readonly { key: "views" | "posts" | "likes" | "comments"; label: s
 export function ReportTrendChart({ data }: { data: ReportTrendPoint[] }) {
   // 最大值（0 兜底，避免除零）
   const max = Math.max(1, ...data.flatMap((d) => [d.views, d.posts, d.likes, d.comments]));
-  // 布局参数（视图坐标；30 日时柱宽收窄避免挤压）
+  // 布局参数（视图坐标；30 日时柱宽收窄避免挤压；高度紧凑化）
   const groupWidth = data.length > 14 ? 18 : 44;
   const barWidth = data.length > 14 ? 3 : 8;
-  const height = 180;
+  const height = 120;
   const chartWidth = Math.max(data.length * groupWidth, 120);
 
   return (
@@ -36,10 +36,10 @@ export function ReportTrendChart({ data }: { data: ReportTrendPoint[] }) {
         ))}
       </div>
 
-      {/* 柱状图（分组柱：每日期 4 根） */}
+      {/* 柱状图（分组柱：每日期 4 根；max-w 限制防止 w-full 等比拉伸放大——30 日 viewBox 较宽，上限放宽） */}
       <svg
         viewBox={`0 0 ${chartWidth} ${height + 24}`}
-        className="mt-3 w-full"
+        className="mt-3 w-full max-w-[560px]"
         role="img"
         aria-label="数据报表趋势柱状图"
       >
