@@ -33,6 +33,7 @@ type CommentService struct {
 	comments   *repository.CommentRepo   // 评论数据访问
 	reactions  *repository.ReactionRepo  // 互动数据访问（评论点赞）
 	users      *repository.UserRepo      // 用户数据访问（作者信息）
+	settings   *repository.SettingRepo   // 站点设置（评论开关 comment_open，站点设置页即时生效）
 	guests     *auth.GuestManager        // 匿名身份管理器
 	posts      *repository.PostRepo      // 帖子数据访问（作者/计数）
 	notify     *NotificationService      // 通知服务（评论/回复通知）
@@ -52,6 +53,7 @@ func NewCommentService(
 	comments *repository.CommentRepo,
 	reactions *repository.ReactionRepo,
 	users *repository.UserRepo,
+	settings *repository.SettingRepo,
 	guests *auth.GuestManager,
 	posts *repository.PostRepo,
 	notify *NotificationService,
@@ -59,7 +61,17 @@ func NewCommentService(
 	hooks plugin.Dispatcher,
 	reviewer CommentReviewer,
 ) *CommentService {
-	return &CommentService{comments: comments, reactions: reactions, users: users, guests: guests, posts: posts, notify: notify, moderation: moderation, hooks: hooks, reviewer: reviewer}
+	return &CommentService{comments: comments, reactions: reactions, users: users, settings: settings, guests: guests, posts: posts, notify: notify, moderation: moderation, hooks: hooks, reviewer: reviewer}
+}
+
+// commentOpen 评论开关是否开启（settings.comment_open；值为 "false" 时关闭）。
+// 缺失或读取失败默认开启（与站点信息读取失败回退默认值一致，保证服务可用性）。
+func (s *CommentService) commentOpen(ctx context.Context) bool {
+	value, ok, err := s.settings.Get(ctx, "comment_open")
+	if err != nil || !ok {
+		return true
+	}
+	return value != "false"
 }
 
 // reviewAsync 异步 AI 预审新评论（fire-and-forget：失败静默，不影响评论主流程；
@@ -132,6 +144,11 @@ func (s *CommentService) List(ctx context.Context, postID int64, viewerID int64)
 // Create 发表评论（顶层，需登录或携带有效匿名 token）。
 // 返回：新评论 ID。
 func (s *CommentService) Create(ctx context.Context, postID int64, viewerID int64, input CommentInput) (int64, error) {
+	// ---------- 评论开关（站点设置 comment_open=false 时关闭评论） ----------
+	if !s.commentOpen(ctx) {
+		return 0, errs.New(errs.CodeForbidden, "当前站点已关闭评论")
+	}
+
 	// 内容校验
 	content := strings.TrimSpace(input.Content)
 	if content == "" || utf8.RuneCountInString(content) > maxCommentLen {
@@ -194,6 +211,11 @@ func (s *CommentService) Create(ctx context.Context, postID int64, viewerID int6
 	return commentID, nil
 }
 func (s *CommentService) Reply(ctx context.Context, targetID int64, viewerID int64, input CommentInput) (int64, error) {
+	// ---------- 评论开关（站点设置 comment_open=false 时关闭评论；先于目标查询，避免泄露存在性） ----------
+	if !s.commentOpen(ctx) {
+		return 0, errs.New(errs.CodeForbidden, "当前站点已关闭评论")
+	}
+
 	// 查询目标评论
 	target, err := s.comments.FindByID(ctx, targetID)
 	if err != nil {

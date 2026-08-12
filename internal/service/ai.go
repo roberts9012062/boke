@@ -137,7 +137,7 @@ func (s *AiService) CreateProvider(ctx context.Context, input AiProviderInput) (
 
 // UpdateProvider 更新供应商（API Key 留空 = 保持原值，支持只改配置）。
 func (s *AiService) UpdateProvider(ctx context.Context, id int64, input AiProviderInput) error {
-	exist, found, err := s.providers.FindByID(ctx, id)
+	_, found, err := s.providers.FindByID(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -156,7 +156,6 @@ func (s *AiService) UpdateProvider(ctx context.Context, id int64, input AiProvid
 		}
 	}
 	// 未传 Key 时保留原密文（COALESCE 分支依赖仓库层空串判断）
-	_ = exist
 	return s.providers.Update(ctx, repository.AiProvider{
 		ID: id, Name: input.Name, BaseURL: input.BaseURL,
 		APIKeyEncrypted: encrypted, Models: input.Models,

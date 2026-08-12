@@ -1,5 +1,7 @@
 // src/app/admin/under-construction/page.tsx
-// 后台建设中占位页（决策 5：媒体库/标签/角色/插件/插件商城/SEO/健康度/SERP 均指向此页）。
+// 后台建设中占位页（通用占位组件）。
+// 说明：当前后台 19 项导航均已上线（available: true），无导航项指向本页——
+//       保留页面与 layout 的 available 分支机制，供未来新模块上线前占位使用。
 "use client";
 
 import Link from "next/link";

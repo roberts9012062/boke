@@ -102,7 +102,10 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 	// 退出时关闭数据库连接池（插件子进程先停，防止孤儿进程）
 	var pluginManager *plugin.PluginManager
 	cleanup := func() {
-		pluginManager.Shutdown()
+		// 早退路径（casbin/媒体存储初始化失败）时 pluginManager 尚未赋值，防 nil 解引用 panic
+		if pluginManager != nil {
+			pluginManager.Shutdown()
+		}
 		conn.Close()
 	}
 
@@ -159,7 +162,7 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 	guestMgr := auth.NewGuestManager(redisClient) // 匿名身份管理器（M2：Redis 优先 + 内存兜底）
 	resetMgr := auth.NewResetManager()                 // 密码重置令牌（M2）
 	mailer := mail.NewSender(cfg.Mail, logger)         // 邮件发送（M2；未配置降级日志）
-	authSvc := service.NewAuthService(userRepo, auditRepo, jwtMgr, enforcer, limiter, resetMgr, mailer, cfg.SiteBaseURL)
+	authSvc := service.NewAuthService(userRepo, auditRepo, settingRepo, jwtMgr, enforcer, limiter, resetMgr, mailer, mediaStore, cfg.SiteBaseURL)
 	// ---------- 插件钩子调度器（M3.2 扩展框架：注册表 + 故障隔离；错误记录到日志） ----------
 	hookDispatcher := plugin.NewRegistry(func(hook string, err error) {
 		logger.Warn("插件钩子执行异常", zap.String("hook", hook), zap.Error(err))
@@ -201,7 +204,7 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 	notifySvc := service.NewNotificationService(notificationRepo, userRepo, hookDispatcher)
 	// AI 服务（M4：供应商/任务/用量 + 三内置场景；先建供评论预审注入）
 	aiSvc := service.NewAiService(aiProviderRepo, aiTaskRepo, aiUsageRepo, seoRepo, postRepo, commentRepo, reportRepo, cfg.AIKeySecret, hookDispatcher)
-	commentSvc := service.NewCommentService(commentRepo, reactionRepo, userRepo, guestMgr, postRepo, notifySvc, moderationSvc, hookDispatcher, aiSvc)
+	commentSvc := service.NewCommentService(commentRepo, reactionRepo, userRepo, settingRepo, guestMgr, postRepo, notifySvc, moderationSvc, hookDispatcher, aiSvc)
 	reactionSvc := service.NewReactionService(reactionRepo, postRepo, notifySvc)
 	followSvc := service.NewFollowService(relationRepo, userRepo, postRepo, postSvc, notifySvc)
 	topicSvc := service.NewTopicService(tagRepo, postRepo, postSvc)

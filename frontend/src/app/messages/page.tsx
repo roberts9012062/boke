@@ -24,6 +24,7 @@ export default function MessagesPage() {
   const [tab, setTab] = useState<string>(""); // 空=全部；unread=未读（设计稿 Tab）
   const [items, setItems] = useState<ConversationDTO[]>([]);
   const [activeId, setActiveId] = useState<number | null>(null); // 桌面选中会话
+  const [query, setQuery] = useState<string>(""); // 对话搜索关键词（客户端过滤昵称/账号）
   const [loaded, setLoaded] = useState<boolean>(false);
 
   // 加载会话列表（Tab 切换时刷新）
@@ -36,7 +37,11 @@ export default function MessagesPage() {
       return;
     }
     apiConversations(tab)
-      .then((r) => setItems(r.items))
+      .then((r) => {
+        setItems(r.items);
+        // 选中会话不在新列表时清空选中（切「未读」Tab 后右侧不再指向被过滤会话）
+        setActiveId((cur) => (cur !== null && r.items.some((c) => c.id === cur) ? cur : null));
+      })
       .catch(() => setItems([]))
       .finally(() => setLoaded(true));
   }, [tab, loading, user]);
@@ -56,6 +61,15 @@ export default function MessagesPage() {
 
   // 当前选中会话（桌面右侧详情）
   const active = items.find((c) => c.id === activeId) ?? null;
+  // 搜索过滤（客户端按对方昵称/账号过滤；M 后置修复：此前搜索框为只读占位）
+  const keyword = query.trim().toLowerCase();
+  const visibleItems = keyword
+    ? items.filter(
+        (c) =>
+          c.peer.nickname.toLowerCase().includes(keyword) ||
+          c.peer.username.toLowerCase().includes(keyword),
+      )
+    : items;
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -65,13 +79,13 @@ export default function MessagesPage() {
         <section className="w-full lg:w-[320px] lg:shrink-0">
           <h1 className="font-display text-xl font-semibold text-ink">消息</h1>
 
-          {/* 搜索对话（设计稿占位：搜索对话…） */}
+          {/* 搜索对话（客户端按对方昵称/账号过滤） */}
           <input
             type="text"
             placeholder="搜索对话…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
             className="mt-3 h-9 w-full rounded-full border border-line bg-muted px-4 text-sm text-ink placeholder:text-ink-3 focus:border-accent focus:outline-none"
-            readOnly
-            title="对话搜索 M2 完善"
           />
 
           {/* Tab（设计稿：全部 / 未读） */}
@@ -105,10 +119,17 @@ export default function MessagesPage() {
               <p className="mt-1 text-xs text-ink-3">在他人主页点「私信」发起对话</p>
             </div>
           )}
+          {/* 搜索无结果 */}
+          {loaded && items.length > 0 && visibleItems.length === 0 && (
+            <div className="mt-3 rounded-lg border border-line bg-elevated py-12 text-center">
+              <p className="text-sm text-ink-2">没有匹配的会话</p>
+              <p className="mt-1 text-xs text-ink-3">换个关键词试试</p>
+            </div>
+          )}
 
           {/* 会话列表（设计稿：北巷 2 分钟前 今晚的声音帖很好听 + 未读徽标） */}
           <div className="mt-3 divide-y divide-line overflow-hidden rounded-lg border border-line bg-elevated">
-            {items.map((c) => (
+            {visibleItems.map((c) => (
               <button
                 key={c.id}
                 type="button"

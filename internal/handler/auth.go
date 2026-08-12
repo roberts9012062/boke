@@ -172,3 +172,13 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 	}
 	resp.OK(c, gin.H{"changed": true})
 }
+
+// Deactivate 注销账号（POST /api/v1/me/deactivate，需登录；需求 3.9）。
+// 删除用户与全部数据（不可恢复），成功后前端登出清会话。
+func (h *AuthHandler) Deactivate(c *gin.Context) {
+	if err := h.auth.DeactivateAccount(c.Request.Context(), middleware.GetUserID(c), c.ClientIP(), c.Request.UserAgent()); err != nil {
+		resp.FailFrom(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"deactivated": true})
+}

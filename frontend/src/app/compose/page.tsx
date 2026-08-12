@@ -56,6 +56,9 @@ function ComposeContent() {
   const [submitting, setSubmitting] = useState<"draft" | "published" | "edit" | null>(null);
   // SEO 输入（M4.1 插件通道：SEO 面板经 props.onChange 回写；随发帖/编辑提交）
   const [seo, setSeo] = useState<PostSeoInput | null>(null);
+  // 编辑模式回填完成标记：SEO 面板须在历史值加载完成后挂载（PluginSlot props 为挂载时快照，
+  // 提前挂载会拿到 initial:null 导致已发布帖子的 SEO 不回填）
+  const [editLoaded, setEditLoaded] = useState<boolean>(!editing);
 
   // 编辑模式：加载帖子详情填充表单（草稿继续编辑与编辑已发布共用）
   useEffect(() => {
@@ -87,7 +90,8 @@ function ComposeContent() {
           });
         }
       })
-      .catch((err) => setError(err instanceof ApiError ? err.message : "加载失败，无法编辑"));
+      .catch((err) => setError(err instanceof ApiError ? err.message : "加载失败，无法编辑"))
+      .finally(() => setEditLoaded(true));
   }, [editing, editId]);
 
   // 未登录：跳登录页
@@ -338,8 +342,10 @@ function ComposeContent() {
         </div>
 
         {/* 插件扩展点：compose.seo（M4.1 发帖 SEO 面板——由 seo-optimizer 插件渲染；
-            无插件时槽位为空，发帖界面保持原样；卸载后自动还原） */}
-        <PluginSlot slot="compose.seo" props={{ initial: seo, onChange: setSeo }} />
+            无插件时槽位为空，发帖界面保持原样；卸载后自动还原）。
+            编辑模式须等详情回填完成再挂载（PluginSlot props 为挂载时快照，
+            提前挂载 initial 恒为 null，已发布帖子的 SEO 历史值无法回填） */}
+        {editLoaded && <PluginSlot slot="compose.seo" props={{ initial: seo, onChange: setSeo }} />}
 
         {/* 错误提示 */}
         {error && (

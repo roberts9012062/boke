@@ -3,9 +3,10 @@
 // 职责：加载扩展点声明 → 动态加载模块 → register(ctx) 挂载 → 记录清理函数。
 import { fetchManifest, loadModule, clearPlugin, type PluginUser } from "./loader";
 
-// 受限 API 客户端（插件自定义 API，带主站凭证；路径如 "/ping"）。
+// authHeader 受限 API 客户端凭证头（插件自定义 API，带主站访问令牌；路径如 "/ping"）。
 // 凭证：从 localStorage 读取访问令牌（与 auth.tsx 同键；插件 API 属 authed 组）。
-function authHeader(): Record<string, string> {
+// 导出供 sandbox.ts 的 postMessage 代理复用。
+export function authHeader(): Record<string, string> {
   try {
     const raw = localStorage.getItem("yueyan-tokens");
     if (!raw) {

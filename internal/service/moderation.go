@@ -6,6 +6,7 @@ package service
 import (
 	"context"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/roberts9012062/boke/internal/repository"
@@ -311,7 +312,12 @@ func (s *ModerationService) ListBans(ctx context.Context, page int, pageSize int
 
 // forbiddenWords 内存词表缓存（启动加载，后台增删后刷新）。
 // 说明：数据量小（MVP），启动与后台变更时全量加载；词表大时换 Aho-Corasick（架构 9.3）。
-var forbiddenWords []string
+// 并发安全：发帖/评论高频读（CheckForbidden）与后台增删触发整体替换（ReloadForbidden）
+//           并发执行，须读写锁保护（此前无锁存在数据竞争）。
+var (
+	forbiddenWords []string
+	forbiddenMu    sync.RWMutex
+)
 
 // ReloadForbidden 重新加载 forbidden 词表（启动与后台变更后调用）。
 func (s *ModerationService) ReloadForbidden(ctx context.Context) error {
@@ -319,14 +325,19 @@ func (s *ModerationService) ReloadForbidden(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	forbiddenMu.Lock()
 	forbiddenWords = words
+	forbiddenMu.Unlock()
 	return nil
 }
 
 // CheckForbidden 校验文本是否命中 forbidden 敏感词。
 // 返回：命中的敏感词（未命中返回空串）。
 func (s *ModerationService) CheckForbidden(content string) string {
-	for _, word := range forbiddenWords {
+	forbiddenMu.RLock()
+	words := forbiddenWords
+	forbiddenMu.RUnlock()
+	for _, word := range words {
 		if strings.Contains(content, word) {
 			return word
 		}

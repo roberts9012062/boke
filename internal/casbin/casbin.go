@@ -178,6 +178,12 @@ func (e *Enforcer) SetRole(username string, role string) error {
 	return err
 }
 
+// RemoveRole 移除用户全部分组（账号注销后清理内存策略，重启前不残留已注销用户的角色映射）。
+func (e *Enforcer) RemoveRole(username string) error {
+	_, err := e.engine.RemoveFilteredGroupingPolicy(0, username)
+	return err
+}
+
 // GetRole 查询用户角色（默认 visitor）。
 func (e *Enforcer) GetRole(username string) string {
 	roles, err := e.engine.GetRolesForUser(username)

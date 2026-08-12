@@ -32,8 +32,13 @@ export function collectMediaIds(
   if (contentType === "image") {
     return images.map((m) => m.id);
   }
+  if (contentType === "audio") {
+    return audio ? [audio.id] : [];
+  }
   if (contentType === "video") {
     return video ? [video.id] : [];
   }
-  return audio ? [audio.id] : [];
+  // 文字等其他类型：不携带媒体
+  // （历史兜底：text 分支返回 audio 会导致先传音频再切回「文字」时纯文字帖附带残留音频）
+  return [];
 }

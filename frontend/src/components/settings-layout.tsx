@@ -1,6 +1,7 @@
 // src/components/settings-layout.tsx
 // 设置页分区布局（设计稿《账号安全》等画板顶部 Tab：资料/隐私/通知/外观/安全）。
-// 说明：供隐私/通知/安全三页使用；资料（/settings/profile）、外观（/settings/theme）为早期页面暂未套用（差异记录）。
+// 说明：供隐私/通知/安全三页使用；资料（/settings/profile）、外观（/settings/theme）两页
+//       为早期页面，顶部 Tab 栏独立实现（样式与本文案一致，均为真实链接，2026-08 后置修复统一）。
 "use client";
 
 import Link from "next/link";

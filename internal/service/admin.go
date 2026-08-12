@@ -249,6 +249,16 @@ func (s *AdminService) SetUserStatus(ctx context.Context, userID int64, status s
 	if status != "active" && status != "banned" {
 		return errs.New(errs.CodeBadRequest, "状态仅支持 active / banned")
 	}
+	// 封禁前保护最后一名超级管理员（避免全站无可用管理员）
+	if status == "banned" {
+		target, err := s.users.FindByID(ctx, userID)
+		if err != nil {
+			return errs.ErrNotFound
+		}
+		if err := s.guardLastSuperadmin(ctx, s.enforcer.GetRole(target.Username)); err != nil {
+			return err
+		}
+	}
 	if err := s.admin.SetUserStatus(ctx, userID, status); err != nil {
 		return err
 	}
@@ -292,6 +302,13 @@ func (s *AdminService) SetUserRole(ctx context.Context, actorID int64, userID in
 	// 变更前角色（审计快照；casbin 内存为当前生效值）
 	beforeRole := s.enforcer.GetRole(user.Username)
 
+	// 最后一名超级管理员保护：superadmin 降级前须存在其他超级管理员（防系统锁死）
+	if beforeRole == casbin.RoleSuperAdmin && role != casbin.RoleSuperAdmin {
+		if err := s.guardLastSuperadmin(ctx, beforeRole); err != nil {
+			return err
+		}
+	}
+
 	// 落库 + 内存策略同步（顺序：先内存后落库，失败时内存已生效不影响可用性）
 	if err := s.enforcer.SetRole(user.Username, role); err != nil {
 		return err
@@ -306,6 +323,23 @@ func (s *AdminService) SetUserRole(ctx context.Context, actorID int64, userID in
 		BeforeData: `"` + beforeRole + `"`, AfterData: `"` + role + `"`,
 		IP: ip, UserAgent: ua,
 	})
+	return nil
+}
+
+// guardLastSuperadmin 最后一名超级管理员保护（降级/封禁前校验）。
+// 参数：targetRole 目标用户当前角色；ctx 查询上下文。
+// 返回：目标角色不是 superadmin 或仍存在其他 superadmin 时返回 nil，否则返回业务错误。
+func (s *AdminService) guardLastSuperadmin(ctx context.Context, targetRole string) error {
+	if targetRole != casbin.RoleSuperAdmin {
+		return nil
+	}
+	count, err := s.users.CountByRole(ctx, casbin.RoleSuperAdmin)
+	if err != nil {
+		return err
+	}
+	if count <= 1 {
+		return errs.New(errs.CodeStateConflict, "系统至少保留一名超级管理员")
+	}
 	return nil
 }
 

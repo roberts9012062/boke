@@ -6,7 +6,8 @@
 //   iframe → 主站：{type:"api", pluginId, requestId, method, path, body} → 主站代理转发
 //   主站 → iframe：{type:"api-result", requestId, status, body}
 // 说明：token 为插件直接调用 /api/v1/plugins/{id}/... 的短期凭证（1 小时，登录用户签发）；
-//       postMessage 代理同时可用（复用主站登录凭证）。
+//       postMessage 代理同时可用（携带主站访问令牌）。
+import { authHeader } from "./registry";
 import type { PluginUser } from "./loader";
 
 // mountSandbox 挂载 iframe 沙箱。
@@ -27,6 +28,11 @@ export function mountSandbox(
 
   // postMessage 代理：插件 API 请求 → 主站转发 → 回传结果
   const onMessage = (event: MessageEvent) => {
+    // 来源校验：仅接受同源消息（iframe 资源走 /plugin-assets/ 同源静态服务），
+    // 防任意页面伪造 {type:"api"} 消息利用主站登录凭证代理请求（历史修复：未校验 origin）
+    if (event.origin !== window.location.origin) {
+      return;
+    }
     const msg = event.data as { type?: string; pluginId?: string; requestId?: string; method?: string; path?: string; body?: unknown };
     if (!msg || msg.type !== "api" || msg.pluginId !== pluginId) {
       return;
@@ -67,7 +73,8 @@ async function issueSandboxToken(user: PluginUser | null): Promise<string | null
   }
 }
 
-// proxyApi 转发插件 API 调用（复用主站登录凭证，路径限定插件代理域）。
+// proxyApi 转发插件 API 调用（带主站访问令牌，路径限定插件代理域；
+// 历史修复：此前 fetch 未携带 Authorization，authed 代理接口恒 401）。
 async function proxyApi(
   pluginId: string,
   msg: { method?: string; path?: string; body?: unknown },
@@ -75,7 +82,7 @@ async function proxyApi(
   try {
     const res = await fetch(`/api/v1/plugins/${pluginId}${msg.path ?? "/"}`, {
       method: msg.method || "GET",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeader() },
       body: msg.body !== undefined ? JSON.stringify(msg.body) : undefined,
     });
     return { status: res.status, body: await res.text() };

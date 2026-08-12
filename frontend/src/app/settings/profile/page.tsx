@@ -4,6 +4,7 @@
 // M1.7：头像真实上传（裁剪压缩 → /media → /me/avatar）、移除；保存后全局同步用户资料。
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
@@ -110,40 +111,28 @@ export default function SettingsProfilePage() {
     <div className="flex min-h-screen flex-col">
       <DesktopNav />
       <main className="mx-auto w-full max-w-[640px] flex-1 px-4 py-6 pb-20">
-        {/* 顶部 Tab（设计稿：资料/隐私/通知/外观/安全；后四项 M2 占位） */}
+        {/* 顶部 Tab（设计稿：资料/隐私/通知/外观/安全；M 后置修复：
+            五页均已上线，由原先「M2 上线」灰按钮改为真实链接） */}
         <div className="flex gap-2">
           {[
-            { key: "profile", label: "资料", active: true },
-            { key: "privacy", label: "隐私" },
-            { key: "notify", label: "通知" },
+            { key: "profile", label: "资料", href: "/settings/profile", active: true },
+            { key: "privacy", label: "隐私", href: "/settings/privacy" },
+            { key: "notify", label: "通知", href: "/settings/notifications" },
             { key: "appearance", label: "外观", href: "/settings/theme" },
-            { key: "security", label: "安全" },
-          ].map((t) =>
-            t.href ? (
-              <button
-                key={t.key}
-                type="button"
-                onClick={() => router.push(t.href as string)}
-                className="rounded-full px-4 py-1.5 text-sm transition-colors"
-                title="M2 上线"
-              >
-                {t.label}
-              </button>
-            ) : (
-              <button
-                key={t.key}
-                type="button"
-                className={`rounded-full px-4 py-1.5 text-sm transition-colors ${
-                  t.active
-                    ? "bg-accent-soft font-medium text-glow"
-                    : "cursor-not-allowed text-ink-3/60"
-                }`}
-                title={t.active ? "" : "M2 上线"}
-              >
-                {t.label}
-              </button>
-            ),
-          )}
+            { key: "security", label: "安全", href: "/settings/security" },
+          ].map((t) => (
+            <Link
+              key={t.key}
+              href={t.href}
+              className={`rounded-full px-4 py-1.5 text-sm transition-colors ${
+                t.active
+                  ? "bg-accent-soft font-medium text-glow"
+                  : "text-ink-3/60 hover:text-ink"
+              }`}
+            >
+              {t.label}
+            </Link>
+          ))}
         </div>
 
         <h1 className="mt-4 font-display text-xl font-semibold text-ink">编辑资料</h1>

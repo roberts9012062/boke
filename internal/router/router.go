@@ -111,6 +111,7 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager, e
 	authed.POST("/auth/logout", handlers.Auth.Logout) // 登出（撤销 refresh）
 	authed.GET("/me", handlers.Auth.Me)               // 当前用户资料
 	authed.PUT("/me/password", handlers.Auth.ChangePassword) // 修改密码（账号安全页）
+	authed.POST("/me/deactivate", handlers.Auth.Deactivate)  // 注销账号（需求 3.9，永久删除）
 	// 插件 iframe 沙箱短期令牌（M3.6 后置：1 小时，插件直接调用代理 API）
 	authed.POST("/plugin-sandbox-token", handlers.Auth.SandboxToken)
 
@@ -137,7 +138,7 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager, e
 	authed.GET("/me/drafts", handlers.Post.ListDrafts) // 草稿箱
 
 	// ---------- 媒体模块（M1.3） ----------
-	authed.POST("/media", handlers.Media.Upload) // 媒体上传（multipart）
+	authed.POST("/media", middleware.RequireNotRestricted(), handlers.Media.Upload) // 媒体上传（multipart；M5：受限访客 403）
 
 	// ---------- 评论模块（M1.4） ----------
 	// 评论接口开放（登录/匿名均可）：挂可选鉴权识别登录用户身份；

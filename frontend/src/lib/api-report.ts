@@ -101,9 +101,16 @@ export function apiDeleteBackup(id: number): Promise<void> {
 // downloadFile 带鉴权的附件下载（fetch blob → 临时 URL → a.download 触发）。
 // 说明：后端附件接口不走统一 JSON 响应，需独立 fetch（带 Bearer，失败抛 ApiError 风格消息）。
 async function downloadFile(path: string, fileName: string): Promise<void> {
-  // 从 localStorage 读取令牌（键与 auth.tsx 一致）
+  // 从 localStorage 读取令牌（键与 auth.tsx 一致；缓存损坏按无凭证处理，触发 401 重新登录）
   const raw = localStorage.getItem("yueyan-tokens");
-  const accessToken = raw ? (JSON.parse(raw) as { access_token?: string }).access_token ?? "" : "";
+  let accessToken = "";
+  if (raw) {
+    try {
+      accessToken = (JSON.parse(raw) as { access_token?: string }).access_token ?? "";
+    } catch {
+      accessToken = "";
+    }
+  }
 
   const res = await fetch(`/api/v1${path}`, {
     headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},

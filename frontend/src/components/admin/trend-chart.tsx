@@ -1,6 +1,6 @@
 // src/components/admin/trend-chart.tsx
 // 近 7 日互动趋势图（M1.7，需求 4.2）：纯 SVG 分组柱状图（新帖/获赞/评论）+ 图例。
-// 说明：浏览无时间维度数据源（需埋点，规划 P1），趋势图展示三项真实聚合数据。
+// 说明：浏览埋点已上线（P1，post_views 按日去重），仪表盘趋势图保持设计稿三项；如需加入浏览维度可扩展 SERIES。
 "use client";
 
 import type { TrendPoint } from "@/lib/api";

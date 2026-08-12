@@ -21,6 +21,7 @@ import (
 	"github.com/roberts9012062/boke/internal/auth"
 	"github.com/roberts9012062/boke/internal/casbin"
 	"github.com/roberts9012062/boke/internal/mail"
+	"github.com/roberts9012062/boke/internal/media"
 	"github.com/roberts9012062/boke/internal/model"
 	"github.com/roberts9012062/boke/internal/redis"
 	"github.com/roberts9012062/boke/internal/repository"
@@ -37,11 +38,13 @@ const (
 type AuthService struct {
 	users       *repository.UserRepo
 	audit       *repository.AuditRepo
+	settings    *repository.SettingRepo // 站点设置（注册开关 allow_register，站点设置页即时生效）
 	jwt         *auth.Manager
 	enforcer    *casbin.Enforcer
 	limiter     *redis.RateLimiter
 	resets      *auth.ResetManager // 密码重置令牌（M2 找回密码）
 	mailer      *mail.Sender       // 邮件发送（M2；未配置 SMTP 降级日志）
+	media       *media.Store       // 媒体存储（注销账号时清理物理文件）
 	siteBaseURL string             // 站点地址（生成重置链接）
 }
 
@@ -49,14 +52,16 @@ type AuthService struct {
 func NewAuthService(
 	users *repository.UserRepo,
 	audit *repository.AuditRepo,
+	settings *repository.SettingRepo,
 	jwt *auth.Manager,
 	enforcer *casbin.Enforcer,
 	limiter *redis.RateLimiter,
 	resets *auth.ResetManager,
 	mailer *mail.Sender,
+	mediaStore *media.Store,
 	siteBaseURL string,
 ) *AuthService {
-	return &AuthService{users: users, audit: audit, jwt: jwt, enforcer: enforcer, limiter: limiter, resets: resets, mailer: mailer, siteBaseURL: siteBaseURL}
+	return &AuthService{users: users, audit: audit, settings: settings, jwt: jwt, enforcer: enforcer, limiter: limiter, resets: resets, mailer: mailer, media: mediaStore, siteBaseURL: siteBaseURL}
 }
 
 // Register 注册新用户（注册成功即视为登录，直接签发令牌对）。
@@ -73,6 +78,11 @@ func (s *AuthService) Register(ctx context.Context, req model.RegisterReq, ip st
 	}
 	if !validPassword(req.Password) {
 		return nil, errs.New(errs.CodeBadRequest, "密码至少 8 位，且包含字母与数字")
+	}
+
+	// ---------- 注册开关（站点设置 allow_register=false 时关闭注册） ----------
+	if !s.registerOpen(ctx) {
+		return nil, errs.New(errs.CodeForbidden, "当前站点已关闭注册")
 	}
 
 	// ---------- 邮箱唯一性 ----------
@@ -243,8 +253,7 @@ func (s *AuthService) ResetPassword(ctx context.Context, token string, newPasswo
 // ChangePassword 修改密码（账号安全页，需校验当前密码）。
 // 参数：userID 当前用户；currentPassword 当前密码；newPassword 新密码（≥8 位含字母数字）。
 // 说明：更新后密码版本自增（复用 P1 机制，其他设备旧会话立即失效）。
-func (s *AuthService) ChangePassword(ctx context.Context, userID int64, currentPassword string, newPassword string) error {
-	if currentPassword == "" || newPassword == "" {
+func (s *AuthService) ChangePassword(ctx context.Context, userID int64, currentPassword string, newPassword string) error {	if currentPassword == "" || newPassword == "" {
 		return errs.New(errs.CodeBadRequest, "请填写当前密码与新密码")
 	}
 	if !validPassword(newPassword) {
@@ -265,6 +274,33 @@ func (s *AuthService) ChangePassword(ctx context.Context, userID int64, currentP
 	return s.users.UpdatePassword(ctx, userID, string(hash))
 }
 
+// DeactivateAccount 注销账号（需求 3.9）：删除用户与其全部数据（帖子/评论/关注/私信等
+// 经外键级联清理），清理媒体物理文件与 casbin 内存分组，不可恢复。
+// 保护：superadmin 禁止自助注销（防删光管理员导致系统锁死，先由其他管理员降级）。
+func (s *AuthService) DeactivateAccount(ctx context.Context, userID int64, ip string, ua string) error {
+	user, err := s.users.FindByID(ctx, userID)
+	if err != nil {
+		return errs.ErrNotFound
+	}
+	if s.enforcer.GetRole(user.Username) == casbin.RoleSuperAdmin {
+		return errs.New(errs.CodeStateConflict, "站长账号不可自助注销，请先移交或联系其他管理员")
+	}
+	// 审计（删除前落库，留痕注销动作）
+	s.writeAudit(ctx, userID, "deactivate", "user", userID, ip, ua)
+	// 删除用户行与级联数据，返回媒体存储键（物理文件需单独清理）
+	storageKeys, err := s.users.DeleteCascade(ctx, userID)
+	if err != nil {
+		return err
+	}
+	// 清理 casbin 内存分组（重启前不残留已注销用户的角色映射）
+	_ = s.enforcer.RemoveRole(user.Username)
+	// 清理媒体物理文件（失败静默——磁盘残留不影响数据一致性，后续可人工清理）
+	for _, key := range storageKeys {
+		_ = s.media.Remove(key)
+	}
+	return nil
+}
+
 // GetProfile 查询用户资料（/me 与公开主页共用）。
 // 参数：self 是否本人（本人含邮箱完整值，他人隐藏邮箱）。
 func (s *AuthService) GetProfile(ctx context.Context, userID int64, self bool) (*model.UserProfile, error) {
@@ -277,7 +313,14 @@ func (s *AuthService) GetProfile(ctx context.Context, userID int64, self bool) (
 	}
 
 	profile := user.ToProfile()
-	profile.Role = s.enforcer.GetRole(user.Username)
+	// 角色可见性：本人返回完整角色；公开资料仅保留 superadmin（设计稿主页「站长」徽章有意公开），
+	// 其余运营角色（editor/author 等）对外隐藏，避免身份泄露与定向攻击面
+	role := s.enforcer.GetRole(user.Username)
+	if self {
+		profile.Role = role
+	} else if role == casbin.RoleSuperAdmin {
+		profile.Role = role
+	}
 	// 非本人：邮箱脱敏（仅显示首字母 + *** + 域名）
 	if !self {
 		profile.Email = maskEmail(user.Email)
@@ -368,6 +411,16 @@ func (s *AuthService) uniqueUsername(ctx context.Context, email string) (string,
 		}
 	}
 	return "", errs.New(errs.CodeConflict, "用户名生成失败，请更换邮箱重试")
+}
+
+// registerOpen 注册开关是否开启（settings.allow_register；值为 "false" 时关闭）。
+// 缺失或读取失败默认开启（与站点信息读取失败回退默认值一致，保证服务可用性）。
+func (s *AuthService) registerOpen(ctx context.Context) bool {
+	value, ok, err := s.settings.Get(ctx, "allow_register")
+	if err != nil || !ok {
+		return true
+	}
+	return value != "false"
 }
 
 // writeAudit 写入审计日志（失败仅记录，不影响主流程）。

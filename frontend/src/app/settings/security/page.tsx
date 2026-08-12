@@ -4,10 +4,11 @@
 // + 登录设备（当前设备）+ 注销账号（设计稿《注销账号》弹层，MVP 占位）。
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { SettingsLayout } from "@/components/settings-layout";
-import { apiChangePassword, ApiError } from "@/lib/api";
+import { apiChangePassword, apiDeactivateAccount, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
 // 登录设备信息（当前设备：浏览器 UA 简化，设计稿「MacBook Pro · Chrome」）。
@@ -41,7 +42,8 @@ function currentDevice(): string {
 
 // SecurityPage 账号安全设置。
 export default function SecurityPage() {
-  const { user } = useAuth();
+  const router = useRouter();
+  const { user, logout } = useAuth();
   // 当前设备：SSR 与首帧输出占位，客户端挂载后计算真实 UA（避免 hydration mismatch）
   const [device, setDevice] = useState<string>("当前设备");
   useEffect(() => {
@@ -55,9 +57,10 @@ export default function SecurityPage() {
   const [success, setSuccess] = useState<string>("");
   const [saving, setSaving] = useState<boolean>(false);
 
-  // 注销账号弹层（设计稿《注销账号》：输入「确认注销」→ 永久注销；MVP 占位）
+  // 注销账号弹层（设计稿《注销账号》：输入「确认注销」→ 永久注销；需求 3.9 真实实现）
   const [showDelete, setShowDelete] = useState<boolean>(false);
   const [deleteConfirm, setDeleteConfirm] = useState<string>("");
+  const [deleting, setDeleting] = useState<boolean>(false);
 
   // 更新密码（校验当前密码；成功后清空表单）
   const handleChangePassword = async () => {
@@ -82,6 +85,23 @@ export default function SecurityPage() {
       setError(err instanceof ApiError ? err.message : "密码更新失败");
     } finally {
       setSaving(false);
+    }
+  };
+
+  // 永久注销（调用后端删除账号与全部数据 → 本地登出 → 跳登录页）
+  const handleDeactivate = async () => {
+    if (deleting) {
+      return;
+    }
+    setDeleting(true);
+    try {
+      await apiDeactivateAccount();
+      setShowDelete(false);
+      await logout(); // 清空本地令牌与用户状态
+      router.replace("/login");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "注销失败，请稍后再试");
+      setDeleting(false);
     }
   };
 
@@ -173,7 +193,7 @@ export default function SecurityPage() {
         <p className="mt-2 text-xs text-ink-3">其他设备的会话管理将在后续版本开放（M4 规划）</p>
       </section>
 
-      {/* 注销账号（设计稿《注销账号》弹层；MVP 占位，需求 3.9） */}
+      {/* 注销账号（设计稿《注销账号》弹层；需求 3.9） */}
       <section className="mt-5 rounded-lg border border-line bg-elevated p-6">
         <h2 className="text-sm font-semibold text-ink">注销账号</h2>
         <p className="mt-2 text-xs text-ink-3">注销后，你的帖子、草稿与关注关系将被永久删除，且无法恢复。</p>
@@ -211,9 +231,6 @@ export default function SecurityPage() {
               placeholder="确认注销"
               className="mt-2 h-10 w-full rounded-lg border border-line bg-muted px-4 text-sm text-ink focus:border-accent focus:outline-none"
             />
-            <p className="mt-3 rounded-md bg-accent-soft px-3 py-2 text-xs text-glow" role="status">
-              该功能即将上线（MVP 占位，需求 3.9）
-            </p>
             <div className="mt-5 flex justify-end gap-3">
               <button
                 type="button"
@@ -224,11 +241,11 @@ export default function SecurityPage() {
               </button>
               <button
                 type="button"
-                disabled={deleteConfirm !== "确认注销"}
-                onClick={() => setShowDelete(false)}
+                disabled={deleteConfirm !== "确认注销" || deleting}
+                onClick={() => void handleDeactivate()}
                 className="rounded-full bg-like px-5 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
               >
-                永久注销
+                {deleting ? "注销中…" : "永久注销"}
               </button>
             </div>
           </div>

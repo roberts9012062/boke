@@ -74,8 +74,13 @@ export function ChatView({ conversation }: ChatViewProps) {
     const timer = setInterval(() => {
       apiMessages(conversation.id)
         .then((r) => {
-          // 消息变多才更新（避免滚动跳动）
-          setMessages((prev) => (r.total > prev.length ? r.items : prev));
+          // 轮询返回最近一页（升序）；按 ID 合并去重并追加到尾部——
+          // 历史修复：此前用 r.items 整体替换，会话超过一页（30 条）时旧消息被覆盖丢失
+          setMessages((prev) => {
+            const known = new Set(prev.map((m) => m.id));
+            const fresh = r.items.filter((m) => !known.has(m.id));
+            return fresh.length === 0 ? prev : [...prev, ...fresh];
+          });
         })
         .catch(() => {
           // 轮询失败静默

@@ -5,7 +5,6 @@ package repository
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -188,15 +187,20 @@ func (r *MediaRepo) Delete(ctx context.Context, id int64) (string, error) {
 		return "", err
 	}
 
-	// 解除帖子引用：media_ids 移除该 id；cover_url 指向该媒体时清空
-	// 注意：$1 传字符串（pgx 将 $1::text 推断为 text 类型，Go int64 无法编码——历史故障）；
-	//       $3 独立参数 + ::bigint（多上下文推断冲突 42P08/42P18）。
+	// 解除帖子引用：media_ids 移除该 id（数字 JSONB 数组按值移除并保序）；
+	// cover_url 指向该媒体时清空。
+	// 注意：jsonb `- text` 仅匹配字符串元素，无法命中数字数组（历史故障：删除后残留死引用）；
+	//       改为 jsonb_array_elements 按值过滤重聚（$2 为 bigint，与 jsonb 数字元素类型一致）。
 	if _, err := tx.Exec(ctx, `
 		UPDATE posts SET
-			media_ids = media_ids - $1::text,
-			cover_url = CASE WHEN cover_url = $2 THEN '' ELSE cover_url END
-		WHERE media_ids @> jsonb_build_array($3::bigint)`,
-		strconv.FormatInt(id, 10), "/media/"+storageKey, id); err != nil {
+			media_ids = COALESCE((
+				SELECT jsonb_agg(elem ORDER BY ord)
+				FROM jsonb_array_elements(posts.media_ids) WITH ORDINALITY AS arr(elem, ord)
+				WHERE elem <> to_jsonb($2::bigint)
+			), '[]'::jsonb),
+			cover_url = CASE WHEN cover_url = $1 THEN '' ELSE cover_url END
+		WHERE media_ids @> jsonb_build_array($2::bigint)`,
+		"/media/"+storageKey, id); err != nil {
 		return "", err
 	}
 

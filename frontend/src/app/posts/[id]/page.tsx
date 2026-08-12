@@ -1,7 +1,7 @@
 // src/app/posts/[id]/page.tsx
 // 帖子详情页（设计稿 M/冷月/帖子详情 390 + D/冷月/音频播放 + 灯箱）：
 // 返回 → 作者/时间/可见性 → 完整正文 → 媒体（图片灯箱/音频播放器）
-// → 互动条（赞/评论/收藏）→ 评论区占位（M1.4 接入）。
+// → 互动条（赞/评论/收藏）→ 评论区（M1.4 已接入）。
 "use client";
 
 import Link from "next/link";
@@ -57,8 +57,17 @@ export default function PostDetailPage() {
       setError("帖子不存在");
       return;
     }
+    // 竞态保护：快速切换帖子时丢弃旧请求的迟到响应（此前无取消标志，旧响应会覆盖新帖状态）
+    let cancelled = false;
+    // 记录进入前的标题与 robots meta（离开/切换时复原，避免 SEO 输出残留到其他页面）
+    const previousTitle = document.title;
+    const previousRobots = document.querySelector('meta[name="robots"]')?.getAttribute("content") ?? null;
+
     apiPostDetail(postId, readGuest()?.guest_token)
       .then((detail) => {
+        if (cancelled) {
+          return;
+        }
         setPost(detail);
         setLikeCount(detail.like_count);
         // SEO 输出（M4.1 插件通道）：自定义标题 + robots 收录策略写入文档
@@ -77,10 +86,17 @@ export default function PostDetailPage() {
           meta.setAttribute("content", detail.seo.robots);
         }
       })
-      .catch((err: Error) => setError(err.message));
+      .catch((err: Error) => {
+        if (!cancelled) {
+          setError(err.message);
+        }
+      });
     // 互动状态（未登录也返回收藏数）
     apiPostState(postId)
       .then((state) => {
+        if (cancelled) {
+          return;
+        }
         setLiked(state.liked);
         setFavorited(state.favorited);
         setFavoriteCount(state.favorite_count);
@@ -88,6 +104,22 @@ export default function PostDetailPage() {
       .catch(() => {
         // 状态拉取失败不阻塞页面
       });
+    return () => {
+      cancelled = true;
+      // 复原 SEO 输出（标题 + robots meta，防切换/返回后残留）
+      document.title = previousTitle;
+      if (previousRobots === null) {
+        document.querySelector('meta[name="robots"]')?.remove();
+      } else {
+        let meta = document.querySelector('meta[name="robots"]');
+        if (!meta) {
+          meta = document.createElement("meta");
+          meta.setAttribute("name", "robots");
+          document.head.appendChild(meta);
+        }
+        meta.setAttribute("content", previousRobots);
+      }
+    };
   }, [postId, user?.id]); // user 恢复后重载（is_author 纠偏）
 
   // 点赞/取消（未登录提示登录）

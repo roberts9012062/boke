@@ -73,9 +73,12 @@ async function request<T>(path: string, options: RequestOptions = {}, retried = 
   // 拼接 API 前缀（相对路径，由 Next 代理转发）
   const url = path.startsWith("/api/") ? path : `/api/v1${path}`;
 
+  // FormData 上传不设 Content-Type（由浏览器自动携带 boundary；手动设置会导致后端解析失败）
+  const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
+
   // 统一请求头：JSON 内容 + Bearer 凭证
   const headers: Record<string, string> = {
-    "Content-Type": "application/json",
+    ...(isFormData ? {} : { "Content-Type": "application/json" }),
     ...(options.headers as Record<string, string> | undefined),
   };
   const accessToken = tokenProvider?.getAccessToken() ?? "";
@@ -193,6 +196,11 @@ export function apiChangePassword(currentPassword: string, newPassword: string):
   return put<void>("/me/password", { current_password: currentPassword, new_password: newPassword });
 }
 
+// 注销账号（需求 3.9：永久删除用户与全部数据，不可恢复；成功后前端登出清会话）。
+export function apiDeactivateAccount(): Promise<void> {
+  return post<void>("/me/deactivate", {});
+}
+
 // ---------- 帖子方法（M1.3） ----------
 
 // 时间线列表（type 过滤：全部/图/音/影；分页）。
@@ -244,22 +252,11 @@ export function apiDeletePost(postId: number): Promise<void> {
 // ---------- 媒体方法（M1.3） ----------
 
 // 上传媒体（multipart；file 为选中的文件对象）。
-export async function apiUploadMedia(file: File): Promise<UploadResult> {
+// 走统一 request：401 时自动静默刷新重试（历史修复：独立 fetch 无刷新能力，token 过期即上传失败）。
+export function apiUploadMedia(file: File): Promise<UploadResult> {
   const form = new FormData();
   form.append("file", file);
-  const url = "/api/v1/media";
-  // 携带 Bearer 凭证（与 request 一致，但上传不能设 Content-Type 头）
-  const headers: Record<string, string> = {};
-  const accessToken = tokenProvider?.getAccessToken() ?? "";
-  if (accessToken) {
-    headers.Authorization = `Bearer ${accessToken}`;
-  }
-  const response = await fetch(url, { method: "POST", headers, body: form });
-  const body = (await response.json()) as ApiResponse<UploadResult>;
-  if (body.code === 0) {
-    return body.data;
-  }
-  throw new ApiError(body.code, body.message);
+  return request<UploadResult>("/api/v1/media", { method: "POST", body: form });
 }
 
 // ---------- 评论方法（M1.4） ----------

@@ -125,28 +125,23 @@ export default function TopicDetailPage() {
           </section>
         )}
 
-        {/* 排序 Tab（设计稿：最新/热门/精华；精华 M2 置灰） */}
+        {/* 排序 Tab（设计稿：最新/热门/精华；精华需后端加精标记，后置——不展示无功能的置灰 Tab） */}
         <div className="mt-5 flex gap-2 border-b border-line pb-3">
           {[
             { key: "latest", label: "最新" },
             { key: "hot", label: "热门" },
-            { key: "essence", label: "精华", disabled: true },
           ].map((t) => (
             <button
               key={t.key}
               type="button"
-              disabled={t.disabled}
               onClick={() => setSort(t.key)}
               className={`rounded-full px-4 py-1.5 text-sm transition-colors ${
-                t.disabled
-                  ? "cursor-not-allowed text-ink-3/60"
-                  : sort === t.key
-                    ? "bg-accent-soft font-medium text-glow"
-                    : "bg-muted text-ink-2 hover:text-ink"
+                sort === t.key
+                  ? "bg-accent-soft font-medium text-glow"
+                  : "bg-muted text-ink-2 hover:text-ink"
               }`}
             >
               {t.label}
-              {t.disabled && <span className="ml-1 text-[10px]">M2</span>}
             </button>
           ))}
         </div>

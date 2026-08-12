@@ -198,6 +198,50 @@ func (r *UserRepo) SetRoleByID(ctx context.Context, id int64, role string) error
 	return err
 }
 
+// CountByRole 统计指定角色且状态正常的用户数（最后一名超级管理员保护用）。
+func (r *UserRepo) CountByRole(ctx context.Context, role string) (int64, error) {
+	var count int64
+	err := r.pool.QueryRow(ctx,
+		`SELECT count(*) FROM users WHERE role = $1 AND status = 'active'`, role).Scan(&count)
+	return count, err
+}
+
+// DeleteCascade 注销账号：删除用户行（帖子/评论/关注/私信/通知/媒体记录等
+// 经外键 ON DELETE CASCADE 级联清理；audit_logs 无外键，操作历史保留）。
+// 返回：该用户上传媒体的 storage_key 列表（供上层删除物理文件，防磁盘孤儿文件）。
+func (r *UserRepo) DeleteCascade(ctx context.Context, id int64) ([]string, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// 收集该用户上传的媒体存储键（用户删除后 media_assets 行级联消失，物理文件需单独清理）
+	rows, err := tx.Query(ctx, `SELECT storage_key FROM media_assets WHERE owner_id = $1`, id)
+	if err != nil {
+		return nil, err
+	}
+	keys := make([]string, 0)
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		keys = append(keys, key)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// 删除用户行（外键级联）
+	if _, err := tx.Exec(ctx, `DELETE FROM users WHERE id = $1`, id); err != nil {
+		return nil, err
+	}
+	return keys, tx.Commit(ctx)
+}
+
 // CountPosts 统计用户帖子数（主页统计用）。
 func (r *UserRepo) CountPosts(ctx context.Context, userID int64) (int64, error) {
 	var count int64

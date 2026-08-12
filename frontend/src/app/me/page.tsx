@@ -141,7 +141,7 @@ export default function MyPage() {
               ›
             </span>
           </Link>
-          {/* 消息中心（设计稿 M/冷月/我的；M2 私信启用，当前占位） */}
+          {/* 消息中心（设计稿 M/冷月/我的；M2 私信已启用） */}
           <Link
             href="/messages"
             className="flex items-center justify-between border-b border-line px-4 py-3.5 text-sm text-ink transition-colors hover:bg-muted"

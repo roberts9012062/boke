@@ -66,15 +66,20 @@ export default function NotificationsPage() {
 
   // 全部已读
   const handleMarkAll = async () => {
-    await apiMarkAllRead();
-    setUnread(0);
-    setItems((prev) => prev.map((n) => ({ ...n, read: true })));
+    try {
+      await apiMarkAllRead();
+      setUnread(0);
+      setItems((prev) => prev.map((n) => ({ ...n, read: true })));
+    } catch {
+      // 失败静默：保留未读状态可重试（此前无捕获产生 unhandled rejection）
+    }
   };
 
   // 点击通知：跳转 + 标记已读
   const handleClick = async (n: NotificationDTO) => {
     if (!n.read) {
-      void apiMarkRead(n.id);
+      // 单条已读失败静默（本地乐观更新；刷新后由后端状态覆盖）
+      void apiMarkRead(n.id).catch(() => {});
       setUnread((u) => Math.max(u - 1, 0));
       setItems((prev) => prev.map((x) => (x.id === n.id ? { ...x, read: true } : x)));
     }

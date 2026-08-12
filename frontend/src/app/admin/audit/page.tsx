@@ -41,6 +41,8 @@ export default function AuditPage() {
   // 删除确认弹窗（取代 window.confirm——设计稿「确认弹窗」风格）
   const [confirmItem, setConfirmItem] = useState<ReportDTO | null>(null);
   const [deleting, setDeleting] = useState<boolean>(false);
+  // 操作失败提示（解决/驳回/放行/删除接口异常时展示，状态不回滚）
+  const [actionError, setActionError] = useState<string>("");
 
   // 加载统计（待处理全量 + 今日已审 + 高风险）
   const loadStats = () => {
@@ -72,10 +74,16 @@ export default function AuditPage() {
 
   // 处理工单（解决/驳回；处理后刷新统计条，保证「待处理」联动）
   const handleStatus = async (report: ReportDTO, status: string) => {
-    await apiAdminSetReportStatus(report.id, status);
-    // 本地更新状态
-    setItems((prev) => prev.map((x) => (x.id === report.id ? { ...x, status } : x)));
-    loadStats();
+    setActionError("");
+    try {
+      await apiAdminSetReportStatus(report.id, status);
+      // 本地更新状态
+      setItems((prev) => prev.map((x) => (x.id === report.id ? { ...x, status } : x)));
+      loadStats();
+    } catch (err) {
+      // 失败提示且不更新本地状态（此前无捕获：unhandled rejection + 状态静默不回滚）
+      setActionError(err instanceof Error ? err.message : "操作失败，请重试");
+    }
   };
 
   // 复核 AI 工单（放行/删除；M4：仅 AI 来源工单显示此操作）
@@ -84,9 +92,14 @@ export default function AuditPage() {
       setConfirmItem(report); // 删除需二次确认（设计稿「确认弹窗」风格）
       return;
     }
-    await apiAdminVerdictReport(report.id, action);
-    setItems((prev) => prev.map((x) => (x.id === report.id ? { ...x, status: "resolved" } : x)));
-    loadStats();
+    setActionError("");
+    try {
+      await apiAdminVerdictReport(report.id, action);
+      setItems((prev) => prev.map((x) => (x.id === report.id ? { ...x, status: "resolved" } : x)));
+      loadStats();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "操作失败，请重试");
+    }
   };
 
   // 确认删除（弹窗确认后执行）
@@ -98,7 +111,8 @@ export default function AuditPage() {
       setItems((prev) => prev.map((x) => (x.id === confirmItem.id ? { ...x, status: "resolved" } : x)));
       loadStats();
       setConfirmItem(null);
-    } catch {
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "删除失败，请重试");
       setConfirmItem(null);
     } finally {
       setDeleting(false);
@@ -128,6 +142,13 @@ export default function AuditPage() {
           </div>
         ))}
       </div>
+
+      {/* 操作失败提示（解决/驳回/放行/删除异常时展示） */}
+      {actionError && (
+        <p className="mt-3 rounded-md bg-like/10 px-3 py-2 text-sm text-like" role="alert">
+          {actionError}
+        </p>
+      )}
 
       {/* 状态筛选 Tab */}
       <div className="mt-4 flex gap-2">

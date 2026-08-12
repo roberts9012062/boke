@@ -4,7 +4,7 @@
 // + 恢复默认 / 保存外观；更改即时生效（lib/appearance.tsx + theme.tsx）。
 "use client";
 
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useState } from "react";
 
 import { DesktopNav } from "@/components/desktop-nav";
@@ -43,7 +43,6 @@ const TOGGLE_OPTIONS: readonly { key: "reduceMotion" | "highContrast" | "autopla
 
 // ThemeSettingsPage 外观设置页（未登录也可切换，需求 3.11 + 设计稿设置页）。
 export default function ThemeSettingsPage() {
-  const router = useRouter();
   const { mode, setMode } = useTheme();
   const { settings, update, reset } = useAppearance();
   const [savedTip, setSavedTip] = useStateTip();
@@ -52,37 +51,28 @@ export default function ThemeSettingsPage() {
     <div className="flex min-h-screen flex-col">
       <DesktopNav />
       <main className="mx-auto w-full max-w-[640px] flex-1 px-4 py-6 pb-20">
-        {/* 顶部 Tab（设计稿设置页：资料/隐私/通知/外观/安全） */}
+        {/* 顶部 Tab（设计稿设置页：资料/隐私/通知/外观/安全；M 后置修复：
+            五页均已上线，由原先「M2 上线」灰按钮改为真实链接） */}
         <div className="flex gap-2">
           {[
             { key: "profile", label: "资料", href: "/settings/profile" },
-            { key: "privacy", label: "隐私" },
-            { key: "notify", label: "通知" },
-            { key: "appearance", label: "外观", active: true },
-            { key: "security", label: "安全" },
-          ].map((t) =>
-            t.href ? (
-              <button
-                key={t.key}
-                type="button"
-                onClick={() => router.push(t.href as string)}
-                className={`rounded-full px-4 py-1.5 text-sm transition-colors ${
-                  t.active ? "bg-accent-soft font-medium text-glow" : "text-ink-3/60"
-                }`}
-              >
-                {t.label}
-              </button>
-            ) : (
-              <button
-                key={t.key}
-                type="button"
-                className="cursor-not-allowed rounded-full px-4 py-1.5 text-sm text-ink-3/60"
-                title="M2 上线"
-              >
-                {t.label}
-              </button>
-            ),
-          )}
+            { key: "privacy", label: "隐私", href: "/settings/privacy" },
+            { key: "notify", label: "通知", href: "/settings/notifications" },
+            { key: "appearance", label: "外观", href: "/settings/theme", active: true },
+            { key: "security", label: "安全", href: "/settings/security" },
+          ].map((t) => (
+            <Link
+              key={t.key}
+              href={t.href}
+              className={`rounded-full px-4 py-1.5 text-sm transition-colors ${
+                t.active
+                  ? "bg-accent-soft font-medium text-glow"
+                  : "text-ink-3/60 hover:text-ink"
+              }`}
+            >
+              {t.label}
+            </Link>
+          ))}
         </div>
 
         <h1 className="mt-4 font-display text-xl font-semibold text-ink">外观</h1>
