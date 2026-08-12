@@ -907,6 +907,8 @@ export interface SeoMeta {
   canonical_url: string;
   og_image: string;
   summary: string;
+  url_alias: string; // URL 别名（/p/{alias} 短链，M4.1）
+  robots: string; // 收录策略（index,follow 等，M4.1）
 }
 
 // 健康问题项。

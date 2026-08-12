@@ -58,8 +58,30 @@ func (s *SeoService) SaveMeta(ctx context.Context, postID int64, req repository.
 	if len([]rune(req.Title)) > 300 || len([]rune(req.Description)) > 500 {
 		return errs.New(errs.CodeBadRequest, "SEO 标题或描述超长")
 	}
+	// URL 别名校验（M4.1：/p/{alias} 短链；小写字母数字连字符，≤64 字符）
+	if req.URLAlias != "" && !urlAliasValid(req.URLAlias) {
+		return errs.New(errs.CodeBadRequest, "URL 别名仅支持小写字母、数字与连字符（≤64 字符）")
+	}
 	req.PostID = postID
 	return s.seo.UpsertMeta(ctx, req)
+}
+
+// urlAliasValid 校验 URL 别名格式（小写字母数字连字符，1-64 字符）。
+func urlAliasValid(alias string) bool {
+	if len(alias) == 0 || len(alias) > 64 {
+		return false
+	}
+	for _, r := range alias {
+		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-') {
+			return false
+		}
+	}
+	return true
+}
+
+// ResolveAlias 按 URL 别名解析帖子 ID（/p/{alias} 短链；不存在返回 0）。
+func (s *SeoService) ResolveAlias(ctx context.Context, alias string) (int64, error) {
+	return s.seo.FindByAlias(ctx, alias)
 }
 
 // ---------- 健康度扫描 / 批量修复 ----------

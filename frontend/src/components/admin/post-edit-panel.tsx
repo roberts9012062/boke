@@ -39,6 +39,8 @@ export function PostEditPanel({
   const [seoKeywords, setSeoKeywords] = useState<string>("");
   const [seoOgImage, setSeoOgImage] = useState<string>("");
   const [seoSummary, setSeoSummary] = useState<string>(""); // AI 摘要（M4：seo_meta.summary）
+  const [seoAlias, setSeoAlias] = useState<string>(""); // URL 别名（/p/{alias} 短链，M4.1）
+  const [seoRobots, setSeoRobots] = useState<string>(""); // 收录策略（index,follow 等，M4.1）
   const [seoLoaded, setSeoLoaded] = useState<boolean>(false);
   const [seoSaved, setSeoSaved] = useState<boolean>(false);
   const [seoError, setSeoError] = useState<string>("");
@@ -55,12 +57,14 @@ export function PostEditPanel({
         setSeoKeywords(meta.keywords);
         setSeoOgImage(meta.og_image);
         setSeoSummary(meta.summary);
+        setSeoAlias(meta.url_alias);
+        setSeoRobots(meta.robots);
       })
       .catch(() => undefined)
       .finally(() => setSeoLoaded(true));
   }, [detail.id]);
 
-  // 保存 SEO 元数据
+  // 保存 SEO 元数据（M4.1：+URL 别名 / 收录策略，对齐画板《单帖SEO面板》）
   const saveSeo = async () => {
     setSeoError("");
     setSeoSaved(false);
@@ -70,6 +74,8 @@ export function PostEditPanel({
         description: seoDesc,
         keywords: seoKeywords,
         og_image: seoOgImage,
+        url_alias: seoAlias,
+        robots: seoRobots,
       });
       setSeoSaved(true);
     } catch (err) {
@@ -224,6 +230,37 @@ export function PostEditPanel({
               placeholder="/media/202608/xxx.jpg"
               className="h-9 w-full rounded-lg border border-line bg-muted px-3 text-xs text-ink placeholder:text-ink-3 focus:border-accent focus:outline-none"
             />
+          </div>
+          {/* URL 别名 / 收录策略（M4.1 对齐画板《单帖SEO面板》） */}
+          <div>
+            <label htmlFor="seo-alias" className="mb-1 block text-xs text-ink-3">
+              URL 别名（/p/ 短链）
+            </label>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-ink-3">/p/</span>
+              <input
+                id="seo-alias"
+                type="text"
+                value={seoAlias}
+                onChange={(e) => setSeoAlias(e.target.value)}
+                placeholder="silver-window（小写字母/数字/连字符）"
+                className="h-9 w-full rounded-lg border border-line bg-muted px-3 text-xs text-ink placeholder:text-ink-3 focus:border-accent focus:outline-none"
+              />
+            </div>
+          </div>
+          <div>
+            <label htmlFor="seo-robots" className="mb-1 block text-xs text-ink-3">
+              允许收录
+            </label>
+            <select
+              id="seo-robots"
+              value={seoRobots || "index, follow"}
+              onChange={(e) => setSeoRobots(e.target.value)}
+              className="h-9 w-full rounded-lg border border-line bg-muted px-3 text-xs text-ink focus:border-accent focus:outline-none"
+            >
+              <option value="index, follow">开启（index, follow）</option>
+              <option value="noindex, nofollow">关闭（noindex, nofollow）</option>
+            </select>
           </div>
           {/* AI 摘要（M4：生成后写入 seo_meta.summary） */}
           <AiSummary postId={detail.id} initial={seoSummary} />

@@ -14,7 +14,9 @@ import { ImageUploader } from "@/components/compose/image-uploader";
 import { VideoUploader } from "@/components/compose/video-uploader";
 import { DesktopNav } from "@/components/desktop-nav";
 import { MobileTabbar } from "@/components/mobile-tabbar";
+import PluginSlot from "@/components/plugin-slot";
 import { apiCreatePost, apiPostDetail, apiUpdatePost, ApiError } from "@/lib/api";
+import type { PostSeoInput } from "@/types/api";
 import { useAuth } from "@/lib/auth";
 import type { MediaDTO, PostContentType } from "@/types/api";
 
@@ -52,6 +54,8 @@ function ComposeContent() {
   const [video, setVideo] = useState<MediaDTO | null>(null); // M2：视频发帖
   const [error, setError] = useState<string>("");
   const [submitting, setSubmitting] = useState<"draft" | "published" | "edit" | null>(null);
+  // SEO 输入（M4.1 插件通道：SEO 面板经 props.onChange 回写；随发帖/编辑提交）
+  const [seo, setSeo] = useState<PostSeoInput | null>(null);
 
   // 编辑模式：加载帖子详情填充表单（草稿继续编辑与编辑已发布共用）
   useEffect(() => {
@@ -72,6 +76,15 @@ function ComposeContent() {
           setAudio(medias[0] ?? null);
         } else if (d.content_type === "video") {
           setVideo(medias[0] ?? null);
+        }
+        // SEO 回填（编辑已发布帖子：SEO 面板初始值）
+        if (d.seo) {
+          setSeo({
+            seo_title: d.seo.title,
+            seo_description: d.seo.description,
+            url_alias: d.seo.url_alias,
+            robots: d.seo.robots,
+          });
         }
       })
       .catch((err) => setError(err instanceof ApiError ? err.message : "加载失败，无法编辑"));
@@ -118,6 +131,15 @@ function ComposeContent() {
     }
     setSubmitting(status);
     try {
+      // SEO 输入（M4.1 插件通道：SEO 面板提交；无内容时省略）
+      const seoPayload = seo
+        ? {
+            seo_title: seo.seo_title,
+            seo_description: seo.seo_description,
+            url_alias: seo.url_alias,
+            robots: seo.robots,
+          }
+        : undefined;
       if (editing) {
         // 编辑模式：更新帖子（类型不可变，后端 UpdatePostReq 不支持 content_type）
         await apiUpdatePost(editId, {
@@ -125,6 +147,7 @@ function ComposeContent() {
           tags,
           media_ids: collectMediaIds(contentType, images, audio, video),
           visibility,
+          ...(seoPayload ? { seo: seoPayload } : {}),
         });
         router.push(`/posts/${editId}`);
       } else {
@@ -137,6 +160,7 @@ function ComposeContent() {
           media_ids: collectMediaIds(contentType, images, audio, video),
           visibility,
           status: createStatus,
+          ...(seoPayload ? { seo: seoPayload } : {}),
         });
         // 发布成功 → 发布成功页；草稿 → 草稿箱提示回首页
         if (createStatus === "published") {
@@ -312,6 +336,10 @@ function ComposeContent() {
             </div>
           )}
         </div>
+
+        {/* 插件扩展点：compose.seo（M4.1 发帖 SEO 面板——由 seo-optimizer 插件渲染；
+            无插件时槽位为空，发帖界面保持原样；卸载后自动还原） */}
+        <PluginSlot slot="compose.seo" props={{ initial: seo, onChange: setSeo }} />
 
         {/* 错误提示 */}
         {error && (

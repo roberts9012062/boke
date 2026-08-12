@@ -137,6 +137,16 @@ func (h *SeoHandler) Sitemap(c *gin.Context) {
 	c.String(200, xml)
 }
 
+// ResolveAlias URL 别名短链（GET /p/:alias，公开）→ 302 到 /posts/{id}。
+func (h *SeoHandler) ResolveAlias(c *gin.Context) {
+	postID, err := h.seo.ResolveAlias(c.Request.Context(), c.Param("alias"))
+	if err != nil || postID <= 0 {
+		c.Redirect(302, "/") // 别名不存在：回首页（避免暴露内部信息）
+		return
+	}
+	c.Redirect(302, "/posts/"+strconv.FormatInt(postID, 10))
+}
+
 // Robots robots.txt（GET /robots.txt，公开）。
 func (h *SeoHandler) Robots(c *gin.Context) {
 	text, err := h.seo.RobotsTxt(c.Request.Context())

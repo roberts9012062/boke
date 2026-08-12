@@ -60,13 +60,17 @@ func (r *PluginRepo) Exists(ctx context.Context, pluginID string) (bool, error) 
 // FindByID 按实例 ID 查询（生命周期联动：启用/禁用/卸载前取插件 ID）。
 func (r *PluginRepo) FindByID(ctx context.Context, id int64) (PluginInstance, error) {
 	var inst PluginInstance
+	var pubkey *string // 免费插件无公钥：pubkey_pem 为 NULL（pgx 扫 **string 得 nil）
 	err := r.pool.QueryRow(ctx, `
 		SELECT id, plugin_id, name, version, repo_url, state, pubkey_pem, last_error, created_at
 		FROM plugin_instances WHERE id = $1`, id).Scan(
 		&inst.ID, &inst.PluginID, &inst.Name, &inst.Version,
-		&inst.RepoURL, &inst.State, &inst.Pubkey, &inst.LastError, &inst.CreatedAt)
+		&inst.RepoURL, &inst.State, &pubkey, &inst.LastError, &inst.CreatedAt)
 	if err != nil {
 		return PluginInstance{}, wrapNotFound(err)
+	}
+	if pubkey != nil {
+		inst.Pubkey = *pubkey
 	}
 	return inst, nil
 }
@@ -75,13 +79,17 @@ func (r *PluginRepo) FindByID(ctx context.Context, id int64) (PluginInstance, er
 // 返回：记录；不存在返回 ErrNotFound。
 func (r *PluginRepo) FindByPluginID(ctx context.Context, pluginID string) (PluginInstance, error) {
 	var inst PluginInstance
+	var pubkey *string // 免费插件无公钥：pubkey_pem 为 NULL
 	err := r.pool.QueryRow(ctx, `
 		SELECT id, plugin_id, name, version, repo_url, state, pubkey_pem, last_error, created_at
 		FROM plugin_instances WHERE plugin_id = $1`, pluginID).Scan(
 		&inst.ID, &inst.PluginID, &inst.Name, &inst.Version,
-		&inst.RepoURL, &inst.State, &inst.Pubkey, &inst.LastError, &inst.CreatedAt)
+		&inst.RepoURL, &inst.State, &pubkey, &inst.LastError, &inst.CreatedAt)
 	if err != nil {
 		return PluginInstance{}, wrapNotFound(err)
+	}
+	if pubkey != nil {
+		inst.Pubkey = *pubkey
 	}
 	return inst, nil
 }

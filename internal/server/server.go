@@ -197,7 +197,7 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 	moderationSvc := service.NewModerationService(reportRepo, sensitiveRepo, banRepo, userRepo, postRepo, commentRepo)
 	// 启动时加载敏感词表（后台变更后自动刷新）
 	_ = moderationSvc.ReloadForbidden(ctx)
-	postSvc := service.NewPostService(postRepo, tagRepo, mediaRepo, userRepo, mediaStore, moderationSvc, relationRepo, hookDispatcher)
+	postSvc := service.NewPostService(postRepo, tagRepo, mediaRepo, userRepo, mediaStore, moderationSvc, relationRepo, hookDispatcher, seoRepo)
 	notifySvc := service.NewNotificationService(notificationRepo, userRepo, hookDispatcher)
 	// AI 服务（M4：供应商/任务/用量 + 三内置场景；先建供评论预审注入）
 	aiSvc := service.NewAiService(aiProviderRepo, aiTaskRepo, aiUsageRepo, seoRepo, postRepo, commentRepo, reportRepo, cfg.AIKeySecret, hookDispatcher)

@@ -172,6 +172,7 @@ export interface PostDetail extends PostSummary {
   content: string; // 完整正文
   is_author: boolean; // 是否作者本人
   can_view: boolean; // 是否有权查看
+  seo?: PostSeoOutput; // SEO 输出（M4.1 插件通道：robots 收录策略等）
 }
 
 // 发帖/存草稿请求
@@ -183,6 +184,23 @@ export interface CreatePostReq {
   media_ids: number[]; // 媒体 ID
   visibility: "public" | "followers" | "private"; // 可见性（followers=仅关注者 M2）
   status: "draft" | "published"; // draft 草稿 / published 发布
+  seo?: PostSeoInput; // SEO 输入（M4.1 插件通道：发帖 SEO 面板提交）
+}
+
+// PostSeoInput 发帖/编辑时 SEO 输入（插件面板渲染，值随请求提交）。
+export interface PostSeoInput {
+  seo_title: string; // SEO 标题（默认用正文摘要）
+  seo_description: string; // SEO 描述
+  url_alias: string; // URL 别名（/p/{alias} 短链）
+  robots: string; // 收录策略（index,follow 等；空=跟随全局）
+}
+
+// PostSeoOutput 详情页 SEO 输出（robots 收录策略/自定义标题描述）。
+export interface PostSeoOutput {
+  title: string; // SEO 标题（空=用默认）
+  description: string; // SEO 描述
+  url_alias: string; // URL 别名（编辑回填）
+  robots: string; // 收录策略
 }
 
 // 媒体上传结果

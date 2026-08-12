@@ -110,8 +110,11 @@ export default function PluginSlot({
       cancelled = true;
       cleanups.forEach((fn) => fn());
     };
+    // 注意：props 为挂载时快照（不含在依赖中）——插件经 props.onChange 类回调回写状态，
+    // 若 props 变化触发重挂载会导致插件表单输入失焦/重置（M4.1 约定：回调键以 on 开头，
+    // 值变化不重挂载；现有使用点 props 均为静态数据，行为不变）
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slot, user, JSON.stringify(props ?? null)]);
+  }, [slot, user]);
 
   return (
     <div data-plugin-slot={slot}>

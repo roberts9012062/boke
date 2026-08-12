@@ -223,11 +223,11 @@ def assert_true(cond, msg):
         print(f"[FAIL] {msg}")
 
 
-def installed_item(token):
-    """我的插件中 demo-plugin 实例（不存在返回 None）。"""
+def installed_item(token, plugin_id="demo-plugin"):
+    """我的插件中指定插件实例（不存在返回 None）。"""
     r = call("GET", "/admin/plugins", token=token)
     for inst in (r.get("data") or {}).get("items", []):
-        if inst["plugin_id"] == "demo-plugin":
+        if inst["plugin_id"] == plugin_id:
             return inst
     return None
 
@@ -329,6 +329,57 @@ def main():
     # 幂等：重复支付直接返回已签发
     r = call("POST", f"/admin/plugin-orders/{order_id}/pay", token=token)
     assert_true((r.get("data") or {}).get("state") == "paid", "支付幂等：重复支付直接返回已签发")
+
+    # ---------- 2.8 SEO 插件链路（M4.1：seo-optimizer 发帖 SEO 面板通道——主进程落库/短链） ----------
+    seo_bpk = os.path.join(ROOT, "dist", "seo-optimizer-1.2.0-windows-amd64.bpk")
+    if os.path.exists(seo_bpk):
+        # 安装 seo-optimizer（免费插件无公钥——覆盖 NULL pubkey 兼容；预置已装则先卸载）
+        if installed_item(token, "seo-optimizer"):
+            call("DELETE", f"/admin/plugins/{installed_item(token, 'seo-optimizer')['id']}", token=token)
+        r = upload_bpk(token, seo_bpk)
+        assert_true(r.get("code") == 0, f"SEO 插件上传安装（code={r.get('code')}）")
+        seo_inst = installed_item(token, "seo-optimizer")
+        assert_true(seo_inst and seo_inst["state"] == "running", "SEO 插件安装后 running（免费插件无公钥兼容）")
+        # 发帖带 SEO 字段 → seo_meta 落库（标题/别名）
+        # 发帖带 SEO 字段 → seo_meta 落库（标题/别名；alias 时间戳唯一化防跨轮冲突）
+        seo_alias = "seo-smoke-" + str(int(time.time()))
+        r = call("POST", "/posts", {
+            "content_type": "text", "content": "SEO 插件链路冒烟验证",
+            "visibility": "public", "status": "published",
+            "seo": {"seo_title": "SEO 冒烟标题", "seo_description": "SEO 冒烟描述",
+                    "url_alias": seo_alias, "robots": "index, follow"},
+        }, token=token)
+        seo_post_id = (r.get("data") or {}).get("id")
+        assert_true(seo_post_id and seo_post_id > 0, "发帖带 SEO 字段成功")
+        # 短链 /p/{alias} → 302 到 /posts/{id}（禁用重定向跟随——/posts 是前端路由，
+        # 后端跟随会 404；NoRedirect 下 302 作为 HTTPError 抛出，从 e 取状态与 Location）
+        import urllib.request as _ur
+
+        class _NoRedirect(_ur.HTTPRedirectHandler):
+            def redirect_request(self, *args, **kwargs):
+                return None  # 不跟随：302 由 http_error_default 抛为 HTTPError
+
+        _opener = _ur.build_opener(_NoRedirect)
+        try:
+            alias_resp = _opener.open(f"http://localhost:8080/p/{seo_alias}", timeout=10)
+        except _ur.HTTPError as e:
+            alias_resp = e  # 302 重定向在此抛出（未跟随）
+        location = alias_resp.headers.get("Location", "")
+        alias_ok = alias_resp.code == 302 and f"/posts/{seo_post_id}" in location
+        alias_resp.close()
+        assert_true(alias_ok, f"URL 别名短链 /p/{seo_alias} → 302 /posts/{seo_post_id}（实际 {alias_resp.code} {location}）")
+        # 详情返回 SEO（标题/别名/收录）
+        body = call("GET", f"/posts/{seo_post_id}", token=token, raw=True)
+        detail = json.loads(body)
+        seo_out = (detail.get("data") or {}).get("seo") or {}
+        assert_true(seo_out.get("title") == "SEO 冒烟标题" and seo_out.get("url_alias") == seo_alias
+                    and seo_out.get("robots") == "index, follow",
+                    f"详情 SEO 输出（标题/别名/收录；实际 {seo_out}）")
+        # 卸载还原（compose 面板由插件渲染——卸载后插件扩展消失；后端通道闲置）
+        call("DELETE", f"/admin/plugins/{seo_inst['id']}", token=token)
+        assert_true(installed_item(token, "seo-optimizer") is None, "SEO 插件卸载（软删标记）")
+    else:
+        print("[跳过] SEO 插件 bpk 不存在（未构建）")
 
     # ---------- 2.6 一键升级（插件后置：上传 0.2.0 包 ?upgrade=1 → 版本替换 + 进程重启） ----------
     bpk_020 = os.path.join(ROOT, "dist", "demo-plugin-0.2.0-windows-amd64.bpk")

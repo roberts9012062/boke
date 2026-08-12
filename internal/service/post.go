@@ -44,6 +44,7 @@ type PostService struct {
 	moderation *ModerationService       // 内容治理（M2：敏感词拦截）
 	relations  *repository.RelationRepo // 用户关系（M2：仅关注者帖互关判断）
 	hooks      plugin.Dispatcher        // 插件钩子调度器（M3.2 扩展框架）
+	seo        *repository.SeoRepo      // SEO 元数据（M4.1 插件通道：发帖/编辑落库）
 }
 
 // NewPostService 创建帖子服务。
@@ -56,8 +57,9 @@ func NewPostService(
 	moderation *ModerationService,
 	relations *repository.RelationRepo,
 	hooks plugin.Dispatcher,
+	seo *repository.SeoRepo,
 ) *PostService {
-	return &PostService{posts: posts, tags: tags, medias: medias, users: users, store: store, moderation: moderation, relations: relations, hooks: hooks}
+	return &PostService{posts: posts, tags: tags, medias: medias, users: users, store: store, moderation: moderation, relations: relations, hooks: hooks, seo: seo}
 }
 
 // ---------- 发帖 / 草稿 ----------
@@ -114,6 +116,16 @@ func (s *PostService) Create(ctx context.Context, userID int64, req model.Create
 	postID, err := s.posts.Create(ctx, post)
 	if err != nil {
 		return 0, fmt.Errorf("创建帖子失败：%w", err)
+	}
+
+	// ---------- SEO 元数据（M4.1 插件通道：发帖 SEO 面板提交；别名冲突返回友好错误） ----------
+	if req.Seo != nil && s.seo != nil {
+		if err := s.seo.UpsertMeta(ctx, repository.SeoMeta{
+			PostID: postID, Title: req.Seo.SEOTitle, Description: req.Seo.SEODescription,
+			URLAlias: req.Seo.URLAlias, Robots: req.Seo.Robots,
+		}); err != nil {
+			return 0, errs.New(errs.CodeConflict, err.Error())
+		}
 	}
 
 	// ---------- 处理标签（查/建/关联/计数） ----------
@@ -179,6 +191,16 @@ func (s *PostService) Update(ctx context.Context, userID int64, postID int64, re
 	if req.Tags != nil {
 		if err := s.syncTags(ctx, postID, req.Tags); err != nil {
 			return err
+		}
+	}
+
+	// ---------- SEO 元数据（M4.1 插件通道：编辑 SEO 面板提交；别名冲突返回友好错误） ----------
+	if req.Seo != nil && s.seo != nil {
+		if err := s.seo.UpsertMeta(ctx, repository.SeoMeta{
+			PostID: postID, Title: req.Seo.SEOTitle, Description: req.Seo.SEODescription,
+			URLAlias: req.Seo.URLAlias, Robots: req.Seo.Robots,
+		}); err != nil {
+			return errs.New(errs.CodeConflict, err.Error())
 		}
 	}
 	return nil
@@ -324,6 +346,16 @@ func (s *PostService) GetDetail(ctx context.Context, postID int64, viewerID int6
 	}
 	if err := s.fillMedia(ctx, &detail.PostSummary, post.MediaIDs); err != nil {
 		return nil, err
+	}
+
+	// SEO 输出（M4.1 插件通道：详情页 robots 收录策略/自定义标题描述；查询失败静默）
+	if s.seo != nil {
+		if meta, err := s.seo.GetMeta(ctx, post.ID); err == nil {
+			detail.Seo = &model.PostSeoOutput{
+				Title: meta.Title, Description: meta.Description,
+				URLAlias: meta.URLAlias, Robots: meta.Robots,
+			}
+		}
 	}
 	return detail, nil
 }

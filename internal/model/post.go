@@ -52,24 +52,35 @@ type Post struct {
 
 // ---------- DTO ----------
 
+// PostSeoInput 发帖/编辑时的 SEO 输入（M4.1 插件通道：前台发帖 SEO 面板由插件渲染，
+// 值随请求提交，主进程写入 seo_meta；无插件时字段为空不落库）。
+type PostSeoInput struct {
+	SEOTitle       string `json:"seo_title"`       // SEO 标题（默认用正文摘要）
+	SEODescription string `json:"seo_description"` // SEO 描述
+	URLAlias       string `json:"url_alias"`       // URL 别名（/p/{alias} 短链）
+	Robots         string `json:"robots"`          // 收录策略（index,follow 等；空=跟随全局）
+}
+
 // CreatePostReq 发帖/存草稿请求（需求 3.4）。
 type CreatePostReq struct {
-	ContentType string   `json:"content_type"` // 内容类型：text/image/audio（video M2 置灰）
-	Title       string   `json:"title"`        // 标题（可选）
-	Content     string   `json:"content"`      // 正文（≤2000 字）
-	Tags        []string `json:"tags"`         // 标签（≤5 个，每个 ≤20 字符）
-	MediaIDs    []int64  `json:"media_ids"`    // 关联媒体 ID（图片多张有序/音频一张）
-	Visibility  string   `json:"visibility"`   // 可见性：public/private
-	Status      string   `json:"status"`       // draft=存草稿 / published=发布
+	ContentType string        `json:"content_type"` // 内容类型：text/image/audio（video M2 置灰）
+	Title       string        `json:"title"`        // 标题（可选）
+	Content     string        `json:"content"`      // 正文（≤2000 字）
+	Tags        []string      `json:"tags"`         // 标签（≤5 个，每个 ≤20 字符）
+	MediaIDs    []int64       `json:"media_ids"`    // 关联媒体 ID（图片多张有序/音频一张）
+	Visibility  string        `json:"visibility"`   // 可见性：public/private
+	Status      string        `json:"status"`       // draft=存草稿 / published=发布
+	Seo         *PostSeoInput `json:"seo,omitempty"` // SEO 输入（插件面板提交；nil=不写 seo_meta）
 }
 
 // UpdatePostReq 更新帖子请求（草稿继续编辑/已发布编辑）。
 type UpdatePostReq struct {
-	Title      *string  `json:"title"`       // 标题（nil 表示不修改）
-	Content    *string  `json:"content"`     // 正文
-	Tags       []string `json:"tags"`        // 标签（空数组=清空，nil=不修改）
-	MediaIDs   []int64  `json:"media_ids"`   // 媒体（空数组=清空，nil=不修改）
-	Visibility *string  `json:"visibility"`  // 可见性
+	Title      *string       `json:"title"`       // 标题（nil 表示不修改）
+	Content    *string       `json:"content"`     // 正文
+	Tags       []string      `json:"tags"`        // 标签（空数组=清空，nil=不修改）
+	MediaIDs   []int64       `json:"media_ids"`   // 媒体（空数组=清空，nil=不修改）
+	Visibility *string       `json:"visibility"`  // 可见性
+	Seo        *PostSeoInput `json:"seo,omitempty"` // SEO 输入（插件面板提交；nil=不更新 seo_meta）
 }
 
 // TagDTO 标签信息（列表/详情展示）。
@@ -121,6 +132,15 @@ type PostDetail struct {
 	Content     string `json:"content"`      // 完整正文
 	IsAuthor    bool   `json:"is_author"`    // 是否作者本人（编辑/删除权限）
 	CanView     bool   `json:"can_view"`     // 当前用户是否有权查看（私密帖校验）
+	Seo         *PostSeoOutput `json:"seo,omitempty"` // SEO 输出（M4.1 插件通道：标题/描述/收录策略）
+}
+
+// PostSeoOutput 详情页 SEO 输出（robots 收录策略 / 自定义标题描述；无记录为 nil）。
+type PostSeoOutput struct {
+	Title       string `json:"title"`       // SEO 标题（空=用默认）
+	Description string `json:"description"` // SEO 描述
+	URLAlias    string `json:"url_alias"`   // URL 别名（编辑回填）
+	Robots      string `json:"robots"`      // 收录策略（index,follow 等；空=跟随全局）
 }
 
 // AdminPostDetail 后台编辑帖子详情（设计稿《后台编辑·文字/图片/音频/视频》）。

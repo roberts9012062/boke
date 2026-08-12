@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -31,6 +32,8 @@ type SeoMeta struct {
 	CanonicalURL string `json:"canonical_url"` // 规范链接（URL 别名）
 	OgImage      string `json:"og_image"`      // 分享图
 	Summary      string `json:"summary"`       // AI 摘要（M4 AI 阶段）
+	URLAlias     string `json:"url_alias"`     // URL 别名（/p/{alias} 短链，M4.1 插件通道）
+	Robots       string `json:"robots"`        // 收录策略（index,follow 等；空=跟随全局）
 }
 
 // SeoHealthCheck 帖子健康度（seo_health_checks）。
@@ -96,10 +99,10 @@ func (r *SeoRepo) UpsertSettings(ctx context.Context, s SeoSettings) error {
 func (r *SeoRepo) GetMeta(ctx context.Context, postID int64) (*SeoMeta, error) {
 	meta := &SeoMeta{PostID: postID}
 	err := r.pool.QueryRow(ctx, `
-		SELECT post_id, title, description, keywords, canonical_url, og_image, summary
+		SELECT post_id, title, description, keywords, canonical_url, og_image, summary, url_alias, robots
 		FROM seo_meta WHERE post_id = $1`, postID).Scan(
 		&meta.PostID, &meta.Title, &meta.Description, &meta.Keywords,
-		&meta.CanonicalURL, &meta.OgImage, &meta.Summary)
+		&meta.CanonicalURL, &meta.OgImage, &meta.Summary, &meta.URLAlias, &meta.Robots)
 	if err != nil {
 		if isNoRows(err) {
 			return meta, nil
@@ -112,14 +115,34 @@ func (r *SeoRepo) GetMeta(ctx context.Context, postID int64) (*SeoMeta, error) {
 // UpsertMeta 保存帖子 SEO 元数据（upsert；空值覆盖）。
 func (r *SeoRepo) UpsertMeta(ctx context.Context, m SeoMeta) error {
 	_, err := r.pool.Exec(ctx, `
-		INSERT INTO seo_meta (post_id, title, description, keywords, canonical_url, og_image, summary)
-		VALUES ($1, $2, $3, $4, $5, $6, '')
+		INSERT INTO seo_meta (post_id, title, description, keywords, canonical_url, og_image, summary, url_alias, robots)
+		VALUES ($1, $2, $3, $4, $5, $6, '', $7, $8)
 		ON CONFLICT (post_id) DO UPDATE SET
 			title = EXCLUDED.title, description = EXCLUDED.description,
 			keywords = EXCLUDED.keywords, canonical_url = EXCLUDED.canonical_url,
-			og_image = EXCLUDED.og_image, updated_at = now()`,
-		m.PostID, m.Title, m.Description, m.Keywords, m.CanonicalURL, m.OgImage)
-	return err
+			og_image = EXCLUDED.og_image, url_alias = EXCLUDED.url_alias,
+			robots = EXCLUDED.robots, updated_at = now()`,
+		m.PostID, m.Title, m.Description, m.Keywords, m.CanonicalURL, m.OgImage, m.URLAlias, m.Robots)
+	if err != nil {
+		// URL 别名全局唯一（uq_seo_meta_url_alias）：占用冲突给出友好提示
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return errors.New("URL 别名已占用，请更换")
+		}
+		return err
+	}
+	return nil
+}
+
+// FindByAlias 按 URL 别名查帖子 ID（/p/{alias} 短链解析；不存在返回 wrapNotFound）。
+func (r *SeoRepo) FindByAlias(ctx context.Context, alias string) (int64, error) {
+	var postID int64
+	err := r.pool.QueryRow(ctx,
+		`SELECT post_id FROM seo_meta WHERE url_alias = $1 AND url_alias <> ''`, alias).Scan(&postID)
+	if err != nil {
+		return 0, wrapNotFound(err)
+	}
+	return postID, nil
 }
 
 // UpdateSummary 写入 AI 生成的帖子摘要（seo_meta.summary，M4-AI 场景）。

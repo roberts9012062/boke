@@ -6,6 +6,7 @@
 package handler
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -162,6 +163,7 @@ func (h *PluginHandler) Upload(c *gin.Context) {
 	// ?upgrade=1：本地升级验证通道（跳过已安装冲突，替换版本）
 	upgrade := c.Query("upgrade") == "1"
 	if err := h.plugins.InstallFromBPK(c.Request.Context(), content, "本地上传", upgrade); err != nil {
+		fmt.Fprintf(os.Stderr, "[plugin-upload] 安装失败（%s）：%v\n", header.Filename, err)
 		resp.FailFrom(c, err)
 		return
 	}

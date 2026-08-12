@@ -61,6 +61,21 @@ export default function PostDetailPage() {
       .then((detail) => {
         setPost(detail);
         setLikeCount(detail.like_count);
+        // SEO 输出（M4.1 插件通道）：自定义标题 + robots 收录策略写入文档
+        document.title = detail.seo?.title
+          ? `${detail.seo.title} · 月言`
+          : detail.title
+            ? `${detail.title} · 月言`
+            : "月言";
+        if (detail.seo?.robots) {
+          let meta = document.querySelector('meta[name="robots"]');
+          if (!meta) {
+            meta = document.createElement("meta");
+            meta.setAttribute("name", "robots");
+            document.head.appendChild(meta);
+          }
+          meta.setAttribute("content", detail.seo.robots);
+        }
       })
       .catch((err: Error) => setError(err.message));
     // 互动状态（未登录也返回收藏数）

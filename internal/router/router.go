@@ -66,6 +66,8 @@ func Register(cfg config.Config, logger *zap.Logger, handlers Handlers, jwtMgr *
 	// SEO 公开端点（M4）：sitemap.xml / robots.txt
 	engine.GET("/sitemap.xml", handlers.Seo.Sitemap)
 	engine.GET("/robots.txt", handlers.Seo.Robots)
+	// URL 别名短链（M4.1 插件通道）：/p/{alias} → 302 /posts/{id}
+	engine.GET("/p/:alias", handlers.Seo.ResolveAlias)
 
 	// ---------- API v1 路由组 ----------
 	api := engine.Group("/api/v1")
