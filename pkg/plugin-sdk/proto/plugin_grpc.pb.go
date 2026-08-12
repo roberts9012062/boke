@@ -29,6 +29,194 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
+	DataService_GetUser_FullMethodName     = "/yueyan.plugin.v1.DataService/GetUser"
+	DataService_GetPost_FullMethodName     = "/yueyan.plugin.v1.DataService/GetPost"
+	DataService_GetSettings_FullMethodName = "/yueyan.plugin.v1.DataService/GetSettings"
+)
+
+// DataServiceClient is the client API for DataService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// DataService 主进程只读数据服务（插件声明 data.read 能力并经 broker 获取连接）。
+type DataServiceClient interface {
+	// GetUser 查询用户脱敏信息。
+	GetUser(ctx context.Context, in *UserRequest, opts ...grpc.CallOption) (*UserInfo, error)
+	// GetPost 查询帖子脱敏信息。
+	GetPost(ctx context.Context, in *PostRequest, opts ...grpc.CallOption) (*PostInfo, error)
+	// GetSettings 查询站点公开设置（白名单键）。
+	GetSettings(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*SettingsSnapshot, error)
+}
+
+type dataServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewDataServiceClient(cc grpc.ClientConnInterface) DataServiceClient {
+	return &dataServiceClient{cc}
+}
+
+func (c *dataServiceClient) GetUser(ctx context.Context, in *UserRequest, opts ...grpc.CallOption) (*UserInfo, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UserInfo)
+	err := c.cc.Invoke(ctx, DataService_GetUser_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *dataServiceClient) GetPost(ctx context.Context, in *PostRequest, opts ...grpc.CallOption) (*PostInfo, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PostInfo)
+	err := c.cc.Invoke(ctx, DataService_GetPost_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *dataServiceClient) GetSettings(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*SettingsSnapshot, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SettingsSnapshot)
+	err := c.cc.Invoke(ctx, DataService_GetSettings_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// DataServiceServer is the server API for DataService service.
+// All implementations must embed UnimplementedDataServiceServer
+// for forward compatibility.
+//
+// DataService 主进程只读数据服务（插件声明 data.read 能力并经 broker 获取连接）。
+type DataServiceServer interface {
+	// GetUser 查询用户脱敏信息。
+	GetUser(context.Context, *UserRequest) (*UserInfo, error)
+	// GetPost 查询帖子脱敏信息。
+	GetPost(context.Context, *PostRequest) (*PostInfo, error)
+	// GetSettings 查询站点公开设置（白名单键）。
+	GetSettings(context.Context, *Empty) (*SettingsSnapshot, error)
+	mustEmbedUnimplementedDataServiceServer()
+}
+
+// UnimplementedDataServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedDataServiceServer struct{}
+
+func (UnimplementedDataServiceServer) GetUser(context.Context, *UserRequest) (*UserInfo, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetUser not implemented")
+}
+func (UnimplementedDataServiceServer) GetPost(context.Context, *PostRequest) (*PostInfo, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetPost not implemented")
+}
+func (UnimplementedDataServiceServer) GetSettings(context.Context, *Empty) (*SettingsSnapshot, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetSettings not implemented")
+}
+func (UnimplementedDataServiceServer) mustEmbedUnimplementedDataServiceServer() {}
+func (UnimplementedDataServiceServer) testEmbeddedByValue()                     {}
+
+// UnsafeDataServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to DataServiceServer will
+// result in compilation errors.
+type UnsafeDataServiceServer interface {
+	mustEmbedUnimplementedDataServiceServer()
+}
+
+func RegisterDataServiceServer(s grpc.ServiceRegistrar, srv DataServiceServer) {
+	// If the following call panics, it indicates UnimplementedDataServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&DataService_ServiceDesc, srv)
+}
+
+func _DataService_GetUser_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UserRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DataServiceServer).GetUser(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DataService_GetUser_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DataServiceServer).GetUser(ctx, req.(*UserRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DataService_GetPost_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PostRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DataServiceServer).GetPost(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DataService_GetPost_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DataServiceServer).GetPost(ctx, req.(*PostRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DataService_GetSettings_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DataServiceServer).GetSettings(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DataService_GetSettings_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DataServiceServer).GetSettings(ctx, req.(*Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// DataService_ServiceDesc is the grpc.ServiceDesc for DataService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var DataService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "yueyan.plugin.v1.DataService",
+	HandlerType: (*DataServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "GetUser",
+			Handler:    _DataService_GetUser_Handler,
+		},
+		{
+			MethodName: "GetPost",
+			Handler:    _DataService_GetPost_Handler,
+		},
+		{
+			MethodName: "GetSettings",
+			Handler:    _DataService_GetSettings_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "plugin.proto",
+}
+
+const (
 	PluginService_Info_FullMethodName       = "/yueyan.plugin.v1.PluginService/Info"
 	PluginService_Activate_FullMethodName   = "/yueyan.plugin.v1.PluginService/Activate"
 	PluginService_Deactivate_FullMethodName = "/yueyan.plugin.v1.PluginService/Deactivate"
@@ -43,8 +231,8 @@ const (
 type PluginServiceClient interface {
 	// Info 返回插件信息（启用时校验声明与安装清单一致）。
 	Info(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*PluginInfo, error)
-	// Activate 激活（携带主进程下发的许可证信息；插件侧更新内存并初始化资源）。
-	Activate(ctx context.Context, in *LicenseInfo, opts ...grpc.CallOption) (*Status, error)
+	// Activate 激活（携带许可证信息与数据服务 broker ID；插件侧更新内存并初始化资源）。
+	Activate(ctx context.Context, in *ActivateRequest, opts ...grpc.CallOption) (*Status, error)
 	// Deactivate 停用（停用回调，插件侧保存状态/释放资源）。
 	Deactivate(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Status, error)
 	// SetConfig 下发配置（启动激活后 + 保存配置时推送；插件侧更新内存，handler 经 sdk.Config 读取）。
@@ -69,7 +257,7 @@ func (c *pluginServiceClient) Info(ctx context.Context, in *Empty, opts ...grpc.
 	return out, nil
 }
 
-func (c *pluginServiceClient) Activate(ctx context.Context, in *LicenseInfo, opts ...grpc.CallOption) (*Status, error) {
+func (c *pluginServiceClient) Activate(ctx context.Context, in *ActivateRequest, opts ...grpc.CallOption) (*Status, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Status)
 	err := c.cc.Invoke(ctx, PluginService_Activate_FullMethodName, in, out, cOpts...)
@@ -107,8 +295,8 @@ func (c *pluginServiceClient) SetConfig(ctx context.Context, in *ConfigInfo, opt
 type PluginServiceServer interface {
 	// Info 返回插件信息（启用时校验声明与安装清单一致）。
 	Info(context.Context, *Empty) (*PluginInfo, error)
-	// Activate 激活（携带主进程下发的许可证信息；插件侧更新内存并初始化资源）。
-	Activate(context.Context, *LicenseInfo) (*Status, error)
+	// Activate 激活（携带许可证信息与数据服务 broker ID；插件侧更新内存并初始化资源）。
+	Activate(context.Context, *ActivateRequest) (*Status, error)
 	// Deactivate 停用（停用回调，插件侧保存状态/释放资源）。
 	Deactivate(context.Context, *Empty) (*Status, error)
 	// SetConfig 下发配置（启动激活后 + 保存配置时推送；插件侧更新内存，handler 经 sdk.Config 读取）。
@@ -126,7 +314,7 @@ type UnimplementedPluginServiceServer struct{}
 func (UnimplementedPluginServiceServer) Info(context.Context, *Empty) (*PluginInfo, error) {
 	return nil, status.Error(codes.Unimplemented, "method Info not implemented")
 }
-func (UnimplementedPluginServiceServer) Activate(context.Context, *LicenseInfo) (*Status, error) {
+func (UnimplementedPluginServiceServer) Activate(context.Context, *ActivateRequest) (*Status, error) {
 	return nil, status.Error(codes.Unimplemented, "method Activate not implemented")
 }
 func (UnimplementedPluginServiceServer) Deactivate(context.Context, *Empty) (*Status, error) {
@@ -175,7 +363,7 @@ func _PluginService_Info_Handler(srv interface{}, ctx context.Context, dec func(
 }
 
 func _PluginService_Activate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(LicenseInfo)
+	in := new(ActivateRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -187,7 +375,7 @@ func _PluginService_Activate_Handler(srv interface{}, ctx context.Context, dec f
 		FullMethod: PluginService_Activate_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(PluginServiceServer).Activate(ctx, req.(*LicenseInfo))
+		return srv.(PluginServiceServer).Activate(ctx, req.(*ActivateRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }

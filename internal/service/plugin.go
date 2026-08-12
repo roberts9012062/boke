@@ -371,6 +371,12 @@ func (s *PluginService) checkCompatibility(ctx context.Context, info *PluginInfo
 			return errs.New(errs.CodeConflict, "插件「"+info.Name+"」要求核心版本 "+info.CoreVersion+"，当前 "+coreVersion+"，请先升级核心")
 		}
 	}
+	// capabilities（M3.8 授权模型）：声明未知能力 → 拒绝安装（防越权行为声明）
+	if unknown := unknownCapabilities(info.Capabilities); len(unknown) > 0 {
+		return errs.New(errs.CodeBadRequest,
+			"插件「"+info.Name+"」声明了未知能力："+strings.Join(unknown, "、")+
+				"（支持："+strings.Join(knownCapabilitiesList(), "、")+"）")
+	}
 	// requires：依赖插件必须已安装（未卸载）
 	for _, dep := range info.Requires {
 		inst, err := s.plugs.FindByPluginID(ctx, dep)

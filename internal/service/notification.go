@@ -106,6 +106,17 @@ func (s *NotificationService) send(ctx context.Context, targetUserID int64, acto
 		Link:    link,
 		PostID:  postID,
 	}, dedup)
+
+	// ---------- 插件钩子：notification.send（异步通知；M3.8 补全接线） ----------
+	if s.hooks != nil {
+		s.hooks.Dispatch(ctx, plugin.HookNotificationSend, plugin.Event{
+			ActorID: actorID,
+			Payload: map[string]any{
+				"user_id": targetUserID, "type": notifyType,
+				"title": title, "content": content, "link": link, "post_id": postID,
+			},
+		})
+	}
 }
 
 // ---------- 列表 / 已读 ----------

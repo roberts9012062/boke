@@ -12,12 +12,13 @@ import (
 
 // Info 插件信息（Info() 返回，主进程校验与安装清单一致）。
 type Info struct {
-	ID          string         // 插件 ID（唯一，与清单 id 一致）
-	Name        string         // 插件名称
-	Version     string         // 版本号
-	Author      string         // 作者
-	Description string         // 一句话描述
-	Settings    []SettingField // 设置项声明（设置页 schema 驱动；可空=无配置项）
+	ID           string         // 插件 ID（唯一，与清单 id 一致）
+	Name         string         // 插件名称
+	Version      string         // 版本号
+	Author       string         // 作者
+	Description  string         // 一句话描述
+	Settings     []SettingField // 设置项声明（设置页 schema 驱动；可空=无配置项）
+	Capabilities []string       // 能力声明（M3.8 授权模型：hooks/api/frontend/settings 基础 + data.read 扩展）
 }
 
 // SettingField 插件设置项声明（主进程经 Info RPC 收集，设置页通用渲染器展示）。
@@ -168,4 +169,54 @@ func Config(ctx context.Context) map[string]string {
 		out[k] = v
 	}
 	return out
+}
+
+// ---------- 数据服务（M3.8：主进程只读数据，声明 data.read 能力并经 broker 连接） ----------
+
+// DataUser 用户脱敏信息（不含邮箱/手机等敏感字段）。
+type DataUser struct {
+	ID        int64  // 用户 ID
+	Nickname  string // 昵称
+	AvatarURL string // 头像 URL
+	Role      string // 角色
+	Bio       string // 个人简介
+}
+
+// DataPost 帖子脱敏信息（不含正文全文）。
+type DataPost struct {
+	ID         int64  // 帖子 ID
+	Title      string // 标题
+	Status     string // 状态（published/draft/private/...）
+	AuthorID   int64  // 作者 ID
+	AuthorName string // 作者昵称
+}
+
+// DataService 主进程只读数据服务（插件经 GRPCBroker 获取连接；数据均为脱敏公开信息）。
+type DataService interface {
+	// GetUser 查询用户脱敏信息。
+	GetUser(ctx context.Context, userID int64) (*DataUser, error)
+	// GetPost 查询帖子脱敏信息。
+	GetPost(ctx context.Context, postID int64) (*DataPost, error)
+	// GetSettings 查询站点公开设置（白名单键）。
+	GetSettings(ctx context.Context) (map[string]string, error)
+}
+
+// 数据服务客户端内存状态（server Activate 回调经 broker Dial 建立；未授权为 nil）。
+var (
+	dataMu  sync.RWMutex
+	dataSvc DataService // 主进程数据服务客户端
+)
+
+// SetDataClient 设置数据服务客户端（server 激活回调使用；插件作者不调用）。
+func SetDataClient(svc DataService) {
+	dataMu.Lock()
+	dataSvc = svc
+	dataMu.Unlock()
+}
+
+// Data 返回数据服务（未声明 data.read / 未连接时返回 nil——插件需自行判空）。
+func Data(ctx context.Context) DataService {
+	dataMu.RLock()
+	defer dataMu.RUnlock()
+	return dataSvc
 }

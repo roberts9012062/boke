@@ -26,6 +26,7 @@ type DemoPlugin struct{}
 
 // Info 插件信息（与安装清单一致；主进程校验 ID）。
 // Settings 声明设置项（M3.7：主进程经 Info RPC 收集 → 设置页 schema 驱动渲染 → 保存后下发）。
+// Capabilities 声明能力（M3.8 授权模型：data.read=经 broker 查询主进程只读脱敏数据）。
 func (p *DemoPlugin) Info() sdk.Info {
 	return sdk.Info{
 		ID:          "demo-plugin",
@@ -33,6 +34,7 @@ func (p *DemoPlugin) Info() sdk.Info {
 		Version:     "0.2.0",
 		Author:      "月言官方",
 		Description: "M3.3 进程外插件演示：钩子 + 自定义 API",
+		Capabilities: []string{"data.read"},
 		Settings: []sdk.SettingField{
 			{Key: "greeting", Label: "页脚问候语", Type: "text", Default: "你好，月言访客"},
 			{Key: "show_badge", Label: "显示演示徽章", Type: "switch", Default: "on"},
@@ -93,6 +95,14 @@ func (p *DemoPlugin) Hooks() []sdk.Hook {
 				return sdk.Result{OK: true}, nil
 			},
 		},
+		{
+			// comment.after_save（异步）：验证 M3.8 补全接线 + 双 dispatch 修复（评论保存应只触发一次）
+			Name: "comment.after_save", Sync: false, Priority: 100,
+			Handler: func(ctx context.Context, ev sdk.Event) (sdk.Result, error) {
+				logf("异步钩子 comment.after_save 触发")
+				return sdk.Result{OK: true}, nil
+			},
+		},
 	}
 }
 
@@ -115,6 +125,23 @@ func (p *DemoPlugin) RegisterAPI(api *sdk.APIMux) {
 			raw, _ := json.Marshal(cfg)
 			logf("配置快照查询：%s", string(raw))
 			return 200, raw, nil
+		})
+		// /data-demo：数据服务演示（M3.8——声明 data.read 后经 broker 查询主进程脱敏数据；
+		// 未授权时 sdk.Data 返回 nil，按降级响应）
+		api.Handle("GET", "/data-demo", func(ctx context.Context, method string, path string, body []byte) (int, []byte, error) {
+			svc := sdk.Data(ctx)
+			if svc == nil {
+				return 200, []byte(`{"authorized":false,"reason":"未授权数据服务（需声明 data.read 能力）"}`), nil
+			}
+			user, err := svc.GetUser(ctx, 1) // 查询用户 1（管理员）脱敏信息
+			if err != nil {
+				return 200, []byte(fmt.Sprintf(`{"authorized":true,"error":%q}`, err.Error())), nil
+			}
+			settings, _ := svc.GetSettings(ctx)
+			logf("数据服务查询：user=%s role=%s settings=%d 键", user.Nickname, user.Role, len(settings))
+			return 200, []byte(fmt.Sprintf(
+				`{"authorized":true,"user":{"id":%d,"nickname":%q,"role":%q},"settings_keys":%d}`,
+				user.ID, user.Nickname, user.Role, len(settings))), nil
 		})
 }
 

@@ -71,14 +71,15 @@ func (*Empty) Descriptor() ([]byte, []int) {
 // PluginInfo 插件信息（Info 返回，主进程校验插件声明与清单一致）。
 type PluginInfo struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`                   // 插件 ID（唯一，与清单 id 一致）
-	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`               // 插件名称
-	Version       string                 `protobuf:"bytes,3,opt,name=version,proto3" json:"version,omitempty"`         // 版本号
-	Author        string                 `protobuf:"bytes,4,opt,name=author,proto3" json:"author,omitempty"`           // 作者
-	Description   string                 `protobuf:"bytes,5,opt,name=description,proto3" json:"description,omitempty"` // 一句话描述
-	Hooks         []string               `protobuf:"bytes,6,rep,name=hooks,proto3" json:"hooks,omitempty"`             // 声明的钩子（对齐主进程钩子表，如 "post.after_publish"）
-	Apis          []string               `protobuf:"bytes,7,rep,name=apis,proto3" json:"apis,omitempty"`               // 自定义 API 路径（如 "/ping"，主进程挂 /api/plugins/{id}/**）
-	Settings      []*SettingField        `protobuf:"bytes,8,rep,name=settings,proto3" json:"settings,omitempty"`       // 设置项声明（设置页 schema 驱动；主进程聚合「进程上报优先、市场清单兜底」）
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`                     // 插件 ID（唯一，与清单 id 一致）
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`                 // 插件名称
+	Version       string                 `protobuf:"bytes,3,opt,name=version,proto3" json:"version,omitempty"`           // 版本号
+	Author        string                 `protobuf:"bytes,4,opt,name=author,proto3" json:"author,omitempty"`             // 作者
+	Description   string                 `protobuf:"bytes,5,opt,name=description,proto3" json:"description,omitempty"`   // 一句话描述
+	Hooks         []string               `protobuf:"bytes,6,rep,name=hooks,proto3" json:"hooks,omitempty"`               // 声明的钩子（对齐主进程钩子表，如 "post.after_publish"）
+	Apis          []string               `protobuf:"bytes,7,rep,name=apis,proto3" json:"apis,omitempty"`                 // 自定义 API 路径（如 "/ping"，主进程挂 /api/plugins/{id}/**）
+	Settings      []*SettingField        `protobuf:"bytes,8,rep,name=settings,proto3" json:"settings,omitempty"`         // 设置项声明（设置页 schema 驱动；主进程聚合「进程上报优先、市场清单兜底」）
+	Capabilities  []string               `protobuf:"bytes,9,rep,name=capabilities,proto3" json:"capabilities,omitempty"` // 能力声明（授权模型：hooks/api/frontend/settings 基础 + data.read 扩展）
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -165,6 +166,13 @@ func (x *PluginInfo) GetApis() []string {
 func (x *PluginInfo) GetSettings() []*SettingField {
 	if x != nil {
 		return x.Settings
+	}
+	return nil
+}
+
+func (x *PluginInfo) GetCapabilities() []string {
+	if x != nil {
+		return x.Capabilities
 	}
 	return nil
 }
@@ -675,12 +683,354 @@ func (x *LicenseInfo) GetDegraded() bool {
 	return false
 }
 
+// UserRequest 用户查询请求。
+type UserRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"` // 用户 ID
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UserRequest) Reset() {
+	*x = UserRequest{}
+	mi := &file_plugin_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UserRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UserRequest) ProtoMessage() {}
+
+func (x *UserRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_plugin_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UserRequest.ProtoReflect.Descriptor instead.
+func (*UserRequest) Descriptor() ([]byte, []int) {
+	return file_plugin_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *UserRequest) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+// UserInfo 用户信息（脱敏：不含邮箱/手机/密码等敏感字段）。
+type UserInfo struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`                               // 用户 ID
+	Nickname      string                 `protobuf:"bytes,2,opt,name=nickname,proto3" json:"nickname,omitempty"`                    // 昵称
+	AvatarUrl     string                 `protobuf:"bytes,3,opt,name=avatar_url,json=avatarUrl,proto3" json:"avatar_url,omitempty"` // 头像 URL
+	Role          string                 `protobuf:"bytes,4,opt,name=role,proto3" json:"role,omitempty"`                            // 角色（superadmin/admin/author/visitor）
+	Bio           string                 `protobuf:"bytes,5,opt,name=bio,proto3" json:"bio,omitempty"`                              // 个人简介
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UserInfo) Reset() {
+	*x = UserInfo{}
+	mi := &file_plugin_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UserInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UserInfo) ProtoMessage() {}
+
+func (x *UserInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_plugin_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UserInfo.ProtoReflect.Descriptor instead.
+func (*UserInfo) Descriptor() ([]byte, []int) {
+	return file_plugin_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *UserInfo) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *UserInfo) GetNickname() string {
+	if x != nil {
+		return x.Nickname
+	}
+	return ""
+}
+
+func (x *UserInfo) GetAvatarUrl() string {
+	if x != nil {
+		return x.AvatarUrl
+	}
+	return ""
+}
+
+func (x *UserInfo) GetRole() string {
+	if x != nil {
+		return x.Role
+	}
+	return ""
+}
+
+func (x *UserInfo) GetBio() string {
+	if x != nil {
+		return x.Bio
+	}
+	return ""
+}
+
+// PostRequest 帖子查询请求。
+type PostRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PostId        int64                  `protobuf:"varint,1,opt,name=post_id,json=postId,proto3" json:"post_id,omitempty"` // 帖子 ID
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PostRequest) Reset() {
+	*x = PostRequest{}
+	mi := &file_plugin_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PostRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PostRequest) ProtoMessage() {}
+
+func (x *PostRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_plugin_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PostRequest.ProtoReflect.Descriptor instead.
+func (*PostRequest) Descriptor() ([]byte, []int) {
+	return file_plugin_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *PostRequest) GetPostId() int64 {
+	if x != nil {
+		return x.PostId
+	}
+	return 0
+}
+
+// PostInfo 帖子信息（脱敏：不含正文全文等敏感内容）。
+type PostInfo struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`                                  // 帖子 ID
+	Title         string                 `protobuf:"bytes,2,opt,name=title,proto3" json:"title,omitempty"`                             // 标题
+	Status        string                 `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`                           // 状态（published/draft/private/...）
+	AuthorId      int64                  `protobuf:"varint,4,opt,name=author_id,json=authorId,proto3" json:"author_id,omitempty"`      // 作者 ID
+	AuthorName    string                 `protobuf:"bytes,5,opt,name=author_name,json=authorName,proto3" json:"author_name,omitempty"` // 作者昵称
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PostInfo) Reset() {
+	*x = PostInfo{}
+	mi := &file_plugin_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PostInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PostInfo) ProtoMessage() {}
+
+func (x *PostInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_plugin_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PostInfo.ProtoReflect.Descriptor instead.
+func (*PostInfo) Descriptor() ([]byte, []int) {
+	return file_plugin_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *PostInfo) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *PostInfo) GetTitle() string {
+	if x != nil {
+		return x.Title
+	}
+	return ""
+}
+
+func (x *PostInfo) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *PostInfo) GetAuthorId() int64 {
+	if x != nil {
+		return x.AuthorId
+	}
+	return 0
+}
+
+func (x *PostInfo) GetAuthorName() string {
+	if x != nil {
+		return x.AuthorName
+	}
+	return ""
+}
+
+// SettingsSnapshot 站点设置快照（主进程仅下发白名单公开键，不含密钥类敏感键）。
+type SettingsSnapshot struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Values        map[string]string      `protobuf:"bytes,1,rep,name=values,proto3" json:"values,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // 白名单键值对
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SettingsSnapshot) Reset() {
+	*x = SettingsSnapshot{}
+	mi := &file_plugin_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SettingsSnapshot) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SettingsSnapshot) ProtoMessage() {}
+
+func (x *SettingsSnapshot) ProtoReflect() protoreflect.Message {
+	mi := &file_plugin_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SettingsSnapshot.ProtoReflect.Descriptor instead.
+func (*SettingsSnapshot) Descriptor() ([]byte, []int) {
+	return file_plugin_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *SettingsSnapshot) GetValues() map[string]string {
+	if x != nil {
+		return x.Values
+	}
+	return nil
+}
+
+// ActivateRequest 激活请求（M3.8：许可证 + 数据服务 broker ID 一次性下发）。
+type ActivateRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	License       *LicenseInfo           `protobuf:"bytes,1,opt,name=license,proto3" json:"license,omitempty"`                                  // 许可证信息（M3.5）
+	DataBrokerId  int64                  `protobuf:"varint,2,opt,name=data_broker_id,json=dataBrokerId,proto3" json:"data_broker_id,omitempty"` // 主进程数据服务 broker ID（0=未授权/未提供；仅声明 data.read 能力时下发）
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ActivateRequest) Reset() {
+	*x = ActivateRequest{}
+	mi := &file_plugin_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ActivateRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ActivateRequest) ProtoMessage() {}
+
+func (x *ActivateRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_plugin_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ActivateRequest.ProtoReflect.Descriptor instead.
+func (*ActivateRequest) Descriptor() ([]byte, []int) {
+	return file_plugin_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *ActivateRequest) GetLicense() *LicenseInfo {
+	if x != nil {
+		return x.License
+	}
+	return nil
+}
+
+func (x *ActivateRequest) GetDataBrokerId() int64 {
+	if x != nil {
+		return x.DataBrokerId
+	}
+	return 0
+}
+
 var File_plugin_proto protoreflect.FileDescriptor
 
 const file_plugin_proto_rawDesc = "" +
 	"\n" +
 	"\fplugin.proto\x12\x10yueyan.plugin.v1\"\a\n" +
-	"\x05Empty\"\xea\x01\n" +
+	"\x05Empty\"\x8e\x02\n" +
 	"\n" +
 	"PluginInfo\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
@@ -690,7 +1040,8 @@ const file_plugin_proto_rawDesc = "" +
 	"\vdescription\x18\x05 \x01(\tR\vdescription\x12\x14\n" +
 	"\x05hooks\x18\x06 \x03(\tR\x05hooks\x12\x12\n" +
 	"\x04apis\x18\a \x03(\tR\x04apis\x12:\n" +
-	"\bsettings\x18\b \x03(\v2\x1e.yueyan.plugin.v1.SettingFieldR\bsettings\"~\n" +
+	"\bsettings\x18\b \x03(\v2\x1e.yueyan.plugin.v1.SettingFieldR\bsettings\x12\"\n" +
+	"\fcapabilities\x18\t \x03(\tR\fcapabilities\"~\n" +
 	"\fSettingField\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05label\x18\x02 \x01(\tR\x05label\x12\x12\n" +
@@ -729,10 +1080,40 @@ const file_plugin_proto_rawDesc = "" +
 	"\bfeatures\x18\x02 \x03(\tR\bfeatures\x12\x1d\n" +
 	"\n" +
 	"expires_at\x18\x03 \x01(\x03R\texpiresAt\x12\x1a\n" +
-	"\bdegraded\x18\x04 \x01(\bR\bdegraded2\x99\x02\n" +
+	"\bdegraded\x18\x04 \x01(\bR\bdegraded\"&\n" +
+	"\vUserRequest\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\x03R\x06userId\"{\n" +
+	"\bUserInfo\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x1a\n" +
+	"\bnickname\x18\x02 \x01(\tR\bnickname\x12\x1d\n" +
+	"\n" +
+	"avatar_url\x18\x03 \x01(\tR\tavatarUrl\x12\x12\n" +
+	"\x04role\x18\x04 \x01(\tR\x04role\x12\x10\n" +
+	"\x03bio\x18\x05 \x01(\tR\x03bio\"&\n" +
+	"\vPostRequest\x12\x17\n" +
+	"\apost_id\x18\x01 \x01(\x03R\x06postId\"\x86\x01\n" +
+	"\bPostInfo\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x14\n" +
+	"\x05title\x18\x02 \x01(\tR\x05title\x12\x16\n" +
+	"\x06status\x18\x03 \x01(\tR\x06status\x12\x1b\n" +
+	"\tauthor_id\x18\x04 \x01(\x03R\bauthorId\x12\x1f\n" +
+	"\vauthor_name\x18\x05 \x01(\tR\n" +
+	"authorName\"\x95\x01\n" +
+	"\x10SettingsSnapshot\x12F\n" +
+	"\x06values\x18\x01 \x03(\v2..yueyan.plugin.v1.SettingsSnapshot.ValuesEntryR\x06values\x1a9\n" +
+	"\vValuesEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"p\n" +
+	"\x0fActivateRequest\x127\n" +
+	"\alicense\x18\x01 \x01(\v2\x1d.yueyan.plugin.v1.LicenseInfoR\alicense\x12$\n" +
+	"\x0edata_broker_id\x18\x02 \x01(\x03R\fdataBrokerId2\xe5\x01\n" +
+	"\vDataService\x12D\n" +
+	"\aGetUser\x12\x1d.yueyan.plugin.v1.UserRequest\x1a\x1a.yueyan.plugin.v1.UserInfo\x12D\n" +
+	"\aGetPost\x12\x1d.yueyan.plugin.v1.PostRequest\x1a\x1a.yueyan.plugin.v1.PostInfo\x12J\n" +
+	"\vGetSettings\x12\x17.yueyan.plugin.v1.Empty\x1a\".yueyan.plugin.v1.SettingsSnapshot2\x9d\x02\n" +
 	"\rPluginService\x12=\n" +
-	"\x04Info\x12\x17.yueyan.plugin.v1.Empty\x1a\x1c.yueyan.plugin.v1.PluginInfo\x12C\n" +
-	"\bActivate\x12\x1d.yueyan.plugin.v1.LicenseInfo\x1a\x18.yueyan.plugin.v1.Status\x12?\n" +
+	"\x04Info\x12\x17.yueyan.plugin.v1.Empty\x1a\x1c.yueyan.plugin.v1.PluginInfo\x12G\n" +
+	"\bActivate\x12!.yueyan.plugin.v1.ActivateRequest\x1a\x18.yueyan.plugin.v1.Status\x12?\n" +
 	"\n" +
 	"Deactivate\x12\x17.yueyan.plugin.v1.Empty\x1a\x18.yueyan.plugin.v1.Status\x12C\n" +
 	"\tSetConfig\x12\x1c.yueyan.plugin.v1.ConfigInfo\x1a\x18.yueyan.plugin.v1.Status2W\n" +
@@ -753,40 +1134,55 @@ func file_plugin_proto_rawDescGZIP() []byte {
 	return file_plugin_proto_rawDescData
 }
 
-var file_plugin_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_plugin_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
 var file_plugin_proto_goTypes = []any{
-	(*Empty)(nil),         // 0: yueyan.plugin.v1.Empty
-	(*PluginInfo)(nil),    // 1: yueyan.plugin.v1.PluginInfo
-	(*SettingField)(nil),  // 2: yueyan.plugin.v1.SettingField
-	(*ConfigInfo)(nil),    // 3: yueyan.plugin.v1.ConfigInfo
-	(*Status)(nil),        // 4: yueyan.plugin.v1.Status
-	(*HookRequest)(nil),   // 5: yueyan.plugin.v1.HookRequest
-	(*HookResponse)(nil),  // 6: yueyan.plugin.v1.HookResponse
-	(*APICall)(nil),       // 7: yueyan.plugin.v1.APICall
-	(*APICallResult)(nil), // 8: yueyan.plugin.v1.APICallResult
-	(*LicenseInfo)(nil),   // 9: yueyan.plugin.v1.LicenseInfo
-	nil,                   // 10: yueyan.plugin.v1.ConfigInfo.ValuesEntry
+	(*Empty)(nil),            // 0: yueyan.plugin.v1.Empty
+	(*PluginInfo)(nil),       // 1: yueyan.plugin.v1.PluginInfo
+	(*SettingField)(nil),     // 2: yueyan.plugin.v1.SettingField
+	(*ConfigInfo)(nil),       // 3: yueyan.plugin.v1.ConfigInfo
+	(*Status)(nil),           // 4: yueyan.plugin.v1.Status
+	(*HookRequest)(nil),      // 5: yueyan.plugin.v1.HookRequest
+	(*HookResponse)(nil),     // 6: yueyan.plugin.v1.HookResponse
+	(*APICall)(nil),          // 7: yueyan.plugin.v1.APICall
+	(*APICallResult)(nil),    // 8: yueyan.plugin.v1.APICallResult
+	(*LicenseInfo)(nil),      // 9: yueyan.plugin.v1.LicenseInfo
+	(*UserRequest)(nil),      // 10: yueyan.plugin.v1.UserRequest
+	(*UserInfo)(nil),         // 11: yueyan.plugin.v1.UserInfo
+	(*PostRequest)(nil),      // 12: yueyan.plugin.v1.PostRequest
+	(*PostInfo)(nil),         // 13: yueyan.plugin.v1.PostInfo
+	(*SettingsSnapshot)(nil), // 14: yueyan.plugin.v1.SettingsSnapshot
+	(*ActivateRequest)(nil),  // 15: yueyan.plugin.v1.ActivateRequest
+	nil,                      // 16: yueyan.plugin.v1.ConfigInfo.ValuesEntry
+	nil,                      // 17: yueyan.plugin.v1.SettingsSnapshot.ValuesEntry
 }
 var file_plugin_proto_depIdxs = []int32{
 	2,  // 0: yueyan.plugin.v1.PluginInfo.settings:type_name -> yueyan.plugin.v1.SettingField
-	10, // 1: yueyan.plugin.v1.ConfigInfo.values:type_name -> yueyan.plugin.v1.ConfigInfo.ValuesEntry
-	0,  // 2: yueyan.plugin.v1.PluginService.Info:input_type -> yueyan.plugin.v1.Empty
-	9,  // 3: yueyan.plugin.v1.PluginService.Activate:input_type -> yueyan.plugin.v1.LicenseInfo
-	0,  // 4: yueyan.plugin.v1.PluginService.Deactivate:input_type -> yueyan.plugin.v1.Empty
-	3,  // 5: yueyan.plugin.v1.PluginService.SetConfig:input_type -> yueyan.plugin.v1.ConfigInfo
-	5,  // 6: yueyan.plugin.v1.HookService.Execute:input_type -> yueyan.plugin.v1.HookRequest
-	7,  // 7: yueyan.plugin.v1.PluginAPI.Call:input_type -> yueyan.plugin.v1.APICall
-	1,  // 8: yueyan.plugin.v1.PluginService.Info:output_type -> yueyan.plugin.v1.PluginInfo
-	4,  // 9: yueyan.plugin.v1.PluginService.Activate:output_type -> yueyan.plugin.v1.Status
-	4,  // 10: yueyan.plugin.v1.PluginService.Deactivate:output_type -> yueyan.plugin.v1.Status
-	4,  // 11: yueyan.plugin.v1.PluginService.SetConfig:output_type -> yueyan.plugin.v1.Status
-	6,  // 12: yueyan.plugin.v1.HookService.Execute:output_type -> yueyan.plugin.v1.HookResponse
-	8,  // 13: yueyan.plugin.v1.PluginAPI.Call:output_type -> yueyan.plugin.v1.APICallResult
-	8,  // [8:14] is the sub-list for method output_type
-	2,  // [2:8] is the sub-list for method input_type
-	2,  // [2:2] is the sub-list for extension type_name
-	2,  // [2:2] is the sub-list for extension extendee
-	0,  // [0:2] is the sub-list for field type_name
+	16, // 1: yueyan.plugin.v1.ConfigInfo.values:type_name -> yueyan.plugin.v1.ConfigInfo.ValuesEntry
+	17, // 2: yueyan.plugin.v1.SettingsSnapshot.values:type_name -> yueyan.plugin.v1.SettingsSnapshot.ValuesEntry
+	9,  // 3: yueyan.plugin.v1.ActivateRequest.license:type_name -> yueyan.plugin.v1.LicenseInfo
+	10, // 4: yueyan.plugin.v1.DataService.GetUser:input_type -> yueyan.plugin.v1.UserRequest
+	12, // 5: yueyan.plugin.v1.DataService.GetPost:input_type -> yueyan.plugin.v1.PostRequest
+	0,  // 6: yueyan.plugin.v1.DataService.GetSettings:input_type -> yueyan.plugin.v1.Empty
+	0,  // 7: yueyan.plugin.v1.PluginService.Info:input_type -> yueyan.plugin.v1.Empty
+	15, // 8: yueyan.plugin.v1.PluginService.Activate:input_type -> yueyan.plugin.v1.ActivateRequest
+	0,  // 9: yueyan.plugin.v1.PluginService.Deactivate:input_type -> yueyan.plugin.v1.Empty
+	3,  // 10: yueyan.plugin.v1.PluginService.SetConfig:input_type -> yueyan.plugin.v1.ConfigInfo
+	5,  // 11: yueyan.plugin.v1.HookService.Execute:input_type -> yueyan.plugin.v1.HookRequest
+	7,  // 12: yueyan.plugin.v1.PluginAPI.Call:input_type -> yueyan.plugin.v1.APICall
+	11, // 13: yueyan.plugin.v1.DataService.GetUser:output_type -> yueyan.plugin.v1.UserInfo
+	13, // 14: yueyan.plugin.v1.DataService.GetPost:output_type -> yueyan.plugin.v1.PostInfo
+	14, // 15: yueyan.plugin.v1.DataService.GetSettings:output_type -> yueyan.plugin.v1.SettingsSnapshot
+	1,  // 16: yueyan.plugin.v1.PluginService.Info:output_type -> yueyan.plugin.v1.PluginInfo
+	4,  // 17: yueyan.plugin.v1.PluginService.Activate:output_type -> yueyan.plugin.v1.Status
+	4,  // 18: yueyan.plugin.v1.PluginService.Deactivate:output_type -> yueyan.plugin.v1.Status
+	4,  // 19: yueyan.plugin.v1.PluginService.SetConfig:output_type -> yueyan.plugin.v1.Status
+	6,  // 20: yueyan.plugin.v1.HookService.Execute:output_type -> yueyan.plugin.v1.HookResponse
+	8,  // 21: yueyan.plugin.v1.PluginAPI.Call:output_type -> yueyan.plugin.v1.APICallResult
+	13, // [13:22] is the sub-list for method output_type
+	4,  // [4:13] is the sub-list for method input_type
+	4,  // [4:4] is the sub-list for extension type_name
+	4,  // [4:4] is the sub-list for extension extendee
+	0,  // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_plugin_proto_init() }
@@ -800,9 +1196,9 @@ func file_plugin_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_plugin_proto_rawDesc), len(file_plugin_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   11,
+			NumMessages:   18,
 			NumExtensions: 0,
-			NumServices:   3,
+			NumServices:   4,
 		},
 		GoTypes:           file_plugin_proto_goTypes,
 		DependencyIndexes: file_plugin_proto_depIdxs,

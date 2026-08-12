@@ -28,6 +28,7 @@ message PluginInfo {
   repeated string hooks = 6;     // 声明的钩子（对齐主进程钩子表，如 "post.after_publish"）
   repeated string apis = 7;      // 自定义 API 路径（如 "/ping"，主进程挂 /api/plugins/{id}/**）
   repeated SettingField settings = 8; // 设置项声明（设置页 schema 驱动；主进程聚合「进程上报优先、市场清单兜底」）
+  repeated string capabilities = 9;   // 能力声明（授权模型：hooks/api/frontend/settings 基础 + data.read 扩展）
 }
 
 // SettingField 插件设置项声明（设置页 schema 驱动通用渲染器）。
@@ -96,18 +97,69 @@ message LicenseInfo {
   bool degraded = 4;               // 已降级（超宽限期未续费，功能锁定）
 }
 
+// ---------- 数据服务（插件经 GRPCBroker 调用主进程只读数据，M3.8 能力授权） ----------
+
+// UserRequest 用户查询请求。
+message UserRequest {
+  int64 user_id = 1;             // 用户 ID
+}
+
+// UserInfo 用户信息（脱敏：不含邮箱/手机/密码等敏感字段）。
+message UserInfo {
+  int64 id = 1;                  // 用户 ID
+  string nickname = 2;           // 昵称
+  string avatar_url = 3;         // 头像 URL
+  string role = 4;               // 角色（superadmin/admin/author/visitor）
+  string bio = 5;                // 个人简介
+}
+
+// PostRequest 帖子查询请求。
+message PostRequest {
+  int64 post_id = 1;             // 帖子 ID
+}
+
+// PostInfo 帖子信息（脱敏：不含正文全文等敏感内容）。
+message PostInfo {
+  int64 id = 1;                  // 帖子 ID
+  string title = 2;              // 标题
+  string status = 3;             // 状态（published/draft/private/...）
+  int64 author_id = 4;           // 作者 ID
+  string author_name = 5;        // 作者昵称
+}
+
+// SettingsSnapshot 站点设置快照（主进程仅下发白名单公开键，不含密钥类敏感键）。
+message SettingsSnapshot {
+  map<string, string> values = 1; // 白名单键值对
+}
+
+// DataService 主进程只读数据服务（插件声明 data.read 能力并经 broker 获取连接）。
+service DataService {
+  // GetUser 查询用户脱敏信息。
+  rpc GetUser(UserRequest) returns (UserInfo);
+  // GetPost 查询帖子脱敏信息。
+  rpc GetPost(PostRequest) returns (PostInfo);
+  // GetSettings 查询站点公开设置（白名单键）。
+  rpc GetSettings(Empty) returns (SettingsSnapshot);
+}
+
 // ---------- 服务 ----------
 
 // PluginService 插件生命周期服务。
 service PluginService {
   // Info 返回插件信息（启用时校验声明与安装清单一致）。
   rpc Info(Empty) returns (PluginInfo);
-  // Activate 激活（携带主进程下发的许可证信息；插件侧更新内存并初始化资源）。
-  rpc Activate(LicenseInfo) returns (Status);
+  // Activate 激活（携带许可证信息与数据服务 broker ID；插件侧更新内存并初始化资源）。
+  rpc Activate(ActivateRequest) returns (Status);
   // Deactivate 停用（停用回调，插件侧保存状态/释放资源）。
   rpc Deactivate(Empty) returns (Status);
   // SetConfig 下发配置（启动激活后 + 保存配置时推送；插件侧更新内存，handler 经 sdk.Config 读取）。
   rpc SetConfig(ConfigInfo) returns (Status);
+}
+
+// ActivateRequest 激活请求（M3.8：许可证 + 数据服务 broker ID 一次性下发）。
+message ActivateRequest {
+  LicenseInfo license = 1;       // 许可证信息（M3.5）
+  int64 data_broker_id = 2;      // 主进程数据服务 broker ID（0=未授权/未提供；仅声明 data.read 能力时下发）
 }
 
 // HookService 钩子执行服务。

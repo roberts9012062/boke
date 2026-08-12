@@ -18,6 +18,7 @@ import (
 // coreGRPCPlugin go-plugin 插件封装（主进程侧：仅 client 能力）。
 type coreGRPCPlugin struct {
 	plugin.NetRPCUnsupportedPlugin // 仅支持 gRPC 协议
+	dataProvider  DataProvider     // 只读数据服务回调（M3.8；nil=不提供数据服务）
 }
 
 // GRPCServer 主进程侧不提供服务（报错）。
@@ -25,20 +26,35 @@ func (p *coreGRPCPlugin) GRPCServer(_ *plugin.GRPCBroker, _ *grpc.Server) error 
 	return fmt.Errorf("主进程不提供插件 gRPC 服务")
 }
 
-// GRPCClient 返回插件进程的客户端（三服务：生命周期/钩子/自定义 API）。
-func (p *coreGRPCPlugin) GRPCClient(_ context.Context, _ *plugin.GRPCBroker, conn *grpc.ClientConn) (interface{}, error) {
-	return &pluginClient{
-		info: proto.NewPluginServiceClient(conn),
+// GRPCClient 返回插件进程的客户端（三服务 + 数据服务 broker 注册）。
+// 数据服务（M3.8）：provider 非 nil 时经 broker.AcceptAndServe 注册 DataService，
+// 返回的 brokerID 随 Activate 下发给插件（授权 data.read 的插件 Dial 连接）。
+func (p *coreGRPCPlugin) GRPCClient(_ context.Context, broker *plugin.GRPCBroker, conn *grpc.ClientConn) (interface{}, error) {
+	pc := &pluginClient{
+		info:  proto.NewPluginServiceClient(conn),
 		hooks: proto.NewHookServiceClient(conn),
-		api:  proto.NewPluginAPIClient(conn),
-	}, nil
+		api:   proto.NewPluginAPIClient(conn),
+	}
+	if p.dataProvider != nil {
+		// 数据服务注册（M3.8）：AcceptAndServe 会阻塞等待插件 Dial（broker 机制——
+		// 插件在 Activate 收到 brokerID 后才 Dial），必须在 goroutine 中异步执行，
+		// 否则与「GRPCClient → Dispense → Activate → Dial」形成死锁。
+		pc.dataBrokerID = int64(broker.NextId())
+		go broker.AcceptAndServe(uint32(pc.dataBrokerID), func(opts []grpc.ServerOption) *grpc.Server {
+			s := grpc.NewServer(opts...)
+			proto.RegisterDataServiceServer(s, &dataServiceServer{provider: p.dataProvider})
+			return s
+		})
+	}
+	return pc, nil
 }
 
 // pluginClient 插件进程客户端（gRPC 三服务封装）。
 type pluginClient struct {
-	info  proto.PluginServiceClient  // 生命周期（Info/Activate/Deactivate）
-	hooks proto.HookServiceClient    // 钩子执行
-	api   proto.PluginAPIClient      // 自定义 API
+	info         proto.PluginServiceClient // 生命周期（Info/Activate/Deactivate/SetConfig）
+	hooks        proto.HookServiceClient   // 钩子执行
+	api          proto.PluginAPIClient     // 自定义 API
+	dataBrokerID int64                     // 主进程数据服务 brokerID（M3.8；0=未授权）
 }
 
 // ---------- 钩子适配器（进程外插件 → Dispatcher.Handler） ----------

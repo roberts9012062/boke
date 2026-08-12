@@ -79,13 +79,15 @@ type PluginManager struct {
 	events          ManagerEvents             // 状态事件回调（写 DB）
 	licenseProvider LicenseProvider           // 许可证查询（M3.5；可空=全部 free）
 	configProvider  ConfigProvider            // 配置查询（M3.7；可空=无配置）
+	dataProviderFn  func() DataProvider       // 只读数据服务工厂（M3.8；延迟绑定——装配完成后返回非 nil）
 	logDir          string                    // 插件日志目录（logs/plugins）
 }
 
 // NewPluginManager 创建进程管理器。
 // 参数：store 二进制存储；registry 钩子注册表；events 状态回调（可空）；logDir 插件日志目录；
-//      licenseProvider 许可证查询（M3.5，可空=全部 demo）；configProvider 配置查询（M3.7，可空=无配置）。
-func NewPluginManager(store *BinStore, registry *Registry, events ManagerEvents, logDir string, licenseProvider LicenseProvider, configProvider ConfigProvider) *PluginManager {
+//      licenseProvider 许可证查询（M3.5，可空=全部 demo）；configProvider 配置查询（M3.7，可空=无配置）；
+//      dataProviderFn 只读数据服务工厂（M3.8，每次拉起插件时调用取当前值；返回 nil=插件无数据访问能力）。
+func NewPluginManager(store *BinStore, registry *Registry, events ManagerEvents, logDir string, licenseProvider LicenseProvider, configProvider ConfigProvider, dataProviderFn func() DataProvider) *PluginManager {
 	return &PluginManager{
 		managed:         make(map[string]*ManagedPlugin),
 		crashCounts:     make(map[string]int),
@@ -94,6 +96,7 @@ func NewPluginManager(store *BinStore, registry *Registry, events ManagerEvents,
 		events:          events,
 		licenseProvider: licenseProvider,
 		configProvider:  configProvider,
+		dataProviderFn:  dataProviderFn,
 		logDir:          logDir,
 	}
 }
@@ -139,7 +142,7 @@ func (m *PluginManager) Start(ctx context.Context, pluginID string) error {
 	// 客户端经 SyncStderr 写入；握手前的输出走原始管道 Stderr——两者都指向日志文件）
 	client := goplugin.NewClient(&goplugin.ClientConfig{
 		HandshakeConfig:  server.Handshake,
-		Plugins:          map[string]goplugin.Plugin{"core": &coreGRPCPlugin{}},
+		Plugins:          map[string]goplugin.Plugin{"core": &coreGRPCPlugin{dataProvider: m.dataProviderFn()}},
 		Cmd:              exec.Command(binPath),
 		AllowedProtocols: []goplugin.Protocol{goplugin.ProtocolGRPC},
 		AutoMTLS:         true,
@@ -181,6 +184,11 @@ func (m *PluginManager) Start(ctx context.Context, pluginID string) error {
 		_ = logFile.Close()
 		return fmt.Errorf("插件二进制声明 ID「%s」与实例「%s」不一致", info.Id, pluginID)
 	}
+	// 能力门控（M3.8）：仅声明 data.read 的插件获得数据服务 brokerID（未声明一律不下发）
+	dataBrokerID := rpc.dataBrokerID
+	if dataBrokerID != 0 && !stringListContains(info.GetCapabilities(), "data.read") {
+		dataBrokerID = 0
+	}
 
 	// Activate（携带许可证信息：provider 查询，无记录/失败按 free demo 兜底）
 	license := &proto.LicenseInfo{Edition: "free"}
@@ -189,7 +197,10 @@ func (m *PluginManager) Start(ctx context.Context, pluginID string) error {
 			license = li
 		}
 	}
-	if st, err := rpc.info.Activate(ctx, license); err != nil || !st.Ok {
+	if st, err := rpc.info.Activate(ctx, &proto.ActivateRequest{
+		License:       license,
+		DataBrokerId:  dataBrokerID, // M3.8：能力门控后的数据服务 brokerID（0=未授权）
+	}); err != nil || !st.Ok {
 		reason := "未知原因"
 		if err == nil && st.Error != "" {
 			reason = st.Error
@@ -258,6 +269,16 @@ func (m *PluginManager) IsRunning(pluginID string) bool {
 	defer m.mu.Unlock()
 	mp, ok := m.managed[pluginID]
 	return ok && mp.state == stateRunning
+}
+
+// stringListContains 判断字符串列表是否包含目标（能力门控用）。
+func stringListContains(list []string, target string) bool {
+	for _, item := range list {
+		if item == target {
+			return true
+		}
+	}
+	return false
 }
 
 // Shutdown 停用全部插件进程（主进程退出时调用）。

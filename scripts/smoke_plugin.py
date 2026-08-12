@@ -392,6 +392,19 @@ def main():
     r = call("GET", f"/admin/plugins/{inst_id}/config", token=token)
     assert_true(r["data"]["config"].get("greeting") == "你好，月言", "配置回读：DB config JSONB 一致")
 
+    # ---------- 6.5 数据服务链路（M3.8：声明 data.read → broker 授权 → 脱敏数据） ----------
+    body = call("GET", "/plugins/demo-plugin/data-demo", token=token, raw=True)
+    data = json.loads(body)
+    assert_true(data.get("authorized") is True and bool(data.get("user", {}).get("nickname")),
+                f"数据服务：授权插件可查脱敏数据（实际 {body[:120]}）")
+    assert_true(data.get("settings_keys", 0) > 0, "数据服务：站点公开设置白名单键下发")
+    # 评论保存 → comment.after_save 异步钩子（M3.8 补全接线 + 双 dispatch 修复：应恰好 1 次）
+    comment_before = plugin_log().count("comment.after_save")
+    call("POST", f"/posts/{post_id}/comments", token=token, body={"content": "冒烟评论-数据服务验证"})
+    time.sleep(1.5)
+    comment_cnt = plugin_log().count("comment.after_save") - comment_before
+    assert_true(comment_cnt == 1, f"comment.after_save 恰好触发 1 次（双 dispatch 修复；实际 {comment_cnt} 次）")
+
     # ---------- 7. 崩溃自愈：kill 进程 → 1s 退避自动重启 ----------
     before = len(plugin_pids())
     assert_true(before >= 1, f"插件进程存在（数量 {before}）")

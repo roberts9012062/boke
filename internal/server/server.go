@@ -169,6 +169,8 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 	var licenseProvider plugin.LicenseProvider
 	// 配置查询回调（M3.7）：同上延迟绑定（启动激活时下发插件配置）
 	var configProvider plugin.ConfigProvider
+	// 只读数据服务（M3.8）：同上延迟绑定（插件经 broker 查询脱敏数据）
+	var dataProvider plugin.DataProvider
 	pluginManager = plugin.NewPluginManager(
 		binStore,
 		hookDispatcher,
@@ -185,6 +187,9 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 				return nil, nil // 未绑定：按无配置处理
 			}
 			return configProvider(ctx, pluginID)
+		},
+		func() plugin.DataProvider {
+			return dataProvider // 延迟闭包：装配完成前返回 nil（不注册数据服务）
 		},
 	)
 	// 内容治理服务（M2：举报/敏感词/封禁；先建供发帖/评论拦截注入）
@@ -206,6 +211,7 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 	pluginSvc := service.NewPluginService(ghClient, pluginRepo, settingRepo, hookDispatcher, pluginManager, binStore, licenseRepo)
 	licenseProvider = pluginSvc.LicenseInfoProvider // M3.5：许可证查询回调绑定（延迟闭包生效）
 	configProvider = pluginSvc.PluginConfigProvider // M3.7：配置查询回调绑定（启动激活时下发）
+	dataProvider = service.NewPluginDataProvider(userRepo, postRepo, settingRepo) // M3.8：只读数据服务（插件经 broker 查询脱敏数据）
 	seoSvc := service.NewSeoService(seoRepo, postRepo, "http://localhost:"+cfg.ServerPort)
 	// 数据报表服务（M4-报表：统计聚合 + 趋势 CSV；复用后台聚合数据源）
 	reportSvc := service.NewReportService(repository.NewAdminRepo(conn), reportRepo)

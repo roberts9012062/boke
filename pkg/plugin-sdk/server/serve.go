@@ -26,14 +26,16 @@ var Handshake = plugin.HandshakeConfig{
 // coreGRPCPlugin go-plugin gRPC 插件封装（插件侧：注册 gRPC 服务；client 侧不支持）。
 type coreGRPCPlugin struct {
 	plugin.NetRPCUnsupportedPlugin // 仅支持 gRPC 协议（net/rpc 误用即报错）
-	impl   sdk.Plugin              // 插件业务实现
-	apiMux *sdk.APIMux             // 自定义 API 路由表（实现 APIProvider 时非空）
-	logger hclog.Logger
+	impl    sdk.Plugin             // 插件业务实现
+	apiMux  *sdk.APIMux            // 自定义 API 路由表（实现 APIProvider 时非空）
+	logger  hclog.Logger
+	broker  *plugin.GRPCBroker     // 服务端 broker（M3.8：数据服务 Dial 用；GRPCServer 时保存）
 }
 
 // GRPCServer 注册三个契约服务（生命周期/钩子/自定义 API）。
-func (p *coreGRPCPlugin) GRPCServer(_ *plugin.GRPCBroker, s *grpc.Server) error {
-	proto.RegisterPluginServiceServer(s, &pluginServiceServer{impl: p.impl, hooks: collectHooks(p.impl)})
+func (p *coreGRPCPlugin) GRPCServer(broker *plugin.GRPCBroker, s *grpc.Server) error {
+	p.broker = broker // 保存 broker 供 Activate 时 Dial 主进程数据服务（M3.8）
+	proto.RegisterPluginServiceServer(s, &pluginServiceServer{impl: p.impl, hooks: collectHooks(p.impl), broker: broker})
 	proto.RegisterHookServiceServer(s, &hookServiceServer{hooks: collectHooks(p.impl)})
 	proto.RegisterPluginAPIServer(s, &apiServiceServer{mux: p.apiMux})
 	return nil
@@ -82,8 +84,9 @@ func collectHooks(impl sdk.Plugin) map[string]sdk.Hook {
 // pluginServiceServer PluginService 实现（生命周期）。
 type pluginServiceServer struct {
 	proto.UnimplementedPluginServiceServer
-	impl  sdk.Plugin
-	hooks map[string]sdk.Hook
+	impl   sdk.Plugin
+	hooks  map[string]sdk.Hook
+	broker *plugin.GRPCBroker // 数据服务 Dial 用（M3.8；未授权为 nil）
 }
 
 // Info 返回插件信息。
@@ -101,20 +104,35 @@ func (s *pluginServiceServer) Info(context.Context, *proto.Empty) (*proto.Plugin
 			Default: f.Default, Options: f.Options,
 		})
 	}
+	// 能力声明（M3.8：授权模型——hooks/api/frontend/settings 基础 + data.read 扩展）
+	capabilities := make([]string, 0, len(info.Capabilities))
+	for _, cap := range info.Capabilities {
+		capabilities = append(capabilities, cap)
+	}
 	return &proto.PluginInfo{
 		Id: info.ID, Name: info.Name, Version: info.Version,
 		Author: info.Author, Description: info.Description,
-		Hooks: hooks, Settings: settings,
+		Hooks: hooks, Settings: settings, Capabilities: capabilities,
 	}, nil
 }
 
-// Activate 启用回调（携带主进程下发的许可证信息；插件侧更新许可并初始化资源）。
-func (s *pluginServiceServer) Activate(ctx context.Context, req *proto.LicenseInfo) (*proto.Status, error) {
+// Activate 启用回调（携带许可证信息 + 数据服务 broker ID；插件侧更新许可并初始化资源）。
+func (s *pluginServiceServer) Activate(ctx context.Context, req *proto.ActivateRequest) (*proto.Status, error) {
+	license := req.GetLicense()
+	if license == nil {
+		license = &proto.LicenseInfo{Edition: "free"} // 兼容兜底：无许可证按 free
+	}
 	// 更新插件许可（主进程唯一数据源；插件只读，demo 降级/宽限期全由主站处理）
 	sdk.SetLicense(sdk.LicenseInfo{
-		Edition: req.Edition, Features: req.Features,
-		ExpiresAt: req.ExpiresAt, Degraded: req.Degraded,
+		Edition: license.Edition, Features: license.Features,
+		ExpiresAt: license.ExpiresAt, Degraded: license.Degraded,
 	})
+	// 数据服务连接（M3.8：主进程下发 broker ID=声明 data.read 能力被授权；Dial 失败按无数据服务降级）
+	if req.GetDataBrokerId() > 0 && s.broker != nil {
+		if conn, err := s.broker.Dial(uint32(req.GetDataBrokerId())); err == nil {
+			sdk.SetDataClient(&sdkDataBridge{client: proto.NewDataServiceClient(conn)})
+		}
+	}
 	if err := s.impl.OnActivate(ctx); err != nil {
 		return &proto.Status{Ok: false, Error: err.Error()}, nil
 	}
@@ -133,6 +151,44 @@ func (s *pluginServiceServer) Deactivate(ctx context.Context, _ *proto.Empty) (*
 func (s *pluginServiceServer) SetConfig(_ context.Context, req *proto.ConfigInfo) (*proto.Status, error) {
 	sdk.SetConfig(req.GetValues())
 	return &proto.Status{Ok: true}, nil
+}
+
+// sdkDataBridge proto.DataServiceClient → sdk.DataService 适配（M3.8：脱敏数据透传）。
+type sdkDataBridge struct {
+	client proto.DataServiceClient
+}
+
+// GetUser 查询用户脱敏信息。
+func (b *sdkDataBridge) GetUser(ctx context.Context, userID int64) (*sdk.DataUser, error) {
+	u, err := b.client.GetUser(ctx, &proto.UserRequest{UserId: userID})
+	if err != nil {
+		return nil, err
+	}
+	return &sdk.DataUser{
+		ID: u.GetId(), Nickname: u.GetNickname(),
+		AvatarURL: u.GetAvatarUrl(), Role: u.GetRole(), Bio: u.GetBio(),
+	}, nil
+}
+
+// GetPost 查询帖子脱敏信息。
+func (b *sdkDataBridge) GetPost(ctx context.Context, postID int64) (*sdk.DataPost, error) {
+	p, err := b.client.GetPost(ctx, &proto.PostRequest{PostId: postID})
+	if err != nil {
+		return nil, err
+	}
+	return &sdk.DataPost{
+		ID: p.GetId(), Title: p.GetTitle(), Status: p.GetStatus(),
+		AuthorID: p.GetAuthorId(), AuthorName: p.GetAuthorName(),
+	}, nil
+}
+
+// GetSettings 查询站点公开设置（白名单键）。
+func (b *sdkDataBridge) GetSettings(ctx context.Context) (map[string]string, error) {
+	snapshot, err := b.client.GetSettings(ctx, &proto.Empty{})
+	if err != nil {
+		return nil, err
+	}
+	return snapshot.GetValues(), nil
 }
 
 // hookServiceServer HookService 实现（同步钩子执行）。

@@ -63,6 +63,19 @@ func (r *UserRepo) FindByID(ctx context.Context, id int64) (model.User, error) {
 		`SELECT `+userColumns+` FROM users WHERE id = $1`, id))
 }
 
+// FindRoleByID 按 ID 查询用户角色（M3.8 插件数据服务脱敏返回；不存在返回空串）。
+func (r *UserRepo) FindRoleByID(ctx context.Context, id int64) (string, error) {
+	var role string
+	err := r.pool.QueryRow(ctx, `SELECT role FROM users WHERE id = $1`, id).Scan(&role)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil
+		}
+		return "", err
+	}
+	return role, nil
+}
+
 // FindByEmail 按邮箱查询用户（注册唯一性校验/登录用）。
 func (r *UserRepo) FindByEmail(ctx context.Context, email string) (model.User, error) {
 	return scanUser(r.pool.QueryRow(ctx,

@@ -152,14 +152,6 @@ func (s *CommentService) Create(ctx context.Context, postID int64, viewerID int6
 		return 0, errs.New(errs.CodeValidation, res.Reason)
 	}
 
-	// ---------- 插件钩子：comment.before_save（同步，可拦截；M3.2 扩展框架） ----------
-	if res := s.hooks.Dispatch(ctx, plugin.HookCommentBeforeSave, plugin.Event{
-		ActorID: viewerID,
-		Payload: content,
-	}); !res.OK {
-		return 0, errs.New(errs.CodeValidation, res.Reason)
-	}
-
 	// 身份确定：登录用户或匿名 token
 	authorID, guestName, guestHash, err := s.resolveIdentity(ctx, viewerID, input.GuestToken)
 	if err != nil {
@@ -193,6 +185,12 @@ func (s *CommentService) Create(ctx context.Context, postID int64, viewerID int6
 
 	// AI 异步预审（M4：高风险评论自动隐藏 + 进审核队列；不阻塞评论发布）
 	s.reviewAsync(commentID)
+
+	// ---------- 插件钩子：comment.after_save（异步通知；M3.8 补全接线） ----------
+	s.hooks.Dispatch(ctx, plugin.HookCommentAfterSave, plugin.Event{
+		ActorID: viewerID,
+		Payload: comment,
+	})
 	return commentID, nil
 }
 func (s *CommentService) Reply(ctx context.Context, targetID int64, viewerID int64, input CommentInput) (int64, error) {
