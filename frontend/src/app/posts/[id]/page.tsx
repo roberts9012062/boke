@@ -13,6 +13,7 @@ import { CommentSection } from "@/components/comment-section";
 import { DesktopNav } from "@/components/desktop-nav";
 import { Lightbox } from "@/components/lightbox";
 import { MobileTabbar } from "@/components/mobile-tabbar";
+import PluginSlot from "@/components/plugin-slot";
 import { ReportDialog } from "@/components/report-dialog";
 import { SharePanel } from "@/components/share-panel";
 import {
@@ -327,6 +328,8 @@ export default function PostDetailPage() {
             <div className="mt-6">
               <CommentSection postId={postId} initialCount={post.comment_count} />
             </div>
+            {/* 插件扩展点：post.footer（M3.6，文章页脚） */}
+            <PluginSlot slot="post.footer" />
           </>
         )}
       </main>

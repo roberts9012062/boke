@@ -739,6 +739,11 @@ export function apiPluginOAuthStatus(): Promise<{ status: PluginOAuthStatus }> {
   return get<{ status: PluginOAuthStatus }>("/plugin-oauth/status");
 }
 
+// 前台插件扩展清单（M3.6：公开——页面槽位加载 running 且含前端资产的插件，未登录可用）。
+export function apiPluginExtensions(): Promise<{ items: { plugin_id: string; name: string }[] }> {
+  return get<{ items: { plugin_id: string; name: string }[] }>("/plugin-extensions");
+}
+
 // 发起 GitHub 连接（返回跳转 URL）。
 export function apiPluginOAuthAuthorize(): Promise<{ enabled: boolean; url?: string }> {
   return get<{ enabled: boolean; url?: string }>("/plugin-oauth/authorize");

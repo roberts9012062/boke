@@ -8,7 +8,11 @@ package handler
 import (
 	"io"
 	"net/http"
+	"os"
+	"path"
+	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -148,6 +152,46 @@ func (h *PluginHandler) Upload(c *gin.Context) {
 		return
 	}
 	resp.OK(c, gin.H{"installed": true, "name": header.Filename})
+}
+
+// Extensions 前台插件扩展清单（GET /api/v1/plugin-extensions，公开，M3.6）。
+// 说明：页面槽位加载插件扩展用（公开接口避免前台未登录 401）；返回 running 且含前端资产的插件。
+func (h *PluginHandler) Extensions(c *gin.Context) {
+	items, err := h.plugins.FrontendExtensions(c.Request.Context())
+	if err != nil {
+		resp.FailFrom(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"items": items})
+}
+
+// Asset 插件前端资源静态服务（GET /plugin-assets/:id/*filepath，M3.6）。
+// 说明：公开访问（页面渲染时无需登录）；资源已在安装时 checksums 全量校验（落盘即可信）；
+//       pluginID 白名单 + 路径前缀校验防穿越（binstore.Dir 同源）。
+func (h *PluginHandler) Asset(c *gin.Context) {
+	pluginID := c.Param("id")
+	relPath := c.Param("filepath")
+	baseDir := h.plugins.AssetDir(pluginID) // 空=ID 不合法
+	if baseDir == "" {
+		resp.Fail(c, 404, errs.ErrNotFound)
+		return
+	}
+	// 路径安全：URL 语义 Clean（消除 ../）→ 转平台路径 → 前缀校验（拒绝逃逸插件目录）
+	clean := path.Clean(relPath)
+	if clean == "." || clean == "/" {
+		clean = "index.html" // 目录访问默认首页（iframe 沙箱入口）
+	}
+	clean = strings.TrimPrefix(clean, "/")
+	target := filepath.Join(baseDir, filepath.FromSlash(clean))
+	if !strings.HasPrefix(target, baseDir+string(os.PathSeparator)) {
+		resp.Fail(c, 404, errs.ErrNotFound)
+		return
+	}
+	if _, err := os.Stat(target); err != nil {
+		resp.Fail(c, 404, errs.ErrNotFound)
+		return
+	}
+	c.File(target)
 }
 
 // ActivateLicense 激活许可证（POST /api/v1/admin/plugins/:id/license，body: {license_jwt}，M3.5）。

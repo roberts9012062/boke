@@ -58,6 +58,9 @@ func Register(cfg config.Config, logger *zap.Logger, handlers Handlers, jwtMgr *
 	})
 	// 媒体静态服务：/media/202608/xxx.jpg（data/media 目录）
 	engine.StaticFS("/media", http.Dir(cfg.DataDir+"/media"))
+	// 插件前端资源静态服务（M3.6：/plugin-assets/{id}/frontend/*，公开——页面渲染时无需登录；
+	// 资源安装时已 checksums 全量校验；独立前缀避免与 /api/v1/plugins/:id 通配冲突）
+	engine.GET("/plugin-assets/:id/*filepath", handlers.Plugin.Asset)
 	// SEO 公开端点（M4）：sitemap.xml / robots.txt
 	engine.GET("/sitemap.xml", handlers.Seo.Sitemap)
 	engine.GET("/robots.txt", handlers.Seo.Robots)
@@ -66,6 +69,8 @@ func Register(cfg config.Config, logger *zap.Logger, handlers Handlers, jwtMgr *
 	api := engine.Group("/api/v1")
 	// 全站维护中间件（M2）：维护开关开启时拦截前台 API，放行后台/认证/meta
 	api.Use(middleware.Maintenance(handlers.Site.MaintenanceMode))
+	// 前台插件扩展清单（M3.6：公开——页面槽位加载插件扩展；独立前缀避免与 /plugins/:id 参数段冲突）
+	api.GET("/plugin-extensions", handlers.Plugin.Extensions)
 	registerV1(api, handlers, jwtMgr, enforcer)
 
 	return engine

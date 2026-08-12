@@ -11,6 +11,8 @@ import { useState } from "react";
 import { ThemeToggle } from "./theme-toggle";
 // UserMenu 用户菜单（登录态/登录入口）。
 import { UserMenu } from "./user-menu";
+// PluginSlot 插件扩展点槽位（M3.6：theme.header 注入点）。
+import PluginSlot from "./plugin-slot";
 
 // DesktopNav 桌面端顶部导航（仅 ≥768px 显示，移动端用 MobileTabbar）。
 // M1.7：搜索框可交互（回车跳转 /search?q=，与搜索页 URL 参数联动）。
@@ -67,6 +69,8 @@ export function DesktopNav() {
             />
           </div>
           <ThemeToggle />
+          {/* 插件扩展点：theme.header（M3.6，主题页头右侧） */}
+          <PluginSlot slot="theme.header" />
           <Link
             href="/compose"
             className="hidden rounded-full bg-accent px-5 py-2 text-sm font-medium text-on-accent transition-opacity hover:opacity-90 md:block"

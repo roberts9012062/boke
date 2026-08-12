@@ -107,6 +107,15 @@ def upload_bpk(token, bpk_path):
         return json.loads(e.read().decode())
 
 
+def call_public(path):
+    """公开端点请求（无凭证，返回原始文本；M3.6 assets 静态服务验证）。"""
+    try:
+        with urllib.request.urlopen("http://localhost:8080" + path, timeout=10) as r:
+            return r.read().decode()
+    except urllib.error.HTTPError as e:
+        return e.read().decode()
+
+
 def login(account, password="Yueyan2026"):
     r = call("POST", "/auth/login", {"account": account, "password": password})
     token = (r.get("data") or {}).get("access_token", "")
@@ -239,6 +248,14 @@ def main():
     assert_true(wait_ping(token), "安装即启用：插件进程拉起（自定义 API 可访问）")
     inst = installed_item(token)
     assert_true(inst and inst["state"] == "running", f"安装后状态 running（实际 {inst and inst['state']}）")
+
+    # ---------- 2.3 前端扩展资产静态服务（M3.6：/plugin-assets） ----------
+    body = call_public("/plugin-assets/demo-plugin/frontend/manifest.json")
+    assert_true('"post.footer"' in body, "assets 静态服务：frontend/manifest.json 可访问（含 post.footer 声明）")
+    body = call_public("/plugin-assets/demo-plugin/frontend/index.js")
+    assert_true("export default function register" in body, "assets 静态服务：frontend/index.js 可访问（ESM register 契约）")
+    body = call_public("/plugin-assets/demo-plugin/../../etc/passwd")
+    assert_true("资源不存在" in body or "page not found" in body, "assets 路径穿越拒绝（/plugin-assets/../ 逃逸 404）")
 
     # ---------- 2.5 许可证链路（M3.5：demo 模式 → 签发 → 激活 → pro → 篡改/过期拒绝） ----------
     inst = installed_item(token)

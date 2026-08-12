@@ -10,6 +10,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { NavIcon } from "@/components/admin/nav-icons";
+import PluginSlot from "@/components/plugin-slot";
 import { apiInstalledPlugins } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { canAccessAdmin, isSuperAdmin } from "@/lib/rbac";
@@ -185,6 +186,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                     </Link>
                   );
                 })}
+                {/* 插件扩展点：admin.menu（M3.6，侧栏菜单区） */}
+                <PluginSlot slot="admin.menu" />
               </div>
             )}
           </div>

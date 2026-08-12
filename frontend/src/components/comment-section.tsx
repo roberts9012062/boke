@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { CommentItem } from "@/components/comment-item";
+import PluginSlot from "@/components/plugin-slot";
 import { apiComments, apiCreateComment, apiReplyComment, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { clearGuest, ensureGuest, readGuest } from "@/lib/guest";
@@ -266,6 +267,8 @@ export function CommentSection({ postId, initialCount = 0 }: { postId: number; i
           </div>
         ))}
       </div>
+      {/* 插件扩展点：comment.footer（M3.6；差异记录：文档为单条评论下方，先挂评论区底部） */}
+      <PluginSlot slot="comment.footer" />
     </section>
   );
 }

@@ -8,6 +8,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/roberts9012062/boke/internal/plugin"
@@ -75,6 +77,44 @@ func (s *PluginService) PluginIDByInstance(ctx context.Context, instanceID int64
 		return "", errs.ErrNotFound
 	}
 	return inst.PluginID, nil
+}
+
+// AssetDir 插件前端资源根目录（M3.6：/plugin-assets 静态服务用；ID 不合法返回空）。
+func (s *PluginService) AssetDir(pluginID string) string {
+	if s.store == nil {
+		return ""
+	}
+	return s.store.Dir(pluginID)
+}
+
+// FrontendExtensionDTO 前台插件扩展项（公开接口返回：running 且含前端资产的插件）。
+type FrontendExtensionDTO struct {
+	PluginID string `json:"plugin_id"` // 插件 ID
+	Name     string `json:"name"`      // 插件名称
+}
+
+// FrontendExtensions 前台插件扩展清单（公开：页面槽位加载插件扩展用）。
+// 说明：仅返回 running 且解包目录含 frontend/manifest.json 的插件（扩展点声明入口）。
+func (s *PluginService) FrontendExtensions(ctx context.Context) ([]FrontendExtensionDTO, error) {
+	if s.store == nil {
+		return []FrontendExtensionDTO{}, nil
+	}
+	installed, err := s.plugs.ListInstalled(ctx)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]FrontendExtensionDTO, 0, len(installed))
+	for _, inst := range installed {
+		if inst.State != PluginRunning {
+			continue
+		}
+		// 前端扩展点声明存在（安装解包落盘，checksums 已校验）
+		manifestPath := filepath.Join(s.store.Dir(inst.PluginID), "frontend", "manifest.json")
+		if _, err := os.Stat(manifestPath); err == nil {
+			items = append(items, FrontendExtensionDTO{PluginID: inst.PluginID, Name: inst.Name})
+		}
+	}
+	return items, nil
 }
 
 // PluginManagerEvents 进程管理器事件落库实现（独立类型避免 service↔manager 装配循环）。

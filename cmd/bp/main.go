@@ -37,8 +37,8 @@ type pluginManifest struct {
 	} `json:"author"`
 }
 
-// pack 打包子命令（单平台 .bpk；-pubkey 付费插件公钥入包，M3.5）。
-func pack(pluginPath string, binPath string, pubkeyPath string, goos string, goarch string, version string, outDir string) error {
+// pack 打包子命令（单平台 .bpk；-pubkey 付费插件公钥入包，M3.5；-frontend 前端扩展资产入包，M3.6）。
+func pack(pluginPath string, binPath string, pubkeyPath string, frontendDir string, goos string, goarch string, version string, outDir string) error {
 	// 读取插件清单（id/name/version/author/description/sdk）
 	raw, err := os.ReadFile(pluginPath)
 	if err != nil {
@@ -74,6 +74,13 @@ func pack(pluginPath string, binPath string, pubkeyPath string, goos string, goa
 		files[bpkg.PubkeyName] = pubkey
 	}
 
+	// 前端扩展资产入包（frontend/*，M3.6：扩展点声明 + ESM 模块 + 样式）
+	if frontendDir != "" {
+		if err := collectDir(files, frontendDir, "frontend"); err != nil {
+			return err
+		}
+	}
+
 	// 打包
 	content, err := bpkg.Pack(bpkg.Manifest{
 		ID: pm.ID, Name: pm.Name, Version: version,
@@ -91,12 +98,38 @@ func pack(pluginPath string, binPath string, pubkeyPath string, goos string, goa
 	if err := os.WriteFile(outPath, content, 0o644); err != nil {
 		return fmt.Errorf("写入安装包失败：%w", err)
 	}
-	fmt.Printf("[成功] 打包完成：%s（%d 字节，%s）\n", outPath, len(content), func() string {
-		if pubkeyPath != "" {
-			return "含许可证公钥"
+	extra := "免费插件"
+	if pubkeyPath != "" {
+		extra = "含许可证公钥"
+	}
+	if frontendDir != "" {
+		extra += " + 前端扩展"
+	}
+	fmt.Printf("[成功] 打包完成：%s（%d 字节，%s）\n", outPath, len(content), extra)
+	return nil
+}
+
+// collectDir 递归收集目录文件到包条目（prefix 为包内前缀，如 "frontend"）。
+func collectDir(files map[string][]byte, dir string, prefix string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return fmt.Errorf("读取前端资产目录失败：%w", err)
+	}
+	for _, entry := range entries {
+		rel := filepath.Join(prefix, entry.Name())
+		full := filepath.Join(dir, entry.Name())
+		if entry.IsDir() {
+			if err := collectDir(files, full, rel); err != nil {
+				return err
+			}
+			continue
 		}
-		return "免费插件"
-	}())
+		content, err := os.ReadFile(full)
+		if err != nil {
+			return fmt.Errorf("读取前端资产失败（%s）：%w", full, err)
+		}
+		files[filepath.ToSlash(rel)] = content
+	}
 	return nil
 }
 
@@ -110,6 +143,7 @@ func main() {
 	pluginPath := fs.String("plugin", "yueyan-plugin.json", "插件清单路径（仓库根目录）")
 	binPath := fs.String("bin", "plugin.bin", "插件二进制路径")
 	pubkeyPath := fs.String("pubkey", "", "许可证公钥路径（付费插件必带，M3.5）")
+	frontendDir := fs.String("frontend", "", "前端扩展资产目录（frontend/，M3.6）")
 	goos := fs.String("os", runtime.GOOS, "目标平台 OS（linux/darwin/windows）")
 	goarch := fs.String("arch", runtime.GOARCH, "目标平台架构（amd64/arm64）")
 	version := fs.String("version", "", "版本号（缺省取清单 version）")
@@ -117,7 +151,7 @@ func main() {
 	if err := fs.Parse(args); err != nil {
 		os.Exit(1)
 	}
-	if err := pack(*pluginPath, *binPath, *pubkeyPath, *goos, *goarch, *version, *outDir); err != nil {
+	if err := pack(*pluginPath, *binPath, *pubkeyPath, *frontendDir, *goos, *goarch, *version, *outDir); err != nil {
 		fmt.Printf("[失败] %v\n", err)
 		os.Exit(1)
 	}

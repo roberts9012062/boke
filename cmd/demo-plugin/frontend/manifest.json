@@ -1,0 +1,5 @@
+{
+  "extensionPoints": [
+    { "slot": "post.footer", "entry": "index.js" }
+  ]
+}
