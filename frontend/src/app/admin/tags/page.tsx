@@ -16,6 +16,7 @@ import {
   type AdminTagItem,
 } from "@/lib/api";
 import { formatDateTime, timeAgo } from "@/lib/utils";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 // 热度档（设计稿：高/中/闲置；口径：帖数 ≥50 高 / ≥10 中 / 0 闲置 / 其余低）。
 function hotLevel(count: number): string {
@@ -38,6 +39,9 @@ export default function AdminTags() {
   });
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string>("");
+  // 删除确认弹窗（取代 window.confirm——设计稿「确认弹窗」风格）
+  const [confirmItem, setConfirmItem] = useState<AdminTagItem | null>(null);
+  const [deleting, setDeleting] = useState<boolean>(false);
 
   // 重命名弹层
   const [renameTarget, setRenameTarget] = useState<AdminTagItem | null>(null);
@@ -120,17 +124,25 @@ export default function AdminTags() {
     }
   };
 
-  // 删除标签（二次确认）
+  // 删除标签（二次确认弹窗；提示解除关联的影响）
   const handleDelete = async (tag: AdminTagItem) => {
-    if (!window.confirm(`确定删除标签「#${tag.name}」？将解除 ${tag.post_count} 篇帖子的关联`)) {
-      return;
-    }
+    setConfirmItem(tag); // 打开确认弹窗（设计稿「确认弹窗」风格）
+  };
+
+  // 确认删除（弹窗确认后执行）
+  const confirmDelete = async () => {
+    if (!confirmItem) return;
+    setDeleting(true);
     setError("");
     try {
-      await apiAdminDeleteTag(tag.id);
+      await apiAdminDeleteTag(confirmItem.id);
       refresh();
+      setConfirmItem(null);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "删除失败");
+      setConfirmItem(null);
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -372,6 +384,18 @@ export default function AdminTags() {
           </div>
         </div>
       )}
+
+      {/* 删除确认弹窗（设计稿「确认弹窗」：问句标题 + 影响提示 + 取消/删除） */}
+      <ConfirmDialog
+        open={confirmItem !== null}
+        title={`删除标签「#${confirmItem?.name ?? ""}」？`}
+        description={`将解除 ${confirmItem?.post_count ?? 0} 篇帖子的关联，删除后无法恢复。`}
+        confirmText="删除"
+        danger
+        loading={deleting}
+        onConfirm={() => void confirmDelete()}
+        onClose={() => setConfirmItem(null)}
+      />
     </div>
   );
 }

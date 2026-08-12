@@ -17,6 +17,8 @@ import {
 import { ApiError } from "@/lib/api";
 import { Modal } from "@/components/ui/modal";
 import { Switch } from "@/components/ui/switch";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { toast } from "@/components/ui/toast";
 
 // 空表单初始值（新增弹层）。
 const EMPTY_FORM: AiProviderInput = {
@@ -37,6 +39,9 @@ export function ProvidersTab() {
   const [modelsText, setModelsText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // 删除确认弹窗（取代 window.confirm——设计稿「确认弹窗」风格）
+  const [confirmItem, setConfirmItem] = useState<AiProviderDTO | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   // 加载供应商列表
   useEffect(() => {
@@ -98,28 +103,38 @@ export function ProvidersTab() {
     }
   };
 
-  // 测试连接
+  // 测试连接（结果 Toast 提示——取代 alert 系统弹窗）
   const handleTest = async (p: AiProviderDTO) => {
     setError("");
     setBusy(true);
     try {
       const r = await apiAiTestProvider(p.id);
-      alert(`「${p.name}」${r.message}`);
+      toast.success(`「${p.name}」${r.message}`);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "连接失败");
+      toast.error(err instanceof ApiError ? err.message : "连接失败");
     } finally {
       setBusy(false);
     }
   };
 
-  // 删除供应商（确认后执行）
+  // 删除供应商（确认弹窗后执行）
   const handleDelete = async (p: AiProviderDTO) => {
-    if (!confirm(`确认删除供应商「${p.name}」？引用它的任务将自动恢复自动路由。`)) return;
+    setConfirmItem(p); // 打开确认弹窗
+  };
+
+  // 确认删除（弹窗确认后执行）
+  const confirmDelete = async () => {
+    if (!confirmItem) return;
+    setDeleting(true);
     try {
-      await apiAiDeleteProvider(p.id);
-      setItems((prev) => prev.filter((x) => x.id !== p.id));
+      await apiAiDeleteProvider(confirmItem.id);
+      setItems((prev) => prev.filter((x) => x.id !== confirmItem.id));
+      setConfirmItem(null);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "删除失败");
+      setConfirmItem(null);
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -275,6 +290,18 @@ export function ProvidersTab() {
           </div>
         </div>
       </Modal>
+
+      {/* 删除确认弹窗（设计稿「确认弹窗」：问句标题 + 影响提示 + 取消/删除） */}
+      <ConfirmDialog
+        open={confirmItem !== null}
+        title={`删除供应商「${confirmItem?.name ?? ""}」？`}
+        description="引用它的任务将自动恢复自动路由。删除后无法恢复。"
+        confirmText="删除"
+        danger
+        loading={deleting}
+        onConfirm={() => void confirmDelete()}
+        onClose={() => setConfirmItem(null)}
+      />
     </div>
   );
 }

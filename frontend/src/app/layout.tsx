@@ -8,6 +8,7 @@ import { ThemeProvider } from "@/lib/theme";
 import { AppearanceProvider } from "@/lib/appearance";
 import { MaintenanceGate } from "@/components/maintenance-gate";
 import { OfflineOverlay } from "@/components/ui/offline";
+import { ToastContainer } from "@/components/ui/toast";
 
 // 站点元信息（与设计稿/seed 站点名一致：月言）
 export const metadata: Metadata = {
@@ -27,6 +28,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <MaintenanceGate>
                 {children}
                 <OfflineOverlay />
+                {/* Toast 提示容器（全站统一，取代 alert 系统弹窗） */}
+                <ToastContainer />
               </MaintenanceGate>
             </AuthProvider>
           </AppearanceProvider>

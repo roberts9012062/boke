@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 
 import { apiAdminDeletePost, apiAdminSetPostStatus, apiSaveSeoMeta, apiSeoMeta, ApiError } from "@/lib/api";
 import { AiSummary } from "@/components/admin/ai/ai-summary";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { formatCompact, formatDateTime } from "@/lib/utils";
 import type { AdminPostDetail } from "@/types/api";
 
@@ -41,6 +42,9 @@ export function PostEditPanel({
   const [seoLoaded, setSeoLoaded] = useState<boolean>(false);
   const [seoSaved, setSeoSaved] = useState<boolean>(false);
   const [seoError, setSeoError] = useState<string>("");
+  // 删除确认弹窗（取代 window.confirm——设计稿「确认弹窗」风格）
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState<boolean>(false);
+  const [deleting, setDeleting] = useState<boolean>(false);
 
   // 加载帖子 SEO 元数据（设计稿：SEO 标题/描述/本帖 SEO）
   useEffect(() => {
@@ -79,14 +83,20 @@ export function PostEditPanel({
     onChanged();
   };
 
-  // 删除帖子（二次确认）
+  // 删除帖子（二次确认弹窗）
   const handleDelete = async () => {
-    if (!window.confirm("确定删除该帖子？删除后不可恢复")) {
-      return;
+    setConfirmDeleteOpen(true); // 打开确认弹窗
+  };
+
+  // 确认删除（弹窗确认后执行；删除后跳回内容管理列表）
+  const confirmDelete = async () => {
+    setDeleting(true);
+    try {
+      await apiAdminDeletePost(detail.id);
+      window.location.href = "/admin/posts";
+    } finally {
+      setDeleting(false);
     }
-    await apiAdminDeletePost(detail.id);
-    // 删除后跳回内容管理列表
-    window.location.href = "/admin/posts";
   };
 
   return (
@@ -237,6 +247,18 @@ export function PostEditPanel({
           </button>
         </div>
       </section>
+
+      {/* 删除确认弹窗（设计稿「确认弹窗」：问句标题 + 影响提示 + 取消/删除） */}
+      <ConfirmDialog
+        open={confirmDeleteOpen}
+        title={`删除「${detail.title || "这篇帖子"}」？`}
+        description="删除后无法恢复，关联评论将一并隐藏。"
+        confirmText="删除"
+        danger
+        loading={deleting}
+        onConfirm={() => void confirmDelete()}
+        onClose={() => setConfirmDeleteOpen(false)}
+      />
     </div>
   );
 }

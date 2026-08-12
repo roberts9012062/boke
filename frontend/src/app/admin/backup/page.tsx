@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import { BackupForm } from "@/components/admin/backup/backup-form";
 import { apiBackupDownload, apiBackups, apiDeleteBackup, type BackupDTO } from "@/lib/api-report";
 import { formatDateTime } from "@/lib/utils";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 // 备份类型文案（设计稿：全站数据 · 媒体库）。
 const TYPE_LABEL: Record<string, string> = { all: "全站数据", media: "媒体库" };
@@ -28,6 +29,9 @@ export default function BackupPage() {
   const [items, setItems] = useState<BackupDTO[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState("");
+  // 删除确认弹窗（取代 window.confirm——设计稿「确认弹窗」风格）
+  const [confirmItem, setConfirmItem] = useState<BackupDTO | null>(null);
+  const [deleting, setDeleting] = useState<boolean>(false);
 
   // 加载备份记录列表
   const loadList = () => {
@@ -47,16 +51,24 @@ export default function BackupPage() {
     }
   };
 
-  // 删除备份（二次确认）
+  // 删除备份（二次确认弹窗）
   const handleDelete = async (item: BackupDTO) => {
-    if (!confirm(`确认删除备份「${item.file_name}」？删除后不可恢复。`)) {
-      return;
-    }
+    setConfirmItem(item); // 打开确认弹窗（设计稿「确认弹窗」风格）
+  };
+
+  // 确认删除（弹窗确认后执行）
+  const confirmDelete = async () => {
+    if (!confirmItem) return;
+    setDeleting(true);
     try {
-      await apiDeleteBackup(item.id);
-      setItems((prev) => prev.filter((x) => x.id !== item.id));
+      await apiDeleteBackup(confirmItem.id);
+      setItems((prev) => prev.filter((x) => x.id !== confirmItem.id));
+      setConfirmItem(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "删除失败");
+      setConfirmItem(null);
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -141,6 +153,18 @@ export default function BackupPage() {
           )}
         </div>
       </div>
+
+      {/* 删除确认弹窗（设计稿「确认弹窗」：问句标题 + 影响提示 + 取消/删除） */}
+      <ConfirmDialog
+        open={confirmItem !== null}
+        title={`删除「${confirmItem?.file_name ?? ""}」？`}
+        description="删除后无法恢复。"
+        confirmText="删除"
+        danger
+        loading={deleting}
+        onConfirm={() => void confirmDelete()}
+        onClose={() => setConfirmItem(null)}
+      />
     </div>
   );
 }

@@ -18,6 +18,8 @@ import {
 import { apiAiReviewComments } from "@/lib/api-ai";
 import { timeAgo } from "@/lib/utils";
 import type { AdminComment } from "@/types/api";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { toast } from "@/components/ui/toast";
 
 // AdminComments 评论管理。
 export default function AdminComments() {
@@ -31,6 +33,9 @@ export default function AdminComments() {
     hidden: 0,
   });
   const [loading, setLoading] = useState<boolean>(true);
+  // 删除确认弹窗（取代 window.confirm——设计稿「确认弹窗」风格）
+  const [confirmItem, setConfirmItem] = useState<AdminComment | null>(null);
+  const [deleting, setDeleting] = useState<boolean>(false);
 
   // 加载统计条（设计稿：全部评论 / 今日新增 / 已屏蔽）
   useEffect(() => {
@@ -58,14 +63,24 @@ export default function AdminComments() {
     apiAdminCommentStats().then(setStats).catch(() => undefined);
   };
 
-  // 删除（二次确认）
-  const handleDelete = async (commentId: number) => {
-    if (!window.confirm("确定删除该评论？")) {
-      return;
+  // 删除（二次确认弹窗）
+  const handleDelete = async (comment: AdminComment) => {
+    setConfirmItem(comment); // 打开确认弹窗（设计稿「确认弹窗」风格）
+  };
+
+  // 确认删除（弹窗确认后执行）
+  const confirmDelete = async () => {
+    if (!confirmItem) return;
+    setDeleting(true);
+    try {
+      await apiAdminDeleteComment(confirmItem.id);
+      setItems((prev) => prev.filter((c) => c.id !== confirmItem.id));
+      apiAdminCommentStats().then(setStats).catch(() => undefined);
+    } finally {
+      // 成功/失败均关闭弹窗并复位删除状态（错误保持原有向上抛出的行为）
+      setConfirmItem(null);
+      setDeleting(false);
     }
-    await apiAdminDeleteComment(commentId);
-    setItems((prev) => prev.filter((c) => c.id !== commentId));
-    apiAdminCommentStats().then(setStats).catch(() => undefined);
   };
 
   // AI 审核单条评论（M4 手动兜底：高风险自动隐藏并进审核队列，刷新列表反映状态变化）
@@ -73,7 +88,7 @@ export default function AdminComments() {
     try {
       const r = await apiAiReviewComments([commentId]);
       const msg = r.failed > 0 ? `审核完成，${r.failed} 条失败` : "AI 审核完成（高风险评论已隐藏并进入审核队列）";
-      alert(msg);
+      toast.success(msg);
       // 重新加载列表与统计（隐藏状态会变化）
       apiAdminComments({ status: status || undefined, q: keyword || undefined })
         .then((res) => {
@@ -83,7 +98,7 @@ export default function AdminComments() {
         .catch(() => undefined);
       apiAdminCommentStats().then(setStats).catch(() => undefined);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "AI 审核失败");
+      toast.error(err instanceof ApiError ? err.message : "AI 审核失败");
     }
   };
 
@@ -190,7 +205,7 @@ export default function AdminComments() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => void handleDelete(comment.id)}
+                      onClick={() => void handleDelete(comment)}
                       className="text-like hover:underline"
                     >
                       删除
@@ -205,6 +220,18 @@ export default function AdminComments() {
           <p className="py-12 text-center text-sm text-ink-3">没有匹配的评论</p>
         )}
       </div>
+
+      {/* 删除确认弹窗（设计稿「确认弹窗」：问句标题 + 影响提示 + 取消/删除） */}
+      <ConfirmDialog
+        open={confirmItem !== null}
+        title="删除该评论？"
+        description="删除后无法恢复。"
+        confirmText="删除"
+        danger
+        loading={deleting}
+        onConfirm={() => void confirmDelete()}
+        onClose={() => setConfirmItem(null)}
+      />
     </div>
   );
 }

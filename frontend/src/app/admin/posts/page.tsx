@@ -11,6 +11,7 @@ import { useEffect, useState } from "react";
 import { apiAdminDeletePost, apiAdminPosts, apiAdminSetPostStatus, apiDashboard } from "@/lib/api";
 import { formatDateTime } from "@/lib/utils";
 import type { AdminPost } from "@/types/api";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 // 类型/状态文案映射
 const TYPE_LABEL: Record<string, string> = { text: "文字", image: "图片", audio: "音频", video: "视频" };
@@ -48,6 +49,9 @@ export default function AdminPosts() {
   const [keyword, setKeyword] = useState<string>("");
   const [typeCounts, setTypeCounts] = useState<Record<string, number>>({}); // 类型计数（全局，走查纠偏）
   const [loading, setLoading] = useState<boolean>(true);
+  // 删除确认弹窗（取代 window.confirm——设计稿「确认弹窗」风格）
+  const [confirmItem, setConfirmItem] = useState<AdminPost | null>(null);
+  const [deleting, setDeleting] = useState<boolean>(false);
 
   // 类型计数（内容分布接口，全局口径）
   useEffect(() => {
@@ -76,13 +80,25 @@ export default function AdminPosts() {
     setItems((prev) => prev.map((p) => (p.id === post.id ? { ...p, status: next } : p)));
   };
 
-  // 删除（二次确认）
+  // 删除（二次确认弹窗）
   const handleDelete = async (postId: number) => {
-    if (!window.confirm("确定删除该帖子？删除后不可恢复")) {
-      return;
+    // 打开确认弹窗（从当前列表中找到对应帖子）
+    setConfirmItem(items.find((p) => p.id === postId) ?? null);
+  };
+
+  // 确认删除（弹窗确认后执行）
+  const confirmDelete = async () => {
+    if (!confirmItem) return;
+    setDeleting(true);
+    try {
+      await apiAdminDeletePost(confirmItem.id);
+      setItems((prev) => prev.filter((p) => p.id !== confirmItem.id));
+      setConfirmItem(null);
+    } catch {
+      setConfirmItem(null);
+    } finally {
+      setDeleting(false);
     }
-    await apiAdminDeletePost(postId);
-    setItems((prev) => prev.filter((p) => p.id !== postId));
   };
 
   // 分页（总页数）
@@ -255,6 +271,18 @@ export default function AdminPosts() {
           </div>
         </div>
       )}
+
+      {/* 删除确认弹窗（设计稿「确认弹窗」：问句标题 + 影响提示 + 取消/删除） */}
+      <ConfirmDialog
+        open={confirmItem !== null}
+        title={`删除「${confirmItem?.title ?? ""}」？`}
+        description="删除后无法恢复。"
+        confirmText="删除"
+        danger
+        loading={deleting}
+        onConfirm={() => void confirmDelete()}
+        onClose={() => setConfirmItem(null)}
+      />
     </div>
   );
 }

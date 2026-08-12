@@ -14,6 +14,7 @@ import {
   type AdminMediaItem,
 } from "@/lib/api";
 import { formatDateTime } from "@/lib/utils";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 // 类型文案（设计稿：图片/音频/视频）
 const TYPE_LABEL: Record<string, string> = { image: "图片", audio: "音频", video: "视频" };
@@ -42,6 +43,9 @@ export default function AdminMedia() {
   // 预览弹层
   const [preview, setPreview] = useState<AdminMediaItem | null>(null);
   const [error, setError] = useState<string>("");
+  // 删除确认弹窗（取代 window.confirm——设计稿「确认弹窗」风格）
+  const [confirmItem, setConfirmItem] = useState<AdminMediaItem | null>(null);
+  const [deleting, setDeleting] = useState<boolean>(false);
 
   // 加载统计条（设计稿：全部文件/图片/音频/视频）
   useEffect(() => {
@@ -60,19 +64,26 @@ export default function AdminMedia() {
       .finally(() => setLoading(false));
   }, [type, keyword]);
 
-  // 删除（二次确认；被引用时提示影响）
+  // 删除（二次确认弹窗；被引用时提示影响）
   const handleDelete = async (item: AdminMediaItem) => {
-    const hint = item.ref_count > 0 ? `该文件被 ${item.ref_count} 篇帖子引用，删除后将自动解除引用。` : "";
-    if (!window.confirm(`确定删除「${item.file_name}」？${hint}删除后不可恢复`)) {
-      return;
-    }
+    setConfirmItem(item); // 打开确认弹窗（设计稿「确认弹窗」风格）
+  };
+
+  // 确认删除（弹窗确认后执行）
+  const confirmDelete = async () => {
+    if (!confirmItem) return;
+    setDeleting(true);
     setError("");
     try {
-      await apiAdminDeleteMedia(item.id);
-      setItems((prev) => prev.filter((x) => x.id !== item.id));
+      await apiAdminDeleteMedia(confirmItem.id);
+      setItems((prev) => prev.filter((x) => x.id !== confirmItem.id));
       apiAdminMediaStats().then(setStats).catch(() => undefined);
+      setConfirmItem(null);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "删除失败");
+      setConfirmItem(null);
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -219,6 +230,18 @@ export default function AdminMedia() {
           </div>
         </div>
       )}
+
+      {/* 删除确认弹窗（设计稿「确认弹窗」：问句标题 + 影响提示 + 取消/删除） */}
+      <ConfirmDialog
+        open={confirmItem !== null}
+        title={`删除「${confirmItem?.file_name ?? ""}」？`}
+        description={`${confirmItem && confirmItem.ref_count > 0 ? `该文件被 ${confirmItem.ref_count} 篇帖子引用，删除后将自动解除引用。` : ""}删除后无法恢复。`}
+        confirmText="删除"
+        danger
+        loading={deleting}
+        onConfirm={() => void confirmDelete()}
+        onClose={() => setConfirmItem(null)}
+      />
     </div>
   );
 }

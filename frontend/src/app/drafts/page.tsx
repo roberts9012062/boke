@@ -11,6 +11,7 @@ import { DesktopNav } from "@/components/desktop-nav";
 import { MobileTabbar } from "@/components/mobile-tabbar";
 import { apiDeletePost, apiDrafts } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import type { PostSummary } from "@/types/api";
 
 // 类型徽标文案（设计稿：文字/图片/音频）
@@ -28,17 +29,28 @@ export default function DraftsPage() {
   const [drafts, setDrafts] = useState<PostSummary[]>([]);
   const [loaded, setLoaded] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
+  // 删除确认弹窗（取代 window.confirm——设计稿「确认弹窗」风格）
+  const [confirmId, setConfirmId] = useState<number | null>(null);
+  const [deleting, setDeleting] = useState<boolean>(false);
 
   // 删除草稿（设计稿《草稿箱》：删除 + 继续编辑；走查纠偏补）
   const handleDelete = async (id: number) => {
-    if (!window.confirm("确定删除该草稿？删除后不可恢复")) {
-      return;
-    }
+    setConfirmId(id); // 打开确认弹窗
+  };
+
+  // 确认删除（弹窗确认后执行）
+  const confirmDelete = async () => {
+    if (confirmId === null) return;
+    setDeleting(true);
     try {
-      await apiDeletePost(id);
-      setDrafts((prev) => prev.filter((d) => d.id !== id));
+      await apiDeletePost(confirmId);
+      setDrafts((prev) => prev.filter((d) => d.id !== confirmId));
+      setConfirmId(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "删除失败");
+      setConfirmId(null);
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -126,6 +138,18 @@ export default function DraftsPage() {
         )}
       </main>
       <MobileTabbar />
+
+      {/* 删除确认弹窗（设计稿「确认弹窗」：问句标题 + 影响提示 + 取消/删除） */}
+      <ConfirmDialog
+        open={confirmId !== null}
+        title="删除这篇草稿？"
+        description="删除后无法恢复。"
+        confirmText="删除"
+        danger
+        loading={deleting}
+        onConfirm={() => void confirmDelete()}
+        onClose={() => setConfirmId(null)}
+      />
     </div>
   );
 }

@@ -15,6 +15,7 @@ import {
   type ReportDTO,
 } from "@/lib/api";
 import { formatDuration } from "@/lib/utils";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 // 状态文案（附录 B 状态字典）
 const STATUS_LABEL: Record<string, string> = {
@@ -37,6 +38,9 @@ export default function AuditPage() {
   const [stats, setStats] = useState<{ pending: number; high_risk: number; resolved_today: number; avg_cost_seconds: number } | null>(null);
   const [filter, setFilter] = useState<string>(""); // 空=全部；pending/resolved/rejected
   const [loaded, setLoaded] = useState<boolean>(false);
+  // 删除确认弹窗（取代 window.confirm——设计稿「确认弹窗」风格）
+  const [confirmItem, setConfirmItem] = useState<ReportDTO | null>(null);
+  const [deleting, setDeleting] = useState<boolean>(false);
 
   // 加载统计（待处理全量 + 今日已审 + 高风险）
   const loadStats = () => {
@@ -76,12 +80,29 @@ export default function AuditPage() {
 
   // 复核 AI 工单（放行/删除；M4：仅 AI 来源工单显示此操作）
   const handleVerdict = async (report: ReportDTO, action: "allow" | "delete") => {
-    if (action === "delete" && !confirm("确认删除该评论？删除后不可恢复")) {
+    if (action === "delete") {
+      setConfirmItem(report); // 删除需二次确认（设计稿「确认弹窗」风格）
       return;
     }
     await apiAdminVerdictReport(report.id, action);
     setItems((prev) => prev.map((x) => (x.id === report.id ? { ...x, status: "resolved" } : x)));
     loadStats();
+  };
+
+  // 确认删除（弹窗确认后执行）
+  const confirmDelete = async () => {
+    if (!confirmItem) return;
+    setDeleting(true);
+    try {
+      await apiAdminVerdictReport(confirmItem.id, "delete");
+      setItems((prev) => prev.map((x) => (x.id === confirmItem.id ? { ...x, status: "resolved" } : x)));
+      loadStats();
+      setConfirmItem(null);
+    } catch {
+      setConfirmItem(null);
+    } finally {
+      setDeleting(false);
+    }
   };
 
   return (
@@ -249,6 +270,18 @@ export default function AuditPage() {
           </table>
         </div>
       )}
+
+      {/* 删除确认弹窗（设计稿「确认弹窗」：问句标题 + 影响提示 + 取消/删除） */}
+      <ConfirmDialog
+        open={confirmItem !== null}
+        title="删除该评论？"
+        description="删除后无法恢复。"
+        confirmText="删除"
+        danger
+        loading={deleting}
+        onConfirm={() => void confirmDelete()}
+        onClose={() => setConfirmItem(null)}
+      />
     </div>
   );
 }
