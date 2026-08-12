@@ -240,6 +240,7 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager, e
 		plugins.GET("/market", handlers.Plugin.Market)      // 商城清单（?source= 自定义仓库）
 		plugins.GET("", handlers.Plugin.ListInstalled)      // 我的插件
 		plugins.POST("/install", handlers.Plugin.Install)   // 安装 {plugin_id}
+		plugins.POST("/upload", handlers.Plugin.Upload)     // 本地上传 .bpk 安装（M3.4）
 		plugins.PUT("/:id/state", handlers.Plugin.SetState) // 启用/禁用
 		plugins.DELETE("/:id", handlers.Plugin.Uninstall)   // 卸载
 		// SEO 域（M4）：设置/元数据/健康度/批量修复/SERP

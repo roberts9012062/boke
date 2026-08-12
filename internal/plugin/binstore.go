@@ -1,10 +1,12 @@
 // internal/plugin/binstore.go
 // 插件二进制存储（M3.3）：data/plugins/{id}/ 目录管理。
-// 说明：二进制来自安装流程（M3.3 本地预置 / M3.4 GitHub Release 下载后置）；
+// 说明（M3.4）：目录同时作为 .bpk 解包落点（Dir）与临时文件区（TempPath）；
 //       pluginID 白名单校验防路径注入（与 backup safePath 同思路）。
 package plugin
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -41,6 +43,23 @@ func (s *BinStore) BinPath(pluginID string) string {
 		return ""
 	}
 	return filepath.Join(s.root, pluginID, "plugin"+binSuffix)
+}
+
+// Dir 返回插件目录（.bpk 解包落点；ID 不合法返回空串）。
+func (s *BinStore) Dir(pluginID string) string {
+	if !pluginIDPattern.MatchString(pluginID) {
+		return ""
+	}
+	return filepath.Join(s.root, pluginID)
+}
+
+// TempPath 生成临时文件路径（data/plugins/tmp/{random}；安装包暂存/下载用，自动建目录）。
+func (s *BinStore) TempPath() string {
+	buf := make([]byte, 8)
+	_, _ = rand.Read(buf)
+	dir := filepath.Join(s.root, "tmp")
+	_ = os.MkdirAll(dir, 0o755)
+	return filepath.Join(dir, hex.EncodeToString(buf))
 }
 
 // Exists 插件二进制是否存在（启用前置校验）。

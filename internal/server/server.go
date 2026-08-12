@@ -162,8 +162,9 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 		logger.Warn("插件钩子执行异常", zap.String("hook", hook), zap.Error(err))
 	})
 	// ---------- 插件进程管理器（M3.3：go-plugin 进程外化；崩溃熔断事件落库） ----------
+	binStore := plugin.NewBinStore(cfg.DataDir) // 插件二进制存储（进程拉起 + .bpk 解包共用）
 	pluginManager = plugin.NewPluginManager(
-		plugin.NewBinStore(cfg.DataDir),
+		binStore,
 		hookDispatcher,
 		service.NewPluginManagerEvents(pluginRepo),
 		"logs/plugins",
@@ -184,7 +185,7 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 	adminSvc := service.NewAdminService(adminRepo, postRepo, commentRepo, settingRepo, enforcer, banRepo, userRepo, postSvc, mediaRepo, tagRepo, mediaStore, hookDispatcher, auditRepo, reportRepo)
 	siteSvc := service.NewSiteService(settingRepo) // 站点信息（meta 从 settings 实时读取，M1.7）
 	messageSvc := service.NewMessageService(messageRepo, userRepo, notifySvc) // 私信（M2）
-	pluginSvc := service.NewPluginService(ghClient, pluginRepo, settingRepo, hookDispatcher, pluginManager)
+	pluginSvc := service.NewPluginService(ghClient, pluginRepo, settingRepo, hookDispatcher, pluginManager, binStore)
 	seoSvc := service.NewSeoService(seoRepo, postRepo, "http://localhost:"+cfg.ServerPort)
 	// 数据报表服务（M4-报表：统计聚合 + 趋势 CSV；复用后台聚合数据源）
 	reportSvc := service.NewReportService(repository.NewAdminRepo(conn), reportRepo)

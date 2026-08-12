@@ -67,6 +67,14 @@ const (
 	CodeStateConflict int = 3002 // 当前状态不允许该操作
 )
 
+// ---------- 4xxx：插件（M3.4 启用；架构 11.3 错误码段位） ----------
+
+const (
+	CodePluginDownload int = 4001 // 插件包下载失败（Release 资产缺失/网络错误）
+	CodePluginVerify   int = 4002 // 插件包校验失败（SHA-256 不匹配/包格式错误）
+	CodePluginUnpack   int = 4003 // 插件包解包失败（zip 损坏/路径越权/超限）
+)
+
 // ---------- 6xxx：系统 ----------
 
 const (

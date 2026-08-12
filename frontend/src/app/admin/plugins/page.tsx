@@ -1,14 +1,16 @@
 // src/app/admin/plugins/page.tsx
 // 后台我的插件（M3.1，设计稿《插件卸载·SEO/成功》配套管理页）：
 // 已安装插件列表（名称/版本/来源/状态/安装时间/操作：启用禁用 · 卸载）+ 空态引导去商城。
+// M3.4 新增：本地 .bpk 上传安装入口。
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   apiInstalledPlugins,
   apiSetPluginState,
   apiUninstallPlugin,
+  apiUploadPluginBpk,
   ApiError,
   type InstalledPlugin,
 } from "@/lib/api";
@@ -31,6 +33,29 @@ export default function AdminPlugins() {
   const [uninstallTarget, setUninstallTarget] = useState<InstalledPlugin | null>(null);
   const [uninstalling, setUninstalling] = useState<boolean>(false);
   const [uninstalled, setUninstalled] = useState<boolean>(false);
+  // 本地上传安装（M3.4）
+  const [uploading, setUploading] = useState<boolean>(false);
+  const [uploadDone, setUploadDone] = useState<boolean>(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // 选择 .bpk 后上传安装（成功后刷新列表）
+  const onPickFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    setUploadDone(false);
+    setError("");
+    apiUploadPluginBpk(file)
+      .then(() => {
+        setUploadDone(true);
+        load();
+      })
+      .catch((err) => setError(err instanceof ApiError ? err.message : "安装失败"))
+      .finally(() => {
+        setUploading(false);
+        e.target.value = ""; // 允许重复选择同一文件
+      });
+  };
 
   // 加载列表
   const load = () => {
@@ -70,12 +95,38 @@ export default function AdminPlugins() {
 
   return (
     <div>
-      <h1 className="font-display text-xl font-semibold text-ink">我的插件</h1>
-      <p className="mt-0.5 text-xs text-ink-3">管理已安装插件 · 共 {items.length} 个</p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="font-display text-xl font-semibold text-ink">我的插件</h1>
+          <p className="mt-0.5 text-xs text-ink-3">管理已安装插件 · 共 {items.length} 个</p>
+        </div>
+        {/* 本地上传 .bpk（M3.4：开发/验证便利通道，正式分发走 GitHub Release） */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".bpk"
+          className="hidden"
+          onChange={(e) => onPickFile(e)}
+          aria-label="选择 .bpk 安装包"
+        />
+        <button
+          type="button"
+          disabled={uploading}
+          onClick={() => fileInputRef.current?.click()}
+          className="rounded-full border border-line px-4 py-1.5 text-sm text-ink-2 hover:text-ink disabled:opacity-60"
+        >
+          {uploading ? "安装中…" : "本地安装 .bpk"}
+        </button>
+      </div>
 
       {error && (
         <p className="mt-4 rounded-md bg-like/10 px-3 py-2 text-sm text-like" role="alert">
           {error}
+        </p>
+      )}
+      {uploadDone && (
+        <p className="mt-4 rounded-md bg-accent-soft px-3 py-2 text-sm text-glow" role="status">
+          ✓ 安装包已上传并安装，可在下方列表启用
         </p>
       )}
 

@@ -1,0 +1,10 @@
+{
+  "id": "demo-plugin",
+  "name": "演示插件",
+  "version": "0.1.0",
+  "description": "M3.3 进程外插件演示：go-plugin 隔离、同步/异步钩子、自定义 API。",
+  "author": { "name": "月言官方", "github": "roberts9012062" },
+  "license": "MIT",
+  "sdk": ">=1.0.0",
+  "platforms": ["linux", "darwin", "windows"]
+}

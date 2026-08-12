@@ -1,6 +1,7 @@
 // internal/handler/plugin.go
 // 插件控制器（M3.1）：插件商城（GitHub 清单）+ 插件管理（安装/启用禁用/卸载）。
 // M3.3 新增：Call 插件自定义 API 代理（/api/plugins/{id}/** 转发子进程）。
+// M3.4 新增：Upload 本地 .bpk 上传安装。
 package handler
 
 import (
@@ -14,6 +15,9 @@ import (
 	"github.com/roberts9012062/boke/pkg/errs"
 	"github.com/roberts9012062/boke/pkg/resp"
 )
+
+// .bpk 上传大小上限（50MB，与服务层校验一致）。
+const maxBpkUpload = 50 << 20
 
 // PluginHandler 插件控制器（连接器类）。
 type PluginHandler struct {
@@ -116,4 +120,30 @@ func (h *PluginHandler) Call(c *gin.Context) {
 		return
 	}
 	c.Data(status, "application/json; charset=utf-8", data)
+}
+
+// Upload 本地上传 .bpk 安装（POST /api/v1/admin/plugins/upload，multipart file=<.bpk>，M3.4）。
+// 说明：开发/验证便利通道（正式分发走 GitHub Release）；内部完成校验/解包/注册/激活。
+func (h *PluginHandler) Upload(c *gin.Context) {
+	file, header, err := c.Request.FormFile("file")
+	if err != nil {
+		resp.Fail(c, 400, errs.ErrBadRequest)
+		return
+	}
+	defer file.Close()
+	// 大小上限（服务层同样校验；此处提前拒绝大文件上传）
+	if header.Size > maxBpkUpload {
+		resp.Fail(c, 400, errs.New(errs.CodeBadRequest, "插件包超过大小上限（50MB）"))
+		return
+	}
+	content, err := io.ReadAll(file)
+	if err != nil {
+		resp.Fail(c, 400, errs.New(errs.CodeBadRequest, "读取插件包失败"))
+		return
+	}
+	if err := h.plugins.InstallFromBPK(c.Request.Context(), content, "本地上传"); err != nil {
+		resp.FailFrom(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"installed": true, "name": header.Filename})
 }

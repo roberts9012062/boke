@@ -39,3 +39,6 @@ docs/
 
 # 备份导出产物（data/backup/，M4-报表）
 data/backup/
+
+# 插件安装产物（data/plugins/，M3.3 二进制 + M3.4 .bpk 解包内容）
+data/plugins/

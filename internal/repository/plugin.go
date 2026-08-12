@@ -131,6 +131,14 @@ func (r *PluginRepo) SetStateByPluginID(ctx context.Context, pluginID string, st
 	return err
 }
 
+// UpdateVersion 更新插件版本与来源（M3.4 升级/重装预留：替换二进制后更新记录）。
+func (r *PluginRepo) UpdateVersion(ctx context.Context, instanceID int64, version string, repoURL string) error {
+	_, err := r.pool.Exec(ctx,
+		`UPDATE plugin_instances SET version = $2, repo_url = $3, updated_at = now() WHERE id = $1`,
+		instanceID, version, repoURL)
+	return err
+}
+
 // Delete 卸载插件（软删标记 uninstalled，保留审计痕迹）。
 func (r *PluginRepo) Delete(ctx context.Context, instanceID int64) error {
 	_, err := r.pool.Exec(ctx,

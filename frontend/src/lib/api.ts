@@ -729,6 +729,17 @@ export function apiSetPluginState(instanceId: number, state: string): Promise<vo
   return put<void>(`/admin/plugins/${instanceId}/state`, { state });
 }
 
+// 本地上传 .bpk 安装（M3.4）：multipart 文件（Content-Type 由浏览器自动设置 boundary）。
+export function apiUploadPluginBpk(file: File): Promise<void> {
+  const form = new FormData();
+  form.append("file", file);
+  return request<void>("/admin/plugins/upload", {
+    method: "POST",
+    body: form,
+    headers: { "Content-Type": "" },
+  });
+}
+
 // 卸载插件。
 export function apiUninstallPlugin(instanceId: number): Promise<void> {
   return del<void>(`/admin/plugins/${instanceId}`);

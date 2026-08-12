@@ -61,6 +61,8 @@ type PluginInfo struct {
 	CoreVersion  string   `json:"core_version"` // 兼容核心版本（如 ">=0.1.0"；空=不限制，M3.2 兼容性）
 	Requires     []string `json:"requires"`     // 依赖插件 ID（需已安装，M3.2）
 	Conflicts    []string `json:"conflicts"`    // 冲突插件 ID（不可同时安装，M3.2）
+	Platforms    []string `json:"platforms,omitempty"` // 支持平台（linux/darwin/windows，M3.4）
+	Assets       *PluginAssets `json:"assets,omitempty"` // Release 资产声明（M3.4）
 	Nav          *PluginNav `json:"nav,omitempty"` // 侧栏入口声明（安装启用后注册，前端扩展点）
 	SettingsSchema []PluginSettingField `json:"settings_schema,omitempty"` // 设置项 schema（schema 驱动设置页）
 }
@@ -70,6 +72,12 @@ type PluginNav struct {
 	Href  string `json:"href"`  // 后台路径
 	Label string `json:"label"` // 菜单名
 	Icon  string `json:"icon"`  // 图标 key（前端 nav-icons 注册表）
+}
+
+// PluginAssets 插件 Release 资产声明（M3.4：.bpk 下载安装匹配）。
+type PluginAssets struct {
+	Pattern string `json:"pattern"` // 资产名模式（如 {id}-{version}-{os}-{arch}.bpk）
+	SHA256  string `json:"sha256"`  // 包 SHA-256（清单声明，可选；下载后实算比对）
 }
 
 // PluginSettingField 插件设置项（schema 驱动通用设置页）。
@@ -113,19 +121,21 @@ type manifestCache struct {
 
 // PluginService 插件服务（连接器类）。
 type PluginService struct {
-	gh         *ghclient.Client      // GitHub 客户端（拉清单）
+	gh         *ghclient.Client      // GitHub 客户端（拉清单/Release 下载）
 	plugs      *repository.PluginRepo // 插件实例数据访问
 	settings   *repository.SettingRepo // 插件源设置
 	cache      manifestCache         // 清单缓存（5 分钟）
 	dispatcher plugin.Dispatcher     // 钩子调度器（M3.2 扩展框架；生命周期联动注册/注销钩子）
 	manager    *plugin.PluginManager // 进程管理器（M3.3 进程外插件；可空=纯内置模式）
+	store      *plugin.BinStore      // 二进制存储（M3.4 .bpk 解包落点/临时区）
 }
 
 // NewPluginService 创建插件服务。
 // 参数：dispatcher 钩子调度器（业务扩展点，可空则插件钩子不生效）；
-//      manager 进程管理器（进程外插件，可空则进程外插件仅记录安装不拉起）。
-func NewPluginService(gh *ghclient.Client, plugs *repository.PluginRepo, settings *repository.SettingRepo, dispatcher plugin.Dispatcher, manager *plugin.PluginManager) *PluginService {
-	return &PluginService{gh: gh, plugs: plugs, settings: settings, cache: manifestCache{}, dispatcher: dispatcher, manager: manager}
+//      manager 进程管理器（进程外插件，可空则进程外插件仅记录安装不拉起）；
+//      store 二进制存储（.bpk 解包/临时文件，可空则上传安装不可用）。
+func NewPluginService(gh *ghclient.Client, plugs *repository.PluginRepo, settings *repository.SettingRepo, dispatcher plugin.Dispatcher, manager *plugin.PluginManager, store *plugin.BinStore) *PluginService {
+	return &PluginService{gh: gh, plugs: plugs, settings: settings, cache: manifestCache{}, dispatcher: dispatcher, manager: manager, store: store}
 }
 
 // pluginSource 读取插件源仓库（settings.plugin_source，默认 roberts9012062/boke）。
@@ -273,6 +283,13 @@ func (s *PluginService) Install(ctx context.Context, pluginID string) error {
 	// ---------- 兼容性校验（M3.2：core_version / requires / conflicts） ----------
 	if err := s.checkCompatibility(ctx, info); err != nil {
 		return err
+	}
+
+	// ---------- 安装来源（M3.4）：清单声明 Release 资产且无本地二进制 → 下载安装 ----------
+	// 说明：本地预置二进制优先（开发/调试）；Release 下载内部完成解包校验与实例注册激活。
+	if s.isProcessPlugin(info.ID) && info.Assets != nil && info.Assets.Pattern != "" &&
+		s.store != nil && !s.store.Exists(info.ID) && s.gh != nil {
+		return s.installFromRelease(ctx, info)
 	}
 
 	// 重复安装检查（已安装返回冲突；已卸载记录复用重装——plugin_id 唯一约束）

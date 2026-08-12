@@ -1,29 +1,27 @@
 # -*- coding: utf-8 -*-
-# M3.3 插件进程外化 后端冒烟（中文输出）：
-#   安装（DB 直插实例，进程外插件）→ 启用（go-plugin 拉起子进程）→ 同步钩子拦截
-#   → 异步钩子日志 → 自定义 API 代理 → 崩溃退避重启（kill 进程验证自愈）
-#   → 连续崩溃熔断（crashed + last_error）→ 熔断后手动恢复 → 禁用/卸载。
-# 说明：清单来源（GitHub）由 M3.1 冒烟覆盖，本脚本仅直插 demo-plugin 实例记录
-#       （进程外二进制的启用/生命周期/钩子/API/崩溃自愈为 M3.3 核心验证点）。
+# M3.3+M3.4 插件 后端冒烟（中文输出）：
+#   .bpk 打包上传安装（M3.4：cmd/bp pack → POST /admin/plugins/upload → 校验解包）
+#   → 启用（go-plugin 拉起子进程）→ 同步钩子拦截 → 异步钩子日志 → 自定义 API 代理
+#   → 崩溃退避重启（kill 进程验证自愈）→ 连续崩溃熔断（crashed + last_error）
+#   → 熔断后手动恢复 → 禁用/卸载。
 # 前置：
 #   1. 后端 :8080 运行中（./scripts/dev-server.sh --daemon）
-#   2. demo 插件二进制已构建（./scripts/build-demo-plugin.sh）
-#   3. psycopg2 可用（pip install psycopg2-binary）
+#   2. psycopg2 可用（pip install psycopg2-binary）
 # 注意：登录限流 5 次/分——脚本仅 1 次登录，正常不会触发。
 import json
 import os
 import subprocess
 import sys
 import time
+import uuid
 import urllib.error
 import urllib.parse
 import urllib.request
 
-import psycopg2
-
 BASE = "http://localhost:8080/api/v1"
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PLUGIN_LOG = os.path.join(ROOT, "logs", "plugins", "demo-plugin.log")
+BPK_FILE = os.path.join(ROOT, "dist", "demo-plugin-0.1.0-windows-amd64.bpk")
 PASS = 0
 FAIL = 0
 
@@ -87,12 +85,45 @@ def call(method, path, body=None, token=None, expect=0, raw=False):
     return resp
 
 
+def upload_bpk(token, bpk_path):
+    """multipart 上传 .bpk（urllib 手写 multipart body）。"""
+    with open(bpk_path, "rb") as f:
+        content = f.read()
+    boundary = "----bpk" + uuid.uuid4().hex
+    head = (
+        f"--{boundary}\r\n"
+        f'Content-Disposition: form-data; name="file"; filename="{os.path.basename(bpk_path)}"\r\n'
+        "Content-Type: application/octet-stream\r\n\r\n"
+    ).encode()
+    tail = f"\r\n--{boundary}--\r\n".encode()
+    req = urllib.request.Request(BASE + "/admin/plugins/upload", data=head + content + tail, method="POST")
+    req.add_header("Content-Type", f"multipart/form-data; boundary={boundary}")
+    req.add_header("Authorization", "Bearer " + token)
+    try:
+        with urllib.request.urlopen(req) as r:
+            return json.loads(r.read().decode())
+    except urllib.error.HTTPError as e:
+        return json.loads(e.read().decode())
+
+
 def login(account, password="Yueyan2026"):
     r = call("POST", "/auth/login", {"account": account, "password": password})
     token = (r.get("data") or {}).get("access_token", "")
     if not token:
         print("[FAIL] 登录失败")
     return token
+
+
+def build_bpk():
+    """cmd/bp 打包 demo 插件（scripts/build-demo-bpk.sh → dist/demo-plugin-0.1.0-windows-amd64.bpk）。"""
+    r = subprocess.run(["bash", os.path.join(ROOT, "scripts", "build-demo-bpk.sh")],
+                       capture_output=True, timeout=180)
+    ok = r.returncode == 0 and os.path.exists(BPK_FILE)
+    if ok:
+        print(f"[PASS] cmd/bp 打包成功（{os.path.getsize(BPK_FILE)} 字节）")
+    else:
+        print(f"[FAIL] cmd/bp 打包失败：{r.stdout.decode('utf-8', errors='ignore')[-300:]}")
+    return ok
 
 
 def plugin_pids():
@@ -156,17 +187,22 @@ def main():
     token = login("admin@yueyan.site")
     assert token, "超管登录失败"
 
-    # ---------- 1. 前置清理（DB 重置 + 残留进程） ----------
-    db_seed_demo()
+    # ---------- 1. 前置清理（卸载残留 + 杀进程 + 清理旧包） ----------
+    inst = installed_item(token)
+    if inst:
+        call("DELETE", f"/admin/plugins/{inst['id']}", token=token)
     kill_plugin()
+    if os.path.exists(BPK_FILE):
+        os.remove(BPK_FILE)
     time.sleep(1)
 
-    # ---------- 2. 启用（进程外插件：二进制存在 → go-plugin 拉起子进程） ----------
+    # ---------- 2. cmd/bp 打包 → 本地上传安装（M3.4 完整链路） ----------
+    assert_true(build_bpk(), "cmd/bp 打包 .bpk（checksums 生成）")
+    r = upload_bpk(token, BPK_FILE)
+    assert_true(r.get("code") == 0, f".bpk 上传安装（code={r.get('code')} {r.get('message')}）")
+    assert_true(wait_ping(token), "安装即启用：插件进程拉起（自定义 API 可访问）")
     inst = installed_item(token)
-    call("PUT", f"/admin/plugins/{inst['id']}/state", {"state": "running"}, token=token)
-    assert_true(wait_ping(token), "启用后插件进程拉起（自定义 API 可访问）")
-    inst = installed_item(token)
-    assert_true(inst["state"] == "running", f"启用后状态 running（实际 {inst['state']}）")
+    assert_true(inst and inst["state"] == "running", f"安装后状态 running（实际 {inst and inst['state']}）")
 
     # ---------- 3. 同步钩子拦截：标题含 [demo] 发帖 → 2003 校验拒绝 ----------
     r = call("POST", "/posts", {
