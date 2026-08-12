@@ -10,12 +10,16 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // 开发代理：/api 与 /plugin-assets → 后端 Gin 服务
+  // 开发代理：/api、/media 与 /plugin-assets → 后端 Gin 服务
   async rewrites() {
     return [
       {
         source: "/api/:path*",
         destination: "http://localhost:8080/api/:path*",
+      },
+      {
+        source: "/media/:path*",
+        destination: "http://localhost:8080/media/:path*",
       },
       {
         source: "/plugin-assets/:path*",
