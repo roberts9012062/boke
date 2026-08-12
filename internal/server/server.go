@@ -152,6 +152,7 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 	seoRepo := repository.NewSeoRepo(conn)               // SEO 元数据（M4：摘要落库）
 	backupRepo := repository.NewBackupRepo(conn)         // 备份记录（M4-报表）
 	licenseRepo := repository.NewLicenseRepo(conn)       // 插件许可证（M3.5）
+	orderRepo := repository.NewPluginOrderRepo(conn)     // 插件购买订单（M3.9 支付渠道）
 
 	// ---------- 业务层 ----------
 	limiter := redis.NewRateLimiter(redisClient)
@@ -208,7 +209,7 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 	adminSvc := service.NewAdminService(adminRepo, postRepo, commentRepo, settingRepo, enforcer, banRepo, userRepo, postSvc, mediaRepo, tagRepo, mediaStore, hookDispatcher, auditRepo, reportRepo)
 	siteSvc := service.NewSiteService(settingRepo) // 站点信息（meta 从 settings 实时读取，M1.7）
 	messageSvc := service.NewMessageService(messageRepo, userRepo, notifySvc) // 私信（M2）
-	pluginSvc := service.NewPluginService(ghClient, pluginRepo, settingRepo, hookDispatcher, pluginManager, binStore, licenseRepo)
+	pluginSvc := service.NewPluginService(ghClient, pluginRepo, settingRepo, hookDispatcher, pluginManager, binStore, licenseRepo, orderRepo, cfg.AIKeySecret)
 	licenseProvider = pluginSvc.LicenseInfoProvider // M3.5：许可证查询回调绑定（延迟闭包生效）
 	configProvider = pluginSvc.PluginConfigProvider // M3.7：配置查询回调绑定（启动激活时下发）
 	dataProvider = service.NewPluginDataProvider(userRepo, postRepo, settingRepo) // M3.8：只读数据服务（插件经 broker 查询脱敏数据）
@@ -253,6 +254,7 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 		Moderation: handler.NewModerationHandler(moderationSvc, logger),
 		Plugin:     handler.NewPluginHandler(pluginSvc, oauthSvc),
 		PluginConfig: handler.NewPluginConfigHandler(pluginSvc),
+		PluginOrder: handler.NewPluginOrderHandler(pluginSvc),
 		Seo:        handler.NewSeoHandler(seoSvc),
 		Ai:         handler.NewAiHandler(aiSvc, logger),
 		Report:     handler.NewReportHandler(reportSvc, logger),

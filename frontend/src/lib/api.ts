@@ -865,6 +865,26 @@ export function apiPluginSaveConfig(
   return put<{ config: Record<string, string> }>(`/admin/plugins/${instanceId}/config`, { values });
 }
 
+// ---------- 插件购买（M3.9 支付渠道：订单 + dev 模拟支付 + 服务端签发） ----------
+
+// 配置服务端许可证签发私钥（PEM；AES 加密存储）。
+export function apiSetPluginIssuerKey(privateKeyPem: string): Promise<{ configured: boolean }> {
+  return put<{ configured: boolean }>("/admin/plugins/issuer-key", { private_key_pem: privateKeyPem });
+}
+
+// 创建购买订单（返回订单 ID；dev 场景价格由前端传入）。
+export function apiCreatePluginOrder(
+  instanceId: number,
+  price: number,
+): Promise<{ order_id: number; state: string }> {
+  return post<{ order_id: number; state: string }>(`/admin/plugins/${instanceId}/orders`, { price });
+}
+
+// 支付订单并签发许可证（dev 模拟支付直接成功；真实渠道接入点后置）。
+export function apiPayPluginOrder(orderId: number): Promise<{ state: string; license_jwt: string }> {
+  return post<{ state: string; license_jwt: string }>(`/admin/plugin-orders/${orderId}/pay`);
+}
+
 // ---------- SEO（M4） ----------
 
 // 全局 SEO 设置（seo_settings 单行）。

@@ -312,6 +312,24 @@ def main():
     assert_true(r.get("code") == 0, "重新激活有效许可证恢复 Pro")
     time.sleep(2)
 
+    # ---------- 2.7 支付渠道（M3.9：配置签发私钥 → 订单 → 模拟支付 → 服务端签发 → 自动激活） ----------
+    priv_pem = open(os.path.join(KEYS_DIR, "private.pem"), encoding="utf-8").read()
+    r = call("PUT", "/admin/plugins/issuer-key", {"private_key_pem": priv_pem}, token=token)
+    assert_true(r.get("code") == 0, "配置服务端签发私钥（AES 加密存储）")
+    r = call("POST", f"/admin/plugins/{inst['id']}/orders", {"price": 99}, token=token)
+    order_id = (r.get("data") or {}).get("order_id")
+    assert_true(order_id and order_id > 0, "创建购买订单（pending）")
+    r = call("POST", f"/admin/plugin-orders/{order_id}/pay", token=token)
+    pay_data = r.get("data") or {}
+    assert_true(r.get("code") == 0 and pay_data.get("state") == "paid" and pay_data.get("license_jwt"),
+                "模拟支付成功：服务端签发许可证")
+    time.sleep(2)
+    body = call("GET", "/plugins/demo-plugin/pro-status", token=token, raw=True)
+    assert_true('"pro":true' in body, "支付后自动激活：pro 功能放行（pro-status=true）")
+    # 幂等：重复支付直接返回已签发
+    r = call("POST", f"/admin/plugin-orders/{order_id}/pay", token=token)
+    assert_true((r.get("data") or {}).get("state") == "paid", "支付幂等：重复支付直接返回已签发")
+
     # ---------- 2.6 一键升级（插件后置：上传 0.2.0 包 ?upgrade=1 → 版本替换 + 进程重启） ----------
     bpk_020 = os.path.join(ROOT, "dist", "demo-plugin-0.2.0-windows-amd64.bpk")
     assert_true(build_bpk_version("0.2.0", bpk_020), "cmd/bp 打包 0.2.0 新版本")

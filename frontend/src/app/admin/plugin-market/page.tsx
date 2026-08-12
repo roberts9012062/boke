@@ -10,7 +10,9 @@ import { useEffect, useState } from "react";
 
 import {
   apiAdminSaveSettings,
+  apiCreatePluginOrder,
   apiInstallPlugin,
+  apiPayPluginOrder,
   apiPluginMarket,
   apiPluginOAuthAuthorize,
   apiPluginOAuthDisconnect,
@@ -142,13 +144,23 @@ export default function PluginMarketPage() {
     return true;
   });
 
-  // 安装（免费直接安装；付费模拟支付——MVP 无真实支付，点击「支付并安装」即完成，差异记录）
+  // 安装（免费直接安装；付费：安装 → 创建订单 → 支付签发激活——M3.9 支付渠道，
+  // dev 模拟支付直接成功并由服务端签发许可证自动激活）
   const confirmInstall = async () => {
     if (!installTarget) return;
     setInstalling(true);
     setInstallError("");
     try {
       await apiInstallPlugin(installTarget.id);
+      if (installTarget.price > 0) {
+        // 付费插件：创建订单 → 支付（模拟）→ 服务端签发许可证并自动激活
+        const fresh = await apiPluginMarket(source);
+        const item = fresh.items.find((p) => p.id === installTarget.id);
+        if (item?.instance_id) {
+          const order = await apiCreatePluginOrder(item.instance_id, installTarget.price);
+          await apiPayPluginOrder(order.order_id);
+        }
+      }
       setInstalled(true);
       // 刷新列表（已安装状态）
       const r = await apiPluginMarket(source);
@@ -460,7 +472,7 @@ export default function PluginMarketPage() {
                 </div>
                 {installTarget.price > 0 && (
                   <p className="mt-3 text-center text-[10px] text-ink-3">
-                    MVP 模拟支付（无真实支付渠道，差异记录）；授权码复制功能后置
+                    开发环境模拟支付；支付成功由服务端签发许可证并自动激活 Pro 授权
                   </p>
                 )}
               </>

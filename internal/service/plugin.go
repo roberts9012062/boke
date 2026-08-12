@@ -126,6 +126,8 @@ type PluginService struct {
 	plugs      *repository.PluginRepo // 插件实例数据访问
 	licenses   *repository.LicenseRepo // 插件许可证数据访问（M3.5）
 	settings   *repository.SettingRepo // 插件源设置
+	orders     *repository.PluginOrderRepo // 购买订单（M3.9 支付渠道）
+	keySecret  string                 // AES 加密种子（M3.9 签发私钥加密存储）
 	cache      manifestCache         // 清单缓存（5 分钟）
 	dispatcher plugin.Dispatcher     // 钩子调度器（M3.2 扩展框架；生命周期联动注册/注销钩子）
 	manager    *plugin.PluginManager // 进程管理器（M3.3 进程外插件；可空=纯内置模式）
@@ -136,9 +138,10 @@ type PluginService struct {
 // 参数：dispatcher 钩子调度器（业务扩展点，可空则插件钩子不生效）；
 //      manager 进程管理器（进程外插件，可空则进程外插件仅记录安装不拉起）；
 //      store 二进制存储（.bpk 解包/临时文件，可空则上传安装不可用）；
-//      licenses 许可证仓库（M3.5，可空则激活接口不可用）。
-func NewPluginService(gh *ghclient.Client, plugs *repository.PluginRepo, settings *repository.SettingRepo, dispatcher plugin.Dispatcher, manager *plugin.PluginManager, store *plugin.BinStore, licenses *repository.LicenseRepo) *PluginService {
-	return &PluginService{gh: gh, plugs: plugs, licenses: licenses, settings: settings, cache: manifestCache{}, dispatcher: dispatcher, manager: manager, store: store}
+//      licenses 许可证仓库（M3.5，可空则激活接口不可用）；
+//      orders 购买订单仓库（M3.9 支付渠道）；keySecret AES 加密种子（签发私钥加密存储）。
+func NewPluginService(gh *ghclient.Client, plugs *repository.PluginRepo, settings *repository.SettingRepo, dispatcher plugin.Dispatcher, manager *plugin.PluginManager, store *plugin.BinStore, licenses *repository.LicenseRepo, orders *repository.PluginOrderRepo, keySecret string) *PluginService {
+	return &PluginService{gh: gh, plugs: plugs, licenses: licenses, settings: settings, orders: orders, keySecret: keySecret, cache: manifestCache{}, dispatcher: dispatcher, manager: manager, store: store}
 }
 
 // pluginSource 读取插件源仓库（settings.plugin_source，默认 roberts9012062/boke）。

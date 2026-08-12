@@ -32,6 +32,7 @@ type Handlers struct {
 	Moderation *handler.ModerationHandler // 内容治理控制器（M2 举报/敏感词/封禁）
 	Plugin   *handler.PluginHandler   // 插件控制器（M3.1 商城/管理）
 	PluginConfig *handler.PluginConfigHandler // 插件设置控制器（M3.7 设置端到端）
+	PluginOrder *handler.PluginOrderHandler // 插件订单控制器（M3.9 支付渠道）
 	Seo      *handler.SeoHandler      // SEO 控制器（M4）
 	Ai       *handler.AiHandler       // AI 控制器（M4：供应商/任务/用量/内置场景）
 	Report   *handler.ReportHandler   // 数据报表控制器（M4-报表）
@@ -273,6 +274,10 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager, e
 		plugins.GET("/:id", handlers.PluginConfig.Detail)             // 详情（设置页数据源）
 		plugins.GET("/:id/config", handlers.PluginConfig.GetConfig)   // 读取配置
 		plugins.PUT("/:id/config", handlers.PluginConfig.SaveConfig)  // 保存配置（推送即时生效）
+		// 插件购买（M3.9 支付渠道：独立前缀避免与 /:id 参数段冲突）
+		plugins.PUT("/issuer-key", handlers.PluginOrder.SetIssuerKey)               // 配置签发私钥
+		plugins.POST("/:id/orders", handlers.PluginOrder.CreateOrder)               // 创建订单
+		adminGroup.POST("/plugin-orders/:orderId/pay", perm(casbin.DomainPlugins), handlers.PluginOrder.PayOrder) // 支付签发
 		// 可更新检查（独立前缀——/plugins/updates 与 /:id 参数段冲突）
 		adminGroup.GET("/plugin-updates", perm(casbin.DomainPlugins), handlers.Plugin.Updates)
 		// GitHub OAuth（M3.5：插件市场设置区连接；独立前缀避免与 /plugins/:id 参数段冲突）

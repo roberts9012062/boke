@@ -44,7 +44,12 @@ func LoadPrivateKey(path string) (ed25519.PrivateKey, error) {
 	if err != nil {
 		return nil, fmt.Errorf("读取私钥失败：%w", err)
 	}
-	block, _ := pem.Decode(raw)
+	return ParsePrivateKeyPEM(string(raw))
+}
+
+// ParsePrivateKeyPEM 解析 PEM 字符串私钥（M3.9 服务端签发：私钥 AES 加密存 settings，解密后解析）。
+func ParsePrivateKeyPEM(pemText string) (ed25519.PrivateKey, error) {
+	block, _ := pem.Decode([]byte(pemText))
 	if block == nil {
 		return nil, fmt.Errorf("私钥 PEM 解析失败")
 	}
