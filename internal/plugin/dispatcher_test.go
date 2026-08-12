@@ -126,3 +126,31 @@ func TestRegistryUnregister(t *testing.T) {
 		t.Fatal("注销后处理器不应执行")
 	}
 }
+
+func TestRegistryDispatchModifyCollect(t *testing.T) {
+	// 同步钩子改写收集（M3.9 修复）：多处理器时收集最后一个非空 Modify；
+	// 无 Modify 的处理器不覆盖前序改写。
+	reg := NewRegistry(nil)
+	reg.Register(testHook, func(ctx context.Context, ev Event) (Result, error) {
+		return Result{OK: true, Modify: map[string]any{"content": "第一段"}}, nil
+	})
+	reg.Register(testHook, func(ctx context.Context, ev Event) (Result, error) {
+		return Result{OK: true}, nil // 无 Modify：不覆盖前序
+	})
+	reg.Register(testHook, func(ctx context.Context, ev Event) (Result, error) {
+		return Result{OK: true, Modify: map[string]any{"content": "第二段"}}, nil
+	})
+	res := reg.Dispatch(context.Background(), testHook, Event{})
+	modify, ok := res.Modify.(map[string]any)
+	if !ok || modify["content"] != "第二段" {
+		t.Fatalf("应收集最后一个非空 Modify，实际 %v", res.Modify)
+	}
+	// 拒绝仍优先于改写（拦截语义不变）
+	reg.Register(testHook, func(ctx context.Context, ev Event) (Result, error) {
+		return Result{OK: false, Reason: "拒绝"}, nil
+	})
+	res = reg.Dispatch(context.Background(), testHook, Event{})
+	if res.OK || res.Reason != "拒绝" {
+		t.Fatalf("拒绝应阻断（含改写收集），实际 %+v", res)
+	}
+}

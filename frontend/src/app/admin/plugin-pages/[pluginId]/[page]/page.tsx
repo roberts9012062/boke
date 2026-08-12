@@ -103,12 +103,16 @@ export default function PluginPage() {
         if (cancelled) {
           return;
         }
-        cleanup = mod.default({
+        // registerPage 可返回清理函数或空（void）；仅函数赋值给 cleanup（类型收窄）
+        const result = mod.default({
           container,
           api: makePluginApi(pluginId),
           user: pluginUser,
           params: { pluginId, page },
         });
+        if (typeof result === "function") {
+          cleanup = result;
+        }
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : "插件页面加载失败");

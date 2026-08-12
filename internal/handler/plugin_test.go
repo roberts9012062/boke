@@ -33,7 +33,7 @@ func newAssetTestHandler(t *testing.T) (*PluginHandler, string) {
 	if err := os.WriteFile(filepath.Join(base, "index.js"), []byte("export default function register(){}"), 0o644); err != nil {
 		t.Fatalf("写入 index.js 失败：%v", err)
 	}
-	svc := service.NewPluginService(nil, nil, nil, nil, nil, store, nil)
+	svc := service.NewPluginService(nil, nil, nil, nil, nil, store, nil, nil, "test-key")
 	return NewPluginHandler(svc, nil), base
 }
 

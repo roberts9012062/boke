@@ -33,8 +33,11 @@ bash "$PROJECT_ROOT/scripts/stop-all.sh" || true
 
 cd "$PROJECT_ROOT/frontend"
 echo "[进行] next build 生产构建..." | tee -a "$LOG_FILE"
-npm run build 2>&1 | tee -a "$LOG_FILE" || true
+# 注意：不能加 `|| true`（会重置 PIPESTATUS 导致失败被吞）；用 set +e 捕获管道退出码
+set +e
+npm run build 2>&1 | tee -a "$LOG_FILE"
 BUILD_CODE=${PIPESTATUS[0]}
+set -e
 if [ "$BUILD_CODE" -ne 0 ]; then
   echo "[错误] 前端构建失败（退出码 $BUILD_CODE），详见日志：$LOG_FILE"
   exit 1
