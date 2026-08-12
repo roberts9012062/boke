@@ -270,6 +270,18 @@ func (s *PluginService) ListInstalled(ctx context.Context) ([]InstalledPluginDTO
 			}
 		}
 	}
+	// 进程上报聚合（M3.7：运行中插件 schema 以 Info RPC 优先——本地安装插件也可配置；
+	// 仅补空——列表已有清单 schema 的不覆盖）
+	if s.manager != nil {
+		for i := range items {
+			if len(items[i].SettingsSchema) > 0 {
+				continue
+			}
+			if info, err := s.manager.PluginInfo(items[i].PluginID); err == nil && len(info.GetSettings()) > 0 {
+				items[i].SettingsSchema = settingFieldsFromProto(info.GetSettings())
+			}
+		}
+	}
 	return items, nil
 }
 

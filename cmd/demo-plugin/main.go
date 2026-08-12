@@ -25,13 +25,19 @@ import (
 type DemoPlugin struct{}
 
 // Info 插件信息（与安装清单一致；主进程校验 ID）。
+// Settings 声明设置项（M3.7：主进程经 Info RPC 收集 → 设置页 schema 驱动渲染 → 保存后下发）。
 func (p *DemoPlugin) Info() sdk.Info {
 	return sdk.Info{
 		ID:          "demo-plugin",
 		Name:        "演示插件",
-		Version:     "0.1.0",
+		Version:     "0.2.0",
 		Author:      "月言官方",
 		Description: "M3.3 进程外插件演示：钩子 + 自定义 API",
+		Settings: []sdk.SettingField{
+			{Key: "greeting", Label: "页脚问候语", Type: "text", Default: "你好，月言访客"},
+			{Key: "show_badge", Label: "显示演示徽章", Type: "switch", Default: "on"},
+			{Key: "theme", Label: "卡片主题", Type: "select", Default: "auto", Options: []string{"auto", "light", "dark"}},
+		},
 	}
 }
 
@@ -96,13 +102,20 @@ func (p *DemoPlugin) RegisterAPI(api *sdk.APIMux) {
 		logf("自定义 API：%s %s", method, path)
 		return 200, []byte(`{"pong":true,"plugin":"demo-plugin"}`), nil
 	})
-	// /pro-status：付费功能演示（M3.5 许可证链路——FeatureEnabled 由主进程下发的许可决定）
-	api.Handle("GET", "/pro-status", func(ctx context.Context, method string, path string, body []byte) (int, []byte, error) {
-		lic := sdk.License(ctx)
-		pro := lic.FeatureEnabled("demo_pro")
-		logf("pro-status 查询：edition=%s pro=%v degraded=%v", lic.Edition, pro, lic.Degraded)
-		return 200, []byte(fmt.Sprintf(`{"pro":%v,"edition":%q,"degraded":%v}`, pro, lic.Edition, lic.Degraded)), nil
-	})
+		// /pro-status：付费功能演示（M3.5 许可证链路——FeatureEnabled 由主进程下发的许可决定）
+		api.Handle("GET", "/pro-status", func(ctx context.Context, method string, path string, body []byte) (int, []byte, error) {
+			lic := sdk.License(ctx)
+			pro := lic.FeatureEnabled("demo_pro")
+			logf("pro-status 查询：edition=%s pro=%v degraded=%v", lic.Edition, pro, lic.Degraded)
+			return 200, []byte(fmt.Sprintf(`{"pro":%v,"edition":%q,"degraded":%v}`, pro, lic.Edition, lic.Degraded)), nil
+		})
+		// /settings：当前配置快照（M3.7 设置链路验证——主进程保存配置后经 SetConfig 下发）
+		api.Handle("GET", "/settings", func(ctx context.Context, method string, path string, body []byte) (int, []byte, error) {
+			cfg := sdk.Config(ctx)
+			raw, _ := json.Marshal(cfg)
+			logf("配置快照查询：%s", string(raw))
+			return 200, raw, nil
+		})
 }
 
 // logf 插件日志（stderr → 主进程重定向到 logs/plugins/demo-plugin.log）。

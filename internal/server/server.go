@@ -167,6 +167,8 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 	binStore := plugin.NewBinStore(cfg.DataDir) // 插件二进制存储（进程拉起 + .bpk 解包共用）
 	// 许可证查询回调（M3.5）：延迟绑定——pluginSvc 在 manager 之后创建，用包装闭包捕获变量
 	var licenseProvider plugin.LicenseProvider
+	// 配置查询回调（M3.7）：同上延迟绑定（启动激活时下发插件配置）
+	var configProvider plugin.ConfigProvider
 	pluginManager = plugin.NewPluginManager(
 		binStore,
 		hookDispatcher,
@@ -177,6 +179,12 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 				return nil, nil // 未绑定：按 free（demo）处理
 			}
 			return licenseProvider(ctx, pluginID)
+		},
+		func(ctx context.Context, pluginID string) (map[string]string, error) {
+			if configProvider == nil {
+				return nil, nil // 未绑定：按无配置处理
+			}
+			return configProvider(ctx, pluginID)
 		},
 	)
 	// 内容治理服务（M2：举报/敏感词/封禁；先建供发帖/评论拦截注入）
@@ -197,6 +205,7 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 	messageSvc := service.NewMessageService(messageRepo, userRepo, notifySvc) // 私信（M2）
 	pluginSvc := service.NewPluginService(ghClient, pluginRepo, settingRepo, hookDispatcher, pluginManager, binStore, licenseRepo)
 	licenseProvider = pluginSvc.LicenseInfoProvider // M3.5：许可证查询回调绑定（延迟闭包生效）
+	configProvider = pluginSvc.PluginConfigProvider // M3.7：配置查询回调绑定（启动激活时下发）
 	seoSvc := service.NewSeoService(seoRepo, postRepo, "http://localhost:"+cfg.ServerPort)
 	// 数据报表服务（M4-报表：统计聚合 + 趋势 CSV；复用后台聚合数据源）
 	reportSvc := service.NewReportService(repository.NewAdminRepo(conn), reportRepo)
@@ -237,6 +246,7 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 		Message: handler.NewMessageHandler(messageSvc, logger),
 		Moderation: handler.NewModerationHandler(moderationSvc, logger),
 		Plugin:     handler.NewPluginHandler(pluginSvc, oauthSvc),
+		PluginConfig: handler.NewPluginConfigHandler(pluginSvc),
 		Seo:        handler.NewSeoHandler(seoSvc),
 		Ai:         handler.NewAiHandler(aiSvc, logger),
 		Report:     handler.NewReportHandler(reportSvc, logger),

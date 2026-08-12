@@ -78,6 +78,7 @@ type PluginInfo struct {
 	Description   string                 `protobuf:"bytes,5,opt,name=description,proto3" json:"description,omitempty"` // 一句话描述
 	Hooks         []string               `protobuf:"bytes,6,rep,name=hooks,proto3" json:"hooks,omitempty"`             // 声明的钩子（对齐主进程钩子表，如 "post.after_publish"）
 	Apis          []string               `protobuf:"bytes,7,rep,name=apis,proto3" json:"apis,omitempty"`               // 自定义 API 路径（如 "/ping"，主进程挂 /api/plugins/{id}/**）
+	Settings      []*SettingField        `protobuf:"bytes,8,rep,name=settings,proto3" json:"settings,omitempty"`       // 设置项声明（设置页 schema 驱动；主进程聚合「进程上报优先、市场清单兜底」）
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -161,6 +162,135 @@ func (x *PluginInfo) GetApis() []string {
 	return nil
 }
 
+func (x *PluginInfo) GetSettings() []*SettingField {
+	if x != nil {
+		return x.Settings
+	}
+	return nil
+}
+
+// SettingField 插件设置项声明（设置页 schema 驱动通用渲染器）。
+type SettingField struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Key           string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`         // 设置键（存 plugin_instances.config：config["{key}"]）
+	Label         string                 `protobuf:"bytes,2,opt,name=label,proto3" json:"label,omitempty"`     // 展示标签
+	Type          string                 `protobuf:"bytes,3,opt,name=type,proto3" json:"type,omitempty"`       // 控件类型：text / switch / select
+	Default       string                 `protobuf:"bytes,4,opt,name=default,proto3" json:"default,omitempty"` // 默认值
+	Options       []string               `protobuf:"bytes,5,rep,name=options,proto3" json:"options,omitempty"` // select 选项列表
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SettingField) Reset() {
+	*x = SettingField{}
+	mi := &file_plugin_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SettingField) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SettingField) ProtoMessage() {}
+
+func (x *SettingField) ProtoReflect() protoreflect.Message {
+	mi := &file_plugin_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SettingField.ProtoReflect.Descriptor instead.
+func (*SettingField) Descriptor() ([]byte, []int) {
+	return file_plugin_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *SettingField) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+func (x *SettingField) GetLabel() string {
+	if x != nil {
+		return x.Label
+	}
+	return ""
+}
+
+func (x *SettingField) GetType() string {
+	if x != nil {
+		return x.Type
+	}
+	return ""
+}
+
+func (x *SettingField) GetDefault() string {
+	if x != nil {
+		return x.Default
+	}
+	return ""
+}
+
+func (x *SettingField) GetOptions() []string {
+	if x != nil {
+		return x.Options
+	}
+	return nil
+}
+
+// ConfigInfo 插件配置（主进程 → 插件：启动激活时下发 + 保存配置时推送）。
+type ConfigInfo struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Values        map[string]string      `protobuf:"bytes,1,rep,name=values,proto3" json:"values,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // 配置键值对（仅 schema 声明的 key）
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ConfigInfo) Reset() {
+	*x = ConfigInfo{}
+	mi := &file_plugin_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConfigInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConfigInfo) ProtoMessage() {}
+
+func (x *ConfigInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_plugin_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConfigInfo.ProtoReflect.Descriptor instead.
+func (*ConfigInfo) Descriptor() ([]byte, []int) {
+	return file_plugin_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ConfigInfo) GetValues() map[string]string {
+	if x != nil {
+		return x.Values
+	}
+	return nil
+}
+
 // Status 激活/停用结果。
 type Status struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -172,7 +302,7 @@ type Status struct {
 
 func (x *Status) Reset() {
 	*x = Status{}
-	mi := &file_plugin_proto_msgTypes[2]
+	mi := &file_plugin_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -184,7 +314,7 @@ func (x *Status) String() string {
 func (*Status) ProtoMessage() {}
 
 func (x *Status) ProtoReflect() protoreflect.Message {
-	mi := &file_plugin_proto_msgTypes[2]
+	mi := &file_plugin_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -197,7 +327,7 @@ func (x *Status) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Status.ProtoReflect.Descriptor instead.
 func (*Status) Descriptor() ([]byte, []int) {
-	return file_plugin_proto_rawDescGZIP(), []int{2}
+	return file_plugin_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *Status) GetOk() bool {
@@ -227,7 +357,7 @@ type HookRequest struct {
 
 func (x *HookRequest) Reset() {
 	*x = HookRequest{}
-	mi := &file_plugin_proto_msgTypes[3]
+	mi := &file_plugin_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -239,7 +369,7 @@ func (x *HookRequest) String() string {
 func (*HookRequest) ProtoMessage() {}
 
 func (x *HookRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_plugin_proto_msgTypes[3]
+	mi := &file_plugin_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -252,7 +382,7 @@ func (x *HookRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HookRequest.ProtoReflect.Descriptor instead.
 func (*HookRequest) Descriptor() ([]byte, []int) {
-	return file_plugin_proto_rawDescGZIP(), []int{3}
+	return file_plugin_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *HookRequest) GetHook() string {
@@ -298,7 +428,7 @@ type HookResponse struct {
 
 func (x *HookResponse) Reset() {
 	*x = HookResponse{}
-	mi := &file_plugin_proto_msgTypes[4]
+	mi := &file_plugin_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -310,7 +440,7 @@ func (x *HookResponse) String() string {
 func (*HookResponse) ProtoMessage() {}
 
 func (x *HookResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_plugin_proto_msgTypes[4]
+	mi := &file_plugin_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -323,7 +453,7 @@ func (x *HookResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HookResponse.ProtoReflect.Descriptor instead.
 func (*HookResponse) Descriptor() ([]byte, []int) {
-	return file_plugin_proto_rawDescGZIP(), []int{4}
+	return file_plugin_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *HookResponse) GetOk() bool {
@@ -366,7 +496,7 @@ type APICall struct {
 
 func (x *APICall) Reset() {
 	*x = APICall{}
-	mi := &file_plugin_proto_msgTypes[5]
+	mi := &file_plugin_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -378,7 +508,7 @@ func (x *APICall) String() string {
 func (*APICall) ProtoMessage() {}
 
 func (x *APICall) ProtoReflect() protoreflect.Message {
-	mi := &file_plugin_proto_msgTypes[5]
+	mi := &file_plugin_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -391,7 +521,7 @@ func (x *APICall) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use APICall.ProtoReflect.Descriptor instead.
 func (*APICall) Descriptor() ([]byte, []int) {
-	return file_plugin_proto_rawDescGZIP(), []int{5}
+	return file_plugin_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *APICall) GetMethod() string {
@@ -427,7 +557,7 @@ type APICallResult struct {
 
 func (x *APICallResult) Reset() {
 	*x = APICallResult{}
-	mi := &file_plugin_proto_msgTypes[6]
+	mi := &file_plugin_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -439,7 +569,7 @@ func (x *APICallResult) String() string {
 func (*APICallResult) ProtoMessage() {}
 
 func (x *APICallResult) ProtoReflect() protoreflect.Message {
-	mi := &file_plugin_proto_msgTypes[6]
+	mi := &file_plugin_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -452,7 +582,7 @@ func (x *APICallResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use APICallResult.ProtoReflect.Descriptor instead.
 func (*APICallResult) Descriptor() ([]byte, []int) {
-	return file_plugin_proto_rawDescGZIP(), []int{6}
+	return file_plugin_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *APICallResult) GetStatus() int32 {
@@ -489,7 +619,7 @@ type LicenseInfo struct {
 
 func (x *LicenseInfo) Reset() {
 	*x = LicenseInfo{}
-	mi := &file_plugin_proto_msgTypes[7]
+	mi := &file_plugin_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -501,7 +631,7 @@ func (x *LicenseInfo) String() string {
 func (*LicenseInfo) ProtoMessage() {}
 
 func (x *LicenseInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_plugin_proto_msgTypes[7]
+	mi := &file_plugin_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -514,7 +644,7 @@ func (x *LicenseInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LicenseInfo.ProtoReflect.Descriptor instead.
 func (*LicenseInfo) Descriptor() ([]byte, []int) {
-	return file_plugin_proto_rawDescGZIP(), []int{7}
+	return file_plugin_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *LicenseInfo) GetEdition() string {
@@ -550,7 +680,7 @@ var File_plugin_proto protoreflect.FileDescriptor
 const file_plugin_proto_rawDesc = "" +
 	"\n" +
 	"\fplugin.proto\x12\x10yueyan.plugin.v1\"\a\n" +
-	"\x05Empty\"\xae\x01\n" +
+	"\x05Empty\"\xea\x01\n" +
 	"\n" +
 	"PluginInfo\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
@@ -559,7 +689,20 @@ const file_plugin_proto_rawDesc = "" +
 	"\x06author\x18\x04 \x01(\tR\x06author\x12 \n" +
 	"\vdescription\x18\x05 \x01(\tR\vdescription\x12\x14\n" +
 	"\x05hooks\x18\x06 \x03(\tR\x05hooks\x12\x12\n" +
-	"\x04apis\x18\a \x03(\tR\x04apis\".\n" +
+	"\x04apis\x18\a \x03(\tR\x04apis\x12:\n" +
+	"\bsettings\x18\b \x03(\v2\x1e.yueyan.plugin.v1.SettingFieldR\bsettings\"~\n" +
+	"\fSettingField\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05label\x18\x02 \x01(\tR\x05label\x12\x12\n" +
+	"\x04type\x18\x03 \x01(\tR\x04type\x12\x18\n" +
+	"\adefault\x18\x04 \x01(\tR\adefault\x12\x18\n" +
+	"\aoptions\x18\x05 \x03(\tR\aoptions\"\x89\x01\n" +
+	"\n" +
+	"ConfigInfo\x12@\n" +
+	"\x06values\x18\x01 \x03(\v2(.yueyan.plugin.v1.ConfigInfo.ValuesEntryR\x06values\x1a9\n" +
+	"\vValuesEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\".\n" +
 	"\x06Status\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x14\n" +
 	"\x05error\x18\x02 \x01(\tR\x05error\"q\n" +
@@ -586,12 +729,13 @@ const file_plugin_proto_rawDesc = "" +
 	"\bfeatures\x18\x02 \x03(\tR\bfeatures\x12\x1d\n" +
 	"\n" +
 	"expires_at\x18\x03 \x01(\x03R\texpiresAt\x12\x1a\n" +
-	"\bdegraded\x18\x04 \x01(\bR\bdegraded2\xd4\x01\n" +
+	"\bdegraded\x18\x04 \x01(\bR\bdegraded2\x99\x02\n" +
 	"\rPluginService\x12=\n" +
 	"\x04Info\x12\x17.yueyan.plugin.v1.Empty\x1a\x1c.yueyan.plugin.v1.PluginInfo\x12C\n" +
 	"\bActivate\x12\x1d.yueyan.plugin.v1.LicenseInfo\x1a\x18.yueyan.plugin.v1.Status\x12?\n" +
 	"\n" +
-	"Deactivate\x12\x17.yueyan.plugin.v1.Empty\x1a\x18.yueyan.plugin.v1.Status2W\n" +
+	"Deactivate\x12\x17.yueyan.plugin.v1.Empty\x1a\x18.yueyan.plugin.v1.Status\x12C\n" +
+	"\tSetConfig\x12\x1c.yueyan.plugin.v1.ConfigInfo\x1a\x18.yueyan.plugin.v1.Status2W\n" +
 	"\vHookService\x12H\n" +
 	"\aExecute\x12\x1d.yueyan.plugin.v1.HookRequest\x1a\x1e.yueyan.plugin.v1.HookResponse2O\n" +
 	"\tPluginAPI\x12B\n" +
@@ -609,33 +753,40 @@ func file_plugin_proto_rawDescGZIP() []byte {
 	return file_plugin_proto_rawDescData
 }
 
-var file_plugin_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_plugin_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_plugin_proto_goTypes = []any{
 	(*Empty)(nil),         // 0: yueyan.plugin.v1.Empty
 	(*PluginInfo)(nil),    // 1: yueyan.plugin.v1.PluginInfo
-	(*Status)(nil),        // 2: yueyan.plugin.v1.Status
-	(*HookRequest)(nil),   // 3: yueyan.plugin.v1.HookRequest
-	(*HookResponse)(nil),  // 4: yueyan.plugin.v1.HookResponse
-	(*APICall)(nil),       // 5: yueyan.plugin.v1.APICall
-	(*APICallResult)(nil), // 6: yueyan.plugin.v1.APICallResult
-	(*LicenseInfo)(nil),   // 7: yueyan.plugin.v1.LicenseInfo
+	(*SettingField)(nil),  // 2: yueyan.plugin.v1.SettingField
+	(*ConfigInfo)(nil),    // 3: yueyan.plugin.v1.ConfigInfo
+	(*Status)(nil),        // 4: yueyan.plugin.v1.Status
+	(*HookRequest)(nil),   // 5: yueyan.plugin.v1.HookRequest
+	(*HookResponse)(nil),  // 6: yueyan.plugin.v1.HookResponse
+	(*APICall)(nil),       // 7: yueyan.plugin.v1.APICall
+	(*APICallResult)(nil), // 8: yueyan.plugin.v1.APICallResult
+	(*LicenseInfo)(nil),   // 9: yueyan.plugin.v1.LicenseInfo
+	nil,                   // 10: yueyan.plugin.v1.ConfigInfo.ValuesEntry
 }
 var file_plugin_proto_depIdxs = []int32{
-	0, // 0: yueyan.plugin.v1.PluginService.Info:input_type -> yueyan.plugin.v1.Empty
-	7, // 1: yueyan.plugin.v1.PluginService.Activate:input_type -> yueyan.plugin.v1.LicenseInfo
-	0, // 2: yueyan.plugin.v1.PluginService.Deactivate:input_type -> yueyan.plugin.v1.Empty
-	3, // 3: yueyan.plugin.v1.HookService.Execute:input_type -> yueyan.plugin.v1.HookRequest
-	5, // 4: yueyan.plugin.v1.PluginAPI.Call:input_type -> yueyan.plugin.v1.APICall
-	1, // 5: yueyan.plugin.v1.PluginService.Info:output_type -> yueyan.plugin.v1.PluginInfo
-	2, // 6: yueyan.plugin.v1.PluginService.Activate:output_type -> yueyan.plugin.v1.Status
-	2, // 7: yueyan.plugin.v1.PluginService.Deactivate:output_type -> yueyan.plugin.v1.Status
-	4, // 8: yueyan.plugin.v1.HookService.Execute:output_type -> yueyan.plugin.v1.HookResponse
-	6, // 9: yueyan.plugin.v1.PluginAPI.Call:output_type -> yueyan.plugin.v1.APICallResult
-	5, // [5:10] is the sub-list for method output_type
-	0, // [0:5] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	2,  // 0: yueyan.plugin.v1.PluginInfo.settings:type_name -> yueyan.plugin.v1.SettingField
+	10, // 1: yueyan.plugin.v1.ConfigInfo.values:type_name -> yueyan.plugin.v1.ConfigInfo.ValuesEntry
+	0,  // 2: yueyan.plugin.v1.PluginService.Info:input_type -> yueyan.plugin.v1.Empty
+	9,  // 3: yueyan.plugin.v1.PluginService.Activate:input_type -> yueyan.plugin.v1.LicenseInfo
+	0,  // 4: yueyan.plugin.v1.PluginService.Deactivate:input_type -> yueyan.plugin.v1.Empty
+	3,  // 5: yueyan.plugin.v1.PluginService.SetConfig:input_type -> yueyan.plugin.v1.ConfigInfo
+	5,  // 6: yueyan.plugin.v1.HookService.Execute:input_type -> yueyan.plugin.v1.HookRequest
+	7,  // 7: yueyan.plugin.v1.PluginAPI.Call:input_type -> yueyan.plugin.v1.APICall
+	1,  // 8: yueyan.plugin.v1.PluginService.Info:output_type -> yueyan.plugin.v1.PluginInfo
+	4,  // 9: yueyan.plugin.v1.PluginService.Activate:output_type -> yueyan.plugin.v1.Status
+	4,  // 10: yueyan.plugin.v1.PluginService.Deactivate:output_type -> yueyan.plugin.v1.Status
+	4,  // 11: yueyan.plugin.v1.PluginService.SetConfig:output_type -> yueyan.plugin.v1.Status
+	6,  // 12: yueyan.plugin.v1.HookService.Execute:output_type -> yueyan.plugin.v1.HookResponse
+	8,  // 13: yueyan.plugin.v1.PluginAPI.Call:output_type -> yueyan.plugin.v1.APICallResult
+	8,  // [8:14] is the sub-list for method output_type
+	2,  // [2:8] is the sub-list for method input_type
+	2,  // [2:2] is the sub-list for extension type_name
+	2,  // [2:2] is the sub-list for extension extendee
+	0,  // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_plugin_proto_init() }
@@ -649,7 +800,7 @@ func file_plugin_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_plugin_proto_rawDesc), len(file_plugin_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   8,
+			NumMessages:   11,
 			NumExtensions: 0,
 			NumServices:   3,
 		},

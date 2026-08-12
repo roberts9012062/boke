@@ -36,7 +36,7 @@ go run ./cmd/bp pack \
   -pubkey "data/demo-keys/public.pem" \
   -frontend "cmd/demo-plugin/frontend" \
   -os "$GOOS" -arch "$GOARCH" \
-  -version 0.1.0 \
+  -version 0.2.0 \
   -out "dist" 2>&1 | tee -a "$LOG_FILE"
 
-echo "[完成] .bpk 安装包就绪：$PROJECT_ROOT/dist/demo-plugin-0.1.0-$GOOS-$GOARCH.bpk，日志：$LOG_FILE"
+echo "[完成] .bpk 安装包就绪：$PROJECT_ROOT/dist/demo-plugin-0.2.0-$GOOS-$GOARCH.bpk，日志：$LOG_FILE"

@@ -4,8 +4,11 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -147,6 +150,38 @@ func (r *PluginRepo) UpdateVersion(ctx context.Context, instanceID int64, versio
 	_, err := r.pool.Exec(ctx,
 		`UPDATE plugin_instances SET version = $2, repo_url = $3, updated_at = now() WHERE id = $1`,
 		instanceID, version, repoURL)
+	return err
+}
+
+// GetConfig 读取插件配置（config JSONB → map；无配置返回空 map）。
+func (r *PluginRepo) GetConfig(ctx context.Context, instanceID int64) (map[string]string, error) {
+	var raw []byte
+	err := r.pool.QueryRow(ctx,
+		`SELECT config FROM plugin_instances WHERE id = $1`, instanceID).Scan(&raw)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return map[string]string{}, nil
+		}
+		return nil, err
+	}
+	values := map[string]string{}
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &values); err != nil {
+			return nil, err // 数据损坏按错误返回（由调用方兜底）
+		}
+	}
+	return values, nil
+}
+
+// SetConfig 保存插件配置（整体覆盖 config JSONB；values 已由 service 层按 schema 过滤）。
+func (r *PluginRepo) SetConfig(ctx context.Context, instanceID int64, values map[string]string) error {
+	raw, err := json.Marshal(values)
+	if err != nil {
+		return err
+	}
+	_, err = r.pool.Exec(ctx,
+		`UPDATE plugin_instances SET config = $2::jsonb, updated_at = now() WHERE id = $1`,
+		instanceID, string(raw))
 	return err
 }
 

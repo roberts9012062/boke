@@ -32,6 +32,7 @@ const (
 	PluginService_Info_FullMethodName       = "/yueyan.plugin.v1.PluginService/Info"
 	PluginService_Activate_FullMethodName   = "/yueyan.plugin.v1.PluginService/Activate"
 	PluginService_Deactivate_FullMethodName = "/yueyan.plugin.v1.PluginService/Deactivate"
+	PluginService_SetConfig_FullMethodName  = "/yueyan.plugin.v1.PluginService/SetConfig"
 )
 
 // PluginServiceClient is the client API for PluginService service.
@@ -46,6 +47,8 @@ type PluginServiceClient interface {
 	Activate(ctx context.Context, in *LicenseInfo, opts ...grpc.CallOption) (*Status, error)
 	// Deactivate 停用（停用回调，插件侧保存状态/释放资源）。
 	Deactivate(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Status, error)
+	// SetConfig 下发配置（启动激活后 + 保存配置时推送；插件侧更新内存，handler 经 sdk.Config 读取）。
+	SetConfig(ctx context.Context, in *ConfigInfo, opts ...grpc.CallOption) (*Status, error)
 }
 
 type pluginServiceClient struct {
@@ -86,6 +89,16 @@ func (c *pluginServiceClient) Deactivate(ctx context.Context, in *Empty, opts ..
 	return out, nil
 }
 
+func (c *pluginServiceClient) SetConfig(ctx context.Context, in *ConfigInfo, opts ...grpc.CallOption) (*Status, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Status)
+	err := c.cc.Invoke(ctx, PluginService_SetConfig_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PluginServiceServer is the server API for PluginService service.
 // All implementations must embed UnimplementedPluginServiceServer
 // for forward compatibility.
@@ -98,6 +111,8 @@ type PluginServiceServer interface {
 	Activate(context.Context, *LicenseInfo) (*Status, error)
 	// Deactivate 停用（停用回调，插件侧保存状态/释放资源）。
 	Deactivate(context.Context, *Empty) (*Status, error)
+	// SetConfig 下发配置（启动激活后 + 保存配置时推送；插件侧更新内存，handler 经 sdk.Config 读取）。
+	SetConfig(context.Context, *ConfigInfo) (*Status, error)
 	mustEmbedUnimplementedPluginServiceServer()
 }
 
@@ -116,6 +131,9 @@ func (UnimplementedPluginServiceServer) Activate(context.Context, *LicenseInfo) 
 }
 func (UnimplementedPluginServiceServer) Deactivate(context.Context, *Empty) (*Status, error) {
 	return nil, status.Error(codes.Unimplemented, "method Deactivate not implemented")
+}
+func (UnimplementedPluginServiceServer) SetConfig(context.Context, *ConfigInfo) (*Status, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetConfig not implemented")
 }
 func (UnimplementedPluginServiceServer) mustEmbedUnimplementedPluginServiceServer() {}
 func (UnimplementedPluginServiceServer) testEmbeddedByValue()                       {}
@@ -192,6 +210,24 @@ func _PluginService_Deactivate_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PluginService_SetConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ConfigInfo)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PluginServiceServer).SetConfig(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PluginService_SetConfig_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PluginServiceServer).SetConfig(ctx, req.(*ConfigInfo))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // PluginService_ServiceDesc is the grpc.ServiceDesc for PluginService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -210,6 +246,10 @@ var PluginService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Deactivate",
 			Handler:    _PluginService_Deactivate_Handler,
+		},
+		{
+			MethodName: "SetConfig",
+			Handler:    _PluginService_SetConfig_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -12,11 +12,21 @@ import (
 
 // Info 插件信息（Info() 返回，主进程校验与安装清单一致）。
 type Info struct {
-	ID          string // 插件 ID（唯一，与清单 id 一致）
-	Name        string // 插件名称
-	Version     string // 版本号
-	Author      string // 作者
-	Description string // 一句话描述
+	ID          string         // 插件 ID（唯一，与清单 id 一致）
+	Name        string         // 插件名称
+	Version     string         // 版本号
+	Author      string         // 作者
+	Description string         // 一句话描述
+	Settings    []SettingField // 设置项声明（设置页 schema 驱动；可空=无配置项）
+}
+
+// SettingField 插件设置项声明（主进程经 Info RPC 收集，设置页通用渲染器展示）。
+type SettingField struct {
+	Key     string   // 设置键（存 plugin_instances.config：config["{key}"]）
+	Label   string   // 展示标签
+	Type    string   // 控件类型：text / switch / select
+	Default string   // 默认值
+	Options []string // select 选项列表
 }
 
 // Event 钩子事件（与主进程 internal/plugin.Event 对齐；Payload 为 JSON bytes，
@@ -129,4 +139,33 @@ func License(ctx context.Context) LicenseInfo {
 	licenseMu.RLock()
 	defer licenseMu.RUnlock()
 	return licenseState
+}
+
+// ---------- 插件配置（主进程下发，插件只读） ----------
+
+// 插件配置内存状态（server.Serve SetConfig 回调更新；并发安全）。
+var (
+	configMu    sync.RWMutex
+	configState = map[string]string{} // 配置键值对（仅 schema 声明的 key）
+)
+
+// SetConfig 更新插件配置（server 配置下发回调使用；插件作者不调用）。
+func SetConfig(values map[string]string) {
+	configMu.Lock()
+	configState = make(map[string]string, len(values))
+	for k, v := range values {
+		configState[k] = v
+	}
+	configMu.Unlock()
+}
+
+// Config 返回当前配置只读快照（插件 handler 内查询配置项）。
+func Config(ctx context.Context) map[string]string {
+	configMu.RLock()
+	defer configMu.RUnlock()
+	out := make(map[string]string, len(configState))
+	for k, v := range configState {
+		out[k] = v
+	}
+	return out
 }

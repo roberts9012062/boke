@@ -1,7 +1,7 @@
 // src/app/admin/plugins/[id]/settings/page.tsx
-// 插件设置页（M3.2 前端扩展点：schema 驱动通用渲染器）：
-// 从清单拉取插件 settings_schema → 渲染 text/switch/select 字段 → 保存到 settings（前缀键 plugin_{id}_）。
-// 后端零改动（settings 扁平 Record 天然支持前缀键）。
+// 插件设置页（M3.7 设置端到端：schema 驱动通用渲染器）：
+// 详情接口聚合「进程 Info 上报优先、市场清单兜底」→ 渲染 text/switch/select 字段
+// → 保存到 plugin_instances.config（JSONB，未声明键被 service 过滤）→ 运行中推送即时生效。
 "use client";
 
 import { useParams } from "next/navigation";
@@ -9,46 +9,37 @@ import { useEffect, useState } from "react";
 
 import { Switch } from "@/components/ui/switch";
 import {
-  apiAdminSaveSettings,
-  apiAdminSettings,
-  apiPluginMarket,
+  apiPluginDetail,
+  apiPluginSaveConfig,
   ApiError,
-  type PluginInfo,
+  type PluginDetail,
   type PluginSettingField,
 } from "@/lib/api";
 
-// PluginSettings 插件设置页。
+// PluginSettings 插件设置页（:id 为实例 ID）。
 export default function PluginSettings() {
   const params = useParams<{ id: string }>();
-  const pluginId = params.id;
+  const instanceId = Number(params.id);
 
-  const [plugin, setPlugin] = useState<PluginInfo | null>(null);
+  const [plugin, setPlugin] = useState<PluginDetail | null>(null);
   const [values, setValues] = useState<Record<string, string>>({});
   const [loaded, setLoaded] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
   const [saved, setSaved] = useState<boolean>(false);
 
-  // 加载插件 schema + 已存配置
+  // 加载插件详情（schema 聚合 + 已存配置）
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const market = await apiPluginMarket();
-        const found = market.items.find((p) => p.id === pluginId);
-        if (!found) {
-          setError("插件不存在");
-          return;
-        }
+        const { plugin: detail } = await apiPluginDetail(instanceId);
         if (cancelled) return;
-        setPlugin(found);
-        // 读取已存配置（前缀键 plugin_{id}_）
-        const all = await apiAdminSettings();
-        const prefix = `plugin_${pluginId}_`;
+        setPlugin(detail);
+        // 初始化表单值：已存配置优先，未设置项用 schema 默认值
         const next: Record<string, string> = {};
-        for (const field of found.settings_schema ?? []) {
-          next[field.key] = all[prefix + field.key] ?? field.default ?? "";
+        for (const field of detail.settings_schema ?? []) {
+          next[field.key] = detail.config?.[field.key] ?? field.default ?? "";
         }
-        if (cancelled) return;
         setValues(next);
       } catch (err) {
         if (!cancelled) setError(err instanceof ApiError ? err.message : "加载失败");
@@ -59,20 +50,16 @@ export default function PluginSettings() {
     return () => {
       cancelled = true;
     };
-  }, [pluginId]);
+  }, [instanceId]);
 
-  // 保存（前缀键写入 settings）
+  // 保存（service 按 schema 过滤未声明键；运行中推送即时生效）
   const handleSave = async () => {
     if (!plugin) return;
     setError("");
     setSaved(false);
-    const prefix = `plugin_${pluginId}_`;
-    const updates: Record<string, string> = {};
-    for (const field of plugin.settings_schema ?? []) {
-      updates[prefix + field.key] = values[field.key] ?? "";
-    }
     try {
-      await apiAdminSaveSettings(updates);
+      const { config } = await apiPluginSaveConfig(instanceId, values);
+      setValues(config); // 回显过滤后的实际保存值
       setSaved(true);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "保存失败");

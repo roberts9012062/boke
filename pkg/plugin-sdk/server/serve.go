@@ -93,9 +93,18 @@ func (s *pluginServiceServer) Info(context.Context, *proto.Empty) (*proto.Plugin
 	for name := range s.hooks {
 		hooks = append(hooks, name)
 	}
+	// 设置项声明（schema 驱动设置页；插件作者在 Info() 中填写）
+	settings := make([]*proto.SettingField, 0, len(info.Settings))
+	for _, f := range info.Settings {
+		settings = append(settings, &proto.SettingField{
+			Key: f.Key, Label: f.Label, Type: f.Type,
+			Default: f.Default, Options: f.Options,
+		})
+	}
 	return &proto.PluginInfo{
 		Id: info.ID, Name: info.Name, Version: info.Version,
-		Author: info.Author, Description: info.Description, Hooks: hooks,
+		Author: info.Author, Description: info.Description,
+		Hooks: hooks, Settings: settings,
 	}, nil
 }
 
@@ -117,6 +126,12 @@ func (s *pluginServiceServer) Deactivate(ctx context.Context, _ *proto.Empty) (*
 	if err := s.impl.OnDeactivate(ctx); err != nil {
 		return &proto.Status{Ok: false, Error: err.Error()}, nil
 	}
+	return &proto.Status{Ok: true}, nil
+}
+
+// SetConfig 配置下发回调（主进程：启动激活后 + 保存配置时推送；插件更新内存供 handler 读取）。
+func (s *pluginServiceServer) SetConfig(_ context.Context, req *proto.ConfigInfo) (*proto.Status, error) {
+	sdk.SetConfig(req.GetValues())
 	return &proto.Status{Ok: true}, nil
 }
 

@@ -316,10 +316,10 @@ export default function PluginMarketPage() {
                     </span>
                     <div className="flex items-center gap-2">
                       <span className="text-ink-3">已装</span>
-                      {/* 打开设置（设计稿《已装SEO》：schema 驱动设置页，M3.2） */}
+                      {/* 打开设置（设计稿《已装SEO》：schema 驱动设置页，M3.2；详情接口按实例 ID 路由） */}
                       {(plugin.settings_schema?.length ?? 0) > 0 ? (
                         <Link
-                          href={`/admin/plugins/${plugin.id}/settings`}
+                          href={`/admin/plugins/${plugin.instance_id}/settings`}
                           className="rounded-full border border-line px-3 py-1 text-ink-2 hover:text-ink"
                         >
                           打开设置

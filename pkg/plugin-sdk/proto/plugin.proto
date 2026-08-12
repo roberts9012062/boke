@@ -27,6 +27,21 @@ message PluginInfo {
   string description = 5;        // 一句话描述
   repeated string hooks = 6;     // 声明的钩子（对齐主进程钩子表，如 "post.after_publish"）
   repeated string apis = 7;      // 自定义 API 路径（如 "/ping"，主进程挂 /api/plugins/{id}/**）
+  repeated SettingField settings = 8; // 设置项声明（设置页 schema 驱动；主进程聚合「进程上报优先、市场清单兜底」）
+}
+
+// SettingField 插件设置项声明（设置页 schema 驱动通用渲染器）。
+message SettingField {
+  string key = 1;                // 设置键（存 plugin_instances.config：config["{key}"]）
+  string label = 2;              // 展示标签
+  string type = 3;               // 控件类型：text / switch / select
+  string default = 4;            // 默认值
+  repeated string options = 5;   // select 选项列表
+}
+
+// ConfigInfo 插件配置（主进程 → 插件：启动激活时下发 + 保存配置时推送）。
+message ConfigInfo {
+  map<string, string> values = 1; // 配置键值对（仅 schema 声明的 key）
 }
 
 // Status 激活/停用结果。
@@ -91,6 +106,8 @@ service PluginService {
   rpc Activate(LicenseInfo) returns (Status);
   // Deactivate 停用（停用回调，插件侧保存状态/释放资源）。
   rpc Deactivate(Empty) returns (Status);
+  // SetConfig 下发配置（启动激活后 + 保存配置时推送；插件侧更新内存，handler 经 sdk.Config 读取）。
+  rpc SetConfig(ConfigInfo) returns (Status);
 }
 
 // HookService 钩子执行服务。

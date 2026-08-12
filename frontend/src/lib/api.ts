@@ -834,6 +834,37 @@ export function apiUninstallPlugin(instanceId: number): Promise<void> {
   return del<void>(`/admin/plugins/${instanceId}`);
 }
 
+// ---------- 插件设置（M3.7：详情/配置读写，端到端） ----------
+
+// 插件详情（设置页数据源：实例 + 聚合 schema + 已存配置）。
+export interface PluginDetail {
+  id: number; // 实例 ID
+  plugin_id: string; // 插件 ID
+  name: string; // 名称
+  version: string; // 版本
+  state: string; // 状态
+  settings_schema?: PluginSettingField[]; // 设置项 schema（进程 Info 优先/清单兜底）
+  config?: Record<string, string>; // 已存配置
+}
+
+// 插件详情（schema 聚合：进程上报优先、市场清单兜底；本地安装插件可用）。
+export function apiPluginDetail(instanceId: number): Promise<{ plugin: PluginDetail }> {
+  return get<{ plugin: PluginDetail }>(`/admin/plugins/${instanceId}`);
+}
+
+// 读取插件配置。
+export function apiPluginConfig(instanceId: number): Promise<{ config: Record<string, string> }> {
+  return get<{ config: Record<string, string> }>(`/admin/plugins/${instanceId}/config`);
+}
+
+// 保存插件配置（service 按 schema 过滤未声明键；运行中推送即时生效）。
+export function apiPluginSaveConfig(
+  instanceId: number,
+  values: Record<string, string>,
+): Promise<{ config: Record<string, string> }> {
+  return put<{ config: Record<string, string> }>(`/admin/plugins/${instanceId}/config`, { values });
+}
+
 // ---------- SEO（M4） ----------
 
 // 全局 SEO 设置（seo_settings 单行）。

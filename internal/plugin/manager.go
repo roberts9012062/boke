@@ -55,6 +55,10 @@ type ManagerEvents interface {
 // 返回：许可证信息（nil=无记录，demo 模式）；错误=查询失败（按 free 兜底）。
 type LicenseProvider func(ctx context.Context, pluginID string) (*proto.LicenseInfo, error)
 
+// ConfigProvider 插件配置查询回调（M3.7 设置功能：service 层实现，避免 plugin→repository 依赖）。
+// 返回：配置键值对（仅 schema 声明的 key；nil/空=无配置）。
+type ConfigProvider func(ctx context.Context, pluginID string) (map[string]string, error)
+
 // ManagedPlugin 单个插件进程管理项（受 PluginManager.mu 保护）。
 type ManagedPlugin struct {
 	pluginID  string        // 插件 ID
@@ -74,13 +78,14 @@ type PluginManager struct {
 	registry        *Registry                 // 钩子注册表（注册/注销适配器）
 	events          ManagerEvents             // 状态事件回调（写 DB）
 	licenseProvider LicenseProvider           // 许可证查询（M3.5；可空=全部 free）
+	configProvider  ConfigProvider            // 配置查询（M3.7；可空=无配置）
 	logDir          string                    // 插件日志目录（logs/plugins）
 }
 
 // NewPluginManager 创建进程管理器。
 // 参数：store 二进制存储；registry 钩子注册表；events 状态回调（可空）；logDir 插件日志目录；
-//      licenseProvider 许可证查询（M3.5，可空=全部 demo）。
-func NewPluginManager(store *BinStore, registry *Registry, events ManagerEvents, logDir string, licenseProvider LicenseProvider) *PluginManager {
+//      licenseProvider 许可证查询（M3.5，可空=全部 demo）；configProvider 配置查询（M3.7，可空=无配置）。
+func NewPluginManager(store *BinStore, registry *Registry, events ManagerEvents, logDir string, licenseProvider LicenseProvider, configProvider ConfigProvider) *PluginManager {
 	return &PluginManager{
 		managed:         make(map[string]*ManagedPlugin),
 		crashCounts:     make(map[string]int),
@@ -88,6 +93,7 @@ func NewPluginManager(store *BinStore, registry *Registry, events ManagerEvents,
 		registry:        registry,
 		events:          events,
 		licenseProvider: licenseProvider,
+		configProvider:  configProvider,
 		logDir:          logDir,
 	}
 }
@@ -191,6 +197,17 @@ func (m *PluginManager) Start(ctx context.Context, pluginID string) error {
 		client.Kill()
 		_ = logFile.Close()
 		return fmt.Errorf("插件「%s」激活失败：%s", pluginID, reason)
+	}
+
+	// 下发配置（M3.7：provider 查询，无记录/失败按空配置；失败仅告警不阻断启动——插件可用默认值）
+	if m.configProvider != nil {
+		if values, err := m.configProvider(ctx, pluginID); err == nil {
+			if _, err := rpc.info.SetConfig(ctx, &proto.ConfigInfo{Values: values}); err != nil {
+				fmt.Fprintf(os.Stderr, "[plugin-mgr] 插件 %s 配置下发失败（启动阶段）：%v\n", pluginID, err)
+			}
+		} else {
+			fmt.Fprintf(os.Stderr, "[plugin-mgr] 插件 %s 配置查询失败（启动阶段）：%v\n", pluginID, err)
+		}
 	}
 
 	// 注册钩子适配器（进程外钩子 → Registry；按插件 ID 精确匹配）

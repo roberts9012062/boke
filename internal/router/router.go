@@ -31,6 +31,7 @@ type Handlers struct {
 	Message  *handler.MessageHandler  // 私信控制器（M2）
 	Moderation *handler.ModerationHandler // 内容治理控制器（M2 举报/敏感词/封禁）
 	Plugin   *handler.PluginHandler   // 插件控制器（M3.1 商城/管理）
+	PluginConfig *handler.PluginConfigHandler // 插件设置控制器（M3.7 设置端到端）
 	Seo      *handler.SeoHandler      // SEO 控制器（M4）
 	Ai       *handler.AiHandler       // AI 控制器（M4：供应商/任务/用量/内置场景）
 	Report   *handler.ReportHandler   // 数据报表控制器（M4-报表）
@@ -253,6 +254,10 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager, e
 		plugins.POST("/:id/upgrade", handlers.Plugin.Upgrade) // 一键升级（M3.6 后置）
 		plugins.GET("/:id/license", handlers.Plugin.LicenseStatus)    // 许可证状态（M3.5）
 		plugins.POST("/:id/license", handlers.Plugin.ActivateLicense) // 激活许可证（M3.5）
+		// 插件设置（M3.7：详情/配置读写；Gin 静态段优先，与 /market、/:id/* 子路径不冲突）
+		plugins.GET("/:id", handlers.PluginConfig.Detail)             // 详情（设置页数据源）
+		plugins.GET("/:id/config", handlers.PluginConfig.GetConfig)   // 读取配置
+		plugins.PUT("/:id/config", handlers.PluginConfig.SaveConfig)  // 保存配置（推送即时生效）
 		// 可更新检查（独立前缀——/plugins/updates 与 /:id 参数段冲突）
 		adminGroup.GET("/plugin-updates", perm(casbin.DomainPlugins), handlers.Plugin.Updates)
 		// GitHub OAuth（M3.5：插件市场设置区连接；独立前缀避免与 /plugins/:id 参数段冲突）

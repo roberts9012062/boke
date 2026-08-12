@@ -20,7 +20,7 @@ import urllib.request
 BASE = "http://localhost:8080/api/v1"
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PLUGIN_LOG = os.path.join(ROOT, "logs", "plugins", "demo-plugin.log")
-BPK_FILE = os.path.join(ROOT, "dist", "demo-plugin-0.1.0-windows-amd64.bpk")
+BPK_FILE = os.path.join(ROOT, "dist", "demo-plugin-0.2.0-windows-amd64.bpk")
 KEYS_DIR = os.path.join(ROOT, "data", "demo-keys")
 LICENSE_JWT = os.path.join(KEYS_DIR, "license.jwt")
 PASS = 0
@@ -126,7 +126,7 @@ def login(account, password="Yueyan2026"):
 
 
 def build_bpk():
-    """cmd/bp 打包 demo 插件（scripts/build-demo-bpk.sh → dist/demo-plugin-0.1.0-windows-amd64.bpk）。"""
+    """cmd/bp 打包 demo 插件（scripts/build-demo-bpk.sh → dist/demo-plugin-0.2.0-windows-amd64.bpk）。"""
     r = subprocess.run(["bash", os.path.join(ROOT, "scripts", "build-demo-bpk.sh")],
                        capture_output=True, timeout=180)
     ok = r.returncode == 0 and os.path.exists(BPK_FILE)
@@ -360,6 +360,37 @@ def main():
     # ---------- 6. 自定义 API 代理 ----------
     body = call("GET", "/plugins/demo-plugin/ping", token=token, raw=True)
     assert_true('"pong":true' in body, "自定义 API 代理（GET /plugins/demo-plugin/ping）")
+
+    # ---------- 6.3 插件设置链路（M3.7：schema 聚合 → 保存过滤 → 即时生效 → 重启保持） ----------
+    inst = installed_item(token)
+    assert_true(inst is not None, "设置链路：获取插件实例")
+    inst_id = inst["id"]
+    # 详情：schema 来自进程 Info 上报（运行中优先），含 3 个设置项声明
+    r = call("GET", f"/admin/plugins/{inst_id}", token=token)
+    schema = r["data"]["plugin"]["settings_schema"] or []
+    keys = sorted(f["key"] for f in schema)
+    assert_true(keys == ["greeting", "show_badge", "theme"], f"详情接口：进程上报 schema 聚合（实际 {keys}）")
+    # 保存配置：合法键保存 + 未声明键被过滤（防任意键注入）
+    r = call("PUT", f"/admin/plugins/{inst_id}/config", token=token,
+             body={"values": {"greeting": "你好，月言", "show_badge": "on", "theme": "dark", "evil_key": "注入"}})
+    saved = r["data"]["config"]
+    assert_true(saved.get("greeting") == "你好，月言" and "evil_key" not in saved,
+                f"保存配置：schema 过滤（实际 {saved}）")
+    # 即时生效：插件进程经 SetConfig 下发，/settings API 返回新值
+    body = call("GET", "/plugins/demo-plugin/settings", token=token, raw=True)
+    cfg = json.loads(body)
+    assert_true(cfg.get("greeting") == "你好，月言" and cfg.get("theme") == "dark",
+                f"保存后即时生效：插件 /settings 返回新配置（实际 {cfg}）")
+    # 重启后保持：停用再启用（Start 激活后自动下发配置）
+    call("PUT", f"/admin/plugins/{inst_id}/state", token=token, body={"state": "disabled"})
+    call("PUT", f"/admin/plugins/{inst_id}/state", token=token, body={"state": "running"})
+    assert_true(wait_ping(token), "设置链路：停用再启用后插件恢复")
+    body = call("GET", "/plugins/demo-plugin/settings", token=token, raw=True)
+    cfg = json.loads(body)
+    assert_true(cfg.get("greeting") == "你好，月言", f"重启后配置保持（Start 激活下发，实际 {cfg}）")
+    # 回读接口：DB config 一致
+    r = call("GET", f"/admin/plugins/{inst_id}/config", token=token)
+    assert_true(r["data"]["config"].get("greeting") == "你好，月言", "配置回读：DB config JSONB 一致")
 
     # ---------- 7. 崩溃自愈：kill 进程 → 1s 退避自动重启 ----------
     before = len(plugin_pids())
