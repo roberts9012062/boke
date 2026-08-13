@@ -2,18 +2,19 @@
 // 编辑资料页（设计稿 D/冷月/编辑资料 1400×900）：
 // 编辑资料 → 这些信息会显示在你的个人主页 → 头像/显示名称/用户名(只读)/简介 → 保存更改。
 // M1.7：头像真实上传（裁剪压缩 → /media → /me/avatar）、移除；保存后全局同步用户资料。
+// 更换头像：选图后弹出圆形遮罩裁剪器（AvatarCropper），确认后上传裁剪结果。
 "use client";
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
+import { AvatarCropper } from "@/components/avatar-cropper";
 import { DesktopNav } from "@/components/desktop-nav";
 import { MobileTabbar } from "@/components/mobile-tabbar";
 import { Avatar } from "@/components/ui/avatar";
 import { apiUpdateAvatar, apiUpdateProfile, apiUploadMedia, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { cropSquare } from "@/lib/avatar";
 
 // SettingsProfilePage 编辑资料页（需登录）。
 export default function SettingsProfilePage() {
@@ -25,6 +26,8 @@ export default function SettingsProfilePage() {
   const [saved, setSaved] = useState<boolean>(false);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [avatarBusy, setAvatarBusy] = useState<boolean>(false);
+  // 待裁剪的原图（非空时弹出圆形裁剪器）
+  const [cropFile, setCropFile] = useState<File | null>(null);
   // 隐藏的文件选择框（更换头像触发）
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -49,14 +52,13 @@ export default function SettingsProfilePage() {
     return null;
   }
 
-  // 上传新头像：裁剪压缩 → 上传媒体 → 写入用户头像 → 全局同步
-  const handleAvatarChange = async (file: File) => {
+  // 上传头像（裁剪完成后的文件）：上传媒体 → 写入用户头像 → 全局同步
+  const uploadAvatar = async (croppedFile: File) => {
     setError("");
     setSaved(false);
     setAvatarBusy(true);
     try {
-      const compressed = await cropSquare(file);
-      const uploaded = await apiUploadMedia(compressed);
+      const uploaded = await apiUploadMedia(croppedFile);
       await apiUpdateAvatar(uploaded.url);
       // 全局同步头像（导航/主页/评论等组件即时生效）
       updateUser({ avatar_url: uploaded.url });
@@ -173,7 +175,8 @@ export default function SettingsProfilePage() {
                   onChange={(e) => {
                     const file = e.target.files?.[0];
                     if (file) {
-                      void handleAvatarChange(file);
+                      // 选图后弹出圆形裁剪器（确认后上传）
+                      setCropFile(file);
                     }
                   }}
                 />
@@ -259,6 +262,23 @@ export default function SettingsProfilePage() {
         </div>
       </main>
       <MobileTabbar />
+
+      {/* 圆形头像裁剪器（选图后弹出；确认后上传，取消关闭） */}
+      {cropFile && (
+        <AvatarCropper
+          file={cropFile}
+          onCancel={() => {
+            setCropFile(null);
+            if (fileInputRef.current) {
+              fileInputRef.current.value = "";
+            }
+          }}
+          onConfirm={(croppedFile) => {
+            setCropFile(null);
+            void uploadAvatar(croppedFile);
+          }}
+        />
+      )}
     </div>
   );
 }

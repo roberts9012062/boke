@@ -4,10 +4,12 @@
  * 说明：
  *   - @import "tailwindcss"：Tailwind v4 入口（无需 tailwind.config.js）
  *   - @import "./tokens.css"：双主题 CSS 变量（冷月/薄雾）
+ *   - @import "./animations.css"：全站动效体系（动画工具类/关键帧/微交互）
  *   - @theme inline：把设计令牌注册为 Tailwind 工具类（如 bg-bg / text-ink / border-line）
  */
 @import "tailwindcss";
 @import "../themes/tokens.css";
+@import "./animations.css";
 
 /* 将设计令牌映射为 Tailwind 颜色/字体工具类（inline：随 data-theme 动态生效） */
 @theme inline {

@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import {
   apiAiCreateProvider,
   apiAiDeleteProvider,
+  apiAiFetchModels,
   apiAiProviders,
   apiAiTestProvider,
   apiAiUpdateProvider,
@@ -28,6 +29,8 @@ const EMPTY_FORM: AiProviderInput = {
   models: [],
   enabled: true,
   priority: 10,
+  price_input: 0,
+  price_output: 0,
 };
 
 // ProvidersTab 供应商管理。
@@ -36,7 +39,8 @@ export function ProvidersTab() {
   const [loaded, setLoaded] = useState(false);
   const [editing, setEditing] = useState<AiProviderDTO | null>(null); // 编辑对象（null=新增）
   const [form, setForm] = useState<AiProviderInput>(EMPTY_FORM);
-  const [modelsText, setModelsText] = useState("");
+  const [fetchableModels, setFetchableModels] = useState<string[]>([]); // 拉取到的候选模型清单
+  const [fetchingModels, setFetchingModels] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   // 删除确认弹窗（取代 window.confirm——设计稿「确认弹窗」风格）
@@ -55,7 +59,7 @@ export function ProvidersTab() {
   const openCreate = () => {
     setEditing(null);
     setForm(EMPTY_FORM);
-    setModelsText("");
+    setFetchableModels([]);
     setError("");
   };
 
@@ -69,23 +73,56 @@ export function ProvidersTab() {
       models: p.models,
       enabled: p.enabled,
       priority: p.priority,
+      price_input: p.price_input ?? 0,
+      price_output: p.price_output ?? 0,
     });
-    setModelsText(p.models.join(", "));
+    // 已保存的模型作为初始候选（编辑时能看到已选；后续拉取会合并去重）
+    setFetchableModels(p.models);
     setError("");
+  };
+
+  // fetchModels 拉取供应商模型清单（以表单当前 base_url + api_key 直连）
+  const fetchModels = async () => {
+    setFetchingModels(true);
+    setError("");
+    try {
+      const r = await apiAiFetchModels(form.base_url, form.api_key);
+      // 合并去重：保留已选模型，加入新拉取到的模型
+      setFetchableModels((prev) => {
+        const merged = new Set<string>([...form.models, ...prev, ...r.models]);
+        return Array.from(merged);
+      });
+      if (r.models.length === 0) {
+        toast.error("未拉取到模型，请检查接口地址与 API Key");
+      }
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "拉取模型失败");
+    } finally {
+      setFetchingModels(false);
+    }
+  };
+
+  // toggleModel 勾选/取消单个模型
+  const toggleModel = (model: string) => {
+    setForm((prev) => {
+      const selected = prev.models.includes(model);
+      return {
+        ...prev,
+        models: selected ? prev.models.filter((m) => m !== model) : [...prev.models, model],
+      };
+    });
   };
 
   // 保存（新增/更新）
   const handleSave = async () => {
+    if (form.models.length === 0) {
+      setError("请至少选择一个模型");
+      return;
+    }
     setBusy(true);
     setError("");
     try {
-      const input: AiProviderInput = {
-        ...form,
-        models: modelsText
-          .split(/[,，]/)
-          .map((m) => m.trim())
-          .filter((m) => m !== ""),
-      };
+      const input: AiProviderInput = { ...form };
       if (editing) {
         await apiAiUpdateProvider(editing.id, input);
       } else {
@@ -95,7 +132,7 @@ export function ProvidersTab() {
       setItems(r.items);
       setEditing(null);
       setForm(EMPTY_FORM);
-      setModelsText("");
+      setFetchableModels([]);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "保存失败");
     } finally {
@@ -170,6 +207,7 @@ export function ProvidersTab() {
                 <th className="px-4 py-3 font-normal">接口地址</th>
                 <th className="px-4 py-3 font-normal">模型</th>
                 <th className="px-4 py-3 font-normal">优先级</th>
+                <th className="px-4 py-3 font-normal">单价（进/出 ¥/M token）</th>
                 <th className="px-4 py-3 font-normal">API Key</th>
                 <th className="px-4 py-3 font-normal">启用</th>
                 <th className="px-4 py-3 font-normal">操作</th>
@@ -184,6 +222,9 @@ export function ProvidersTab() {
                   </td>
                   <td className="px-4 py-3 text-xs text-ink-2">{p.models.join(" / ")}</td>
                   <td className="px-4 py-3 text-ink-2">{p.priority}</td>
+                  <td className="px-4 py-3 text-xs text-ink-2">
+                    {(p.price_input ?? 0).toFixed(2)} / {(p.price_output ?? 0).toFixed(2)}
+                  </td>
                   <td className="px-4 py-3">
                     {p.api_key_set ? (
                       <span className="rounded-full bg-accent-soft px-2 py-0.5 text-xs text-glow">已配置</span>
@@ -247,15 +288,47 @@ export function ProvidersTab() {
               className="mt-1 w-full rounded-lg border border-line bg-elevated px-3 py-2 text-sm text-ink outline-none focus:border-accent"
             />
           </label>
-          <label className="block">
-            <span className="text-xs text-ink-3">模型列表（必填，逗号分隔）</span>
-            <input
-              value={modelsText}
-              onChange={(e) => setModelsText(e.target.value)}
-              placeholder="deepseek-chat, deepseek-reasoner"
-              className="mt-1 w-full rounded-lg border border-line bg-elevated px-3 py-2 text-sm text-ink outline-none focus:border-accent"
-            />
-          </label>
+          <div>
+            <div className="mb-1 flex items-center justify-between">
+              <span className="text-xs text-ink-3">模型列表（多选，选中的才能用）</span>
+              <button
+                type="button"
+                onClick={() => void fetchModels()}
+                disabled={fetchingModels}
+                className="rounded-full bg-accent/10 px-2.5 py-0.5 text-xs text-glow hover:bg-accent/20 disabled:opacity-50"
+              >
+                {fetchingModels ? "拉取中…" : "拉取模型"}
+              </button>
+            </div>
+            {fetchableModels.length === 0 ? (
+              <p className="rounded-lg border border-dashed border-line px-3 py-2 text-xs text-ink-3">
+                填写接口地址与 API Key 后点击「拉取模型」获取清单
+              </p>
+            ) : (
+              <div className="flex max-h-36 flex-wrap gap-1.5 overflow-y-auto rounded-lg border border-line p-2">
+                {fetchableModels.map((model) => {
+                  const selected = form.models.includes(model);
+                  return (
+                    <button
+                      key={model}
+                      type="button"
+                      onClick={() => toggleModel(model)}
+                      aria-pressed={selected}
+                      className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${
+                        selected
+                          ? "border-accent bg-accent-soft font-medium text-glow"
+                          : "border-line text-ink-2 hover:text-ink"
+                      }`}
+                    >
+                      {selected ? "✓ " : ""}
+                      {model}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <p className="mt-0.5 text-right text-[10px] text-ink-3">已选 {form.models.length} 个模型</p>
+          </div>
           <label className="block">
             <span className="text-xs text-ink-3">路由优先级（1-100，小先选）</span>
             <input
@@ -267,6 +340,33 @@ export function ProvidersTab() {
               className="mt-1 w-full rounded-lg border border-line bg-elevated px-3 py-2 text-sm text-ink outline-none focus:border-accent"
             />
           </label>
+          {/* 单价（元/百万 token，费用折算用；默认 0 = 未配置） */}
+          <div className="grid grid-cols-2 gap-2">
+            <label className="block">
+              <span className="text-xs text-ink-3">输入单价（¥/M token）</span>
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                value={form.price_input}
+                onChange={(e) => setForm({ ...form, price_input: Number(e.target.value) || 0 })}
+                placeholder="0"
+                className="mt-1 w-full rounded-lg border border-line bg-elevated px-3 py-2 text-sm text-ink outline-none focus:border-accent"
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs text-ink-3">输出单价（¥/M token）</span>
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                value={form.price_output}
+                onChange={(e) => setForm({ ...form, price_output: Number(e.target.value) || 0 })}
+                placeholder="0"
+                className="mt-1 w-full rounded-lg border border-line bg-elevated px-3 py-2 text-sm text-ink outline-none focus:border-accent"
+              />
+            </label>
+          </div>
           <div className="flex items-center justify-between rounded-lg bg-muted px-3 py-2">
             <span className="text-sm text-ink-2">启用该供应商</span>
             <Switch checked={form.enabled} onChange={(v) => setForm({ ...form, enabled: v })} label="启用供应商" />

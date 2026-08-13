@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 
 import { DesktopNav } from "@/components/desktop-nav";
 import { MobileTabbar } from "@/components/mobile-tabbar";
+import { Reveal } from "@/components/motion/reveal";
 import { Avatar } from "@/components/ui/avatar";
 import { EmptyState } from "@/components/ui/empty-state";
 import { apiFavorites } from "@/lib/api";
@@ -94,15 +95,15 @@ export default function FavoritesPage() {
           </div>
         )}
 
-        {/* 收藏列表（设计稿：作者 + 内容 + 「文字 · 收藏于 2 天前」） */}
+        {/* 收藏列表（设计稿：作者 + 内容 + 「文字 · 收藏于 2 天前」；Reveal 滚动进场） */}
         {loaded && filtered.length > 0 && (
           <div className="mt-4 divide-y divide-line rounded-lg border border-line bg-elevated">
             {filtered.map((post) => (
-              <Link
-                key={post.id}
-                href={`/posts/${post.id}`}
-                className="flex items-start gap-3 px-4 py-3.5 transition-colors hover:bg-muted"
-              >
+              <Reveal key={post.id}>
+                <Link
+                  href={`/posts/${post.id}`}
+                  className="flex items-start gap-3 px-4 py-3.5 transition-colors hover:bg-muted"
+                >
                 <Avatar name={post.author.nickname} url={post.author.avatar_url} className="h-9 w-9 text-sm" />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm text-ink-2">
@@ -115,7 +116,8 @@ export default function FavoritesPage() {
                     {post.favorited_at ? timeAgo(post.favorited_at) : "近期"}
                   </p>
                 </div>
-              </Link>
+                </Link>
+              </Reveal>
             ))}
           </div>
         )}

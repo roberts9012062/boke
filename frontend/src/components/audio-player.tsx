@@ -141,9 +141,9 @@ export function AudioPlayer({ src, duration, autoplay }: { src: string; duration
           aria-valuemax={Math.round(total)}
           aria-valuenow={Math.round(current)}
         >
-          {/* 已播放部分（accent 色） */}
+          {/* 已播放部分（accent 色；宽度过渡让播放/跳转更顺滑） */}
           <div
-            className="absolute left-0 top-0 h-full rounded-full bg-accent"
+            className="absolute left-0 top-0 h-full rounded-full bg-accent transition-[width] duration-150 ease-linear"
             style={{ width: `${progress}%` }}
           />
         </div>

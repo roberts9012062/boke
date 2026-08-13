@@ -50,13 +50,13 @@ export function HotTopics() {
       <section className="rounded-lg border border-line bg-elevated p-5">
         <h2 className="font-display text-base font-semibold text-ink">热门话题</h2>
 
-        {/* 加载骨架（灰条，与设计稿形态一致） */}
+        {/* 加载骨架（灰条呼吸动画，与设计稿形态一致） */}
         {topics === null && (
           <ul className="mt-3 space-y-1" aria-hidden>
             {Array.from({ length: MAX_TOPICS }, (_, index) => (
               <li key={index} className="flex items-center justify-between px-2 py-2">
-                <span className="h-4 w-20 rounded bg-muted" />
-                <span className="h-3 w-6 rounded bg-muted" />
+                <span className="h-4 w-20 animate-pulse rounded bg-muted" />
+                <span className="h-3 w-6 animate-pulse rounded bg-muted" />
               </li>
             ))}
           </ul>

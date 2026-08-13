@@ -10,6 +10,7 @@ import { Suspense, useEffect, useState } from "react";
 
 import { DesktopNav } from "@/components/desktop-nav";
 import { MobileTabbar } from "@/components/mobile-tabbar";
+import { Reveal } from "@/components/motion/reveal";
 import { PostCard } from "@/components/post-card";
 import { Avatar } from "@/components/ui/avatar";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -180,7 +181,9 @@ function SearchInner() {
               )}
               {/* 帖子结果 */}
               {result.posts.map((post) => (
-                <PostCard key={post.id} post={post} />
+                <Reveal key={post.id}>
+                  <PostCard post={post} />
+                </Reveal>
               ))}
               {result.posts.length === 0 && result.topics.length === 0 && result.users.length === 0 && renderEmpty("没有找到相关内容", "换个关键词试试")}
             </div>
@@ -189,7 +192,9 @@ function SearchInner() {
           {!searching && result && tab === "帖子" && (
             <div className="space-y-4">
               {result.posts.map((post) => (
-                <PostCard key={post.id} post={post} />
+                <Reveal key={post.id}>
+                  <PostCard post={post} />
+                </Reveal>
               ))}
               {result.posts.length === 0 && renderEmpty("没有找到相关内容", "换个关键词试试")}
             </div>

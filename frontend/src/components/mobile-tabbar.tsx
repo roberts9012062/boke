@@ -60,16 +60,16 @@ export function MobileTabbar() {
         {TABS.map((tab) => {
           // 当前 Tab 高亮（根路径精确匹配，其余前缀匹配）
           const active = tab.href === "/" ? pathname === "/" : pathname.startsWith(tab.href);
-          // 发帖为中间凸起主按钮：悬浮于导航条上方
+          // 发帖为中间凸起主按钮：悬浮于导航条上方（按压回缩 + hover 提亮）
           if (tab.primary) {
             return (
               <Link
                 key={tab.href}
                 href={tab.href}
-                className="relative flex items-center justify-center"
+                className="relative flex items-center justify-center transition duration-[var(--yy-duration-fast)] active:scale-95"
                 aria-label={tab.label}
               >
-                <span className="absolute -top-4 flex h-12 w-12 items-center justify-center rounded-full bg-accent text-xl text-on-accent shadow-lg">
+                <span className="absolute -top-4 flex h-12 w-12 items-center justify-center rounded-full bg-accent text-xl text-on-accent shadow-lg transition-[box-shadow,opacity] duration-[var(--yy-duration-base)] ease-[var(--yy-ease-out)] hover:opacity-90 hover:shadow-xl">
                   {tab.icon}
                 </span>
               </Link>
@@ -79,15 +79,15 @@ export function MobileTabbar() {
             <Link
               key={tab.href}
               href={tab.href}
-              className={`relative flex flex-col items-center justify-center gap-0.5 text-[11px] ${
+              className={`relative flex flex-col items-center justify-center gap-0.5 text-[11px] transition-colors duration-[var(--yy-duration-base)] ease-[var(--yy-ease-out)] ${
                 active ? "text-glow" : "text-ink-3"
               }`}
             >
               <span className="relative text-lg leading-none" aria-hidden>
                 {tab.icon}
-                {/* 通知未读角标（仅通知 Tab，需求 3.8） */}
+                {/* 通知未读角标（仅通知 Tab，需求 3.8；出现时弹跳） */}
                 {tab.href === "/notifications" && unread > 0 && (
-                  <span className="absolute -right-2.5 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-like px-1 text-[10px] text-white">
+                  <span className="absolute -right-2.5 -top-1 flex h-4 min-w-4 animate-pop items-center justify-center rounded-full bg-like px-1 text-[10px] text-white">
                     {unread > 99 ? "99+" : unread}
                   </span>
                 )}

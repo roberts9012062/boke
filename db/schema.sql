@@ -313,6 +313,8 @@ CREATE TABLE IF NOT EXISTS ai_providers (
     models            JSONB NOT NULL DEFAULT '[]',       -- 可用模型列表
     enabled           BOOLEAN NOT NULL DEFAULT TRUE,     -- 是否启用
     priority          INTEGER NOT NULL DEFAULT 100,      -- 路由优先级（小先选）
+    price_input       NUMERIC(12, 6) NOT NULL DEFAULT 0, -- 输入单价（元/百万 token）
+    price_output      NUMERIC(12, 6) NOT NULL DEFAULT 0, -- 输出单价（元/百万 token）
     created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );

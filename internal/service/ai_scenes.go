@@ -1,8 +1,8 @@
 // internal/service/ai_scenes.go
-// AI 内置场景（M4）：帖子摘要 / 自动标签 / 评论审核。
+// AI 内置场景（M4）：帖子摘要 / 自动标签 / 评论审核 / 智能回复助手 / SEO 建议。
 //
 // 统一执行流程（runTask）：查任务配置 → 校验启用 → 路由供应商（任务绑定或按优先级）
-// → 解密 API Key → 调用 OpenAI 兼容接口 → 用量落库 → 解析输出并落库。
+// → 钩子改写 → 统一推理（chatProvider，含费用落库）→ 解析输出并落库。
 // 设计：AI 输出均为结构化 JSON，解析采用容错策略（失败不误伤业务主流程）。
 package service
 
@@ -10,7 +10,6 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
-	"time"
 
 	"github.com/roberts9012062/boke/internal/ai"
 	"github.com/roberts9012062/boke/internal/plugin"
@@ -18,11 +17,13 @@ import (
 	"github.com/roberts9012062/boke/pkg/errs"
 )
 
-// 任务名常量（与迁移 010 种子一致）。
+// 任务名常量（与迁移 010/011 种子一致）。
 const (
-	TaskPostSummary  = "post.summary"  // 帖子摘要
-	TaskPostTags     = "post.tags"     // 自动标签
-	TaskCommentReview = "comment.review" // 评论审核
+	TaskPostSummary    = "post.summary"    // 帖子摘要
+	TaskPostTags       = "post.tags"       // 自动标签
+	TaskCommentReview  = "comment.review"  // 评论审核
+	TaskReplyAssistant = "reply.assistant" // 智能回复助手（续写/润色/翻译）
+	TaskSeoAdvice      = "seo.advice"      // SEO 建议
 )
 
 // AI 高风险评论工单原因（审核队列展示）。
@@ -58,6 +59,71 @@ func (s *AiService) GenTags(ctx context.Context, postID int64) ([]string, error)
 		return nil, err
 	}
 	return parseTagArray(result.Text)
+}
+
+// replyActionLabel 智能回复助手操作类型的中文描述（提示词 {action} 占位符用）。
+func replyActionLabel(action string) (string, error) {
+	switch action {
+	case "continue":
+		return "续写：在保持原文风格与主题的前提下，自然衔接并补全后续内容", nil
+	case "polish":
+		return "润色：优化措辞与表达，使语句更通顺优美，保持原意不变", nil
+	case "translate":
+		return "翻译：将内容翻译为中文（若已是中文则翻译为英文）", nil
+	default:
+		return "", errs.New(errs.CodeBadRequest, "操作类型需为 continue（续写）/ polish（润色）/ translate（翻译）")
+	}
+}
+
+// GenReplyAssistant 智能回复助手（M4 蓝图场景：AI 续写/润色/翻译）。
+// 参数：action ∈ continue / polish / translate。
+// 返回：处理后的文本（非流式；前端编辑态触发）。
+func (s *AiService) GenReplyAssistant(ctx context.Context, postID int64, action string) (string, error) {
+	label, err := replyActionLabel(action)
+	if err != nil {
+		return "", err
+	}
+	post, err := s.posts.FindByID(ctx, postID)
+	if err != nil {
+		return "", err
+	}
+	content := truncateRunes(post.Content, maxPromptLen)
+	if content == "" {
+		return "", errs.New(errs.CodeBadRequest, "帖子正文为空，无法执行 AI 操作")
+	}
+	// {action} 与 {content} 占位符由任务提示词模板承载
+	input := "操作类型：" + label + "\n\n" + content
+	result, err := s.runTask(ctx, TaskReplyAssistant, input)
+	if err != nil {
+		return "", err
+	}
+	return result.Text, nil
+}
+
+// seoAdvice AI SEO 建议（标题/描述/关键词）。
+type seoAdvice struct {
+	Title       string   `json:"title"`       // SEO 标题
+	Description string   `json:"description"` // SEO 描述
+	Keywords    []string `json:"keywords"`    // 关键词（≤3 个）
+}
+
+// GenSeoAdvice 生成 SEO 建议（M4 蓝图场景：对文章给出标题/描述/关键词建议）。
+// 返回：结构化建议（前端回填到 SEO 面板）；不直接落库（作者确认后经 SEO 接口保存）。
+func (s *AiService) GenSeoAdvice(ctx context.Context, postID int64) (*seoAdvice, error) {
+	post, err := s.posts.FindByID(ctx, postID)
+	if err != nil {
+		return nil, err
+	}
+	result, err := s.runTask(ctx, TaskSeoAdvice, buildPostInput(post.Title, post.Content))
+	if err != nil {
+		return nil, err
+	}
+	raw := extractJSON(result.Text)
+	var advice seoAdvice
+	if err := json.Unmarshal([]byte(raw), &advice); err != nil {
+		return nil, errs.New(errs.CodeUpstream, "AI 返回的 SEO 建议格式不正确，请重试")
+	}
+	return &advice, nil
 }
 
 // ReviewComment 审核单条评论（M4-AI 场景 3：异步预审 + 手动批量共用）。
@@ -108,8 +174,8 @@ func (s *AiService) ReviewComments(ctx context.Context, commentIDs []int64) (map
 
 // ---------- 统一执行流程 ----------
 
-// runTask 执行一次 AI 任务（配置查询 → 路由 → 调用 → 用量落库）。
-// 返回：模型输出文本与 token 用量（已落 ai_usage）。
+// runTask 执行一次 AI 任务（配置查询 → 路由 → 钩子改写 → 统一推理 → 钩子通知）。
+// 返回：模型输出文本与 token 用量（已落 ai_usage，含费用折算）。
 func (s *AiService) runTask(ctx context.Context, taskName string, input string) (*ai.Result, error) {
 	// 1. 任务配置（不存在视为任务未配置，种子数据缺失时给出明确提示）
 	task, found, err := s.tasks.FindByName(ctx, taskName)
@@ -117,7 +183,7 @@ func (s *AiService) runTask(ctx context.Context, taskName string, input string) 
 		return nil, err
 	}
 	if !found {
-		return nil, errs.New(errs.CodeNotFound, "AI 任务「"+taskName+"」未配置，请检查迁移 010 种子数据")
+		return nil, errs.New(errs.CodeNotFound, "AI 任务「"+taskName+"」未配置，请检查迁移种子数据")
 	}
 	if !task.Enabled {
 		return nil, errs.New(errs.CodeStateConflict, "AI 任务「"+taskName+"」已停用，请在 AI 设置中启用")
@@ -128,28 +194,11 @@ func (s *AiService) runTask(ctx context.Context, taskName string, input string) 
 	if err != nil {
 		return nil, err
 	}
-	apiKey, err := decryptAPIKey(provider.APIKeyEncrypted, s.keySecret)
-	if err != nil {
-		return nil, errs.New(errs.CodeUpstream, "API Key 解密失败，请重新保存")
-	}
-	if apiKey == "" {
-		return nil, errs.New(errs.CodeUpstream, "供应商「"+provider.Name+"」未配置 API Key，请先在 AI 设置中填写")
-	}
 
-	// 3. 模型：任务指定优先，否则取供应商默认模型
-	model := strings.TrimSpace(task.Model)
-	if model == "" {
-		model = firstModel(provider.Models)
-	}
-	if model == "" {
-		return nil, errs.New(errs.CodeBadRequest, "供应商「"+provider.Name+"」未配置模型")
-	}
-
-	// 4. 调用（超时保护；错误透出上游原因）
-	// ---------- 插件钩子：ai.before_generate（M3.9 同步，可改写输入） ----------
+	// 3. 插件钩子：ai.before_generate（M3.9 同步，可改写输入）
 	if s.hooks != nil {
 		if res := s.hooks.Dispatch(ctx, plugin.HookAIBeforeGenerate, plugin.Event{
-			Payload: map[string]any{"task": taskName, "input": input, "model": model},
+			Payload: map[string]any{"task": taskName, "input": input, "model": task.Model},
 		}); res.OK {
 			if modified, ok := res.Modify.(map[string]any); ok {
 				if v, ok := modified["input"].(string); ok && v != "" {
@@ -158,24 +207,26 @@ func (s *AiService) runTask(ctx context.Context, taskName string, input string) 
 			}
 		}
 	}
-	client := ai.NewClient(provider.BaseURL, apiKey, model, aiRequestTimeout*time.Second)
-	result, err := client.Chat(ctx, task.PromptTemplate, input, task.MaxTokens)
+
+	// 4. 统一推理（供应商解密 → Provider.Chat → 用量/费用落库）
+	result, err := s.chatProvider(ctx, provider, task.TaskName, ai.ChatRequest{
+		Model: task.Model,
+		Messages: []ai.Message{
+			{Role: "system", Content: task.PromptTemplate},
+			{Role: "user", Content: input},
+		},
+		MaxTokens: task.MaxTokens,
+	})
 	if err != nil {
-		return nil, errs.New(errs.CodeUpstream, "AI 服务不可用："+err.Error())
+		return nil, err
 	}
 
-	// ---------- 插件钩子：ai.after_generate（M3.9 异步通知） ----------
+	// 5. 插件钩子：ai.after_generate（M3.9 异步通知）
 	if s.hooks != nil {
 		s.hooks.Dispatch(ctx, plugin.HookAIAfterGenerate, plugin.Event{
 			Payload: map[string]any{"task": taskName, "result": result.Text},
 		})
 	}
-
-	// 5. 用量落库（失败静默：统计是观测数据，不影响场景结果）
-	_ = s.usage.Record(ctx, repository.AiUsage{
-		TaskName: task.TaskName, ProviderID: provider.ID,
-		TokensIn: result.InTokens, TokensOut: result.OutTokens,
-	})
 	return result, nil
 }
 
@@ -197,9 +248,9 @@ func (s *AiService) resolveProvider(ctx context.Context, task repository.AiTask)
 	if err != nil {
 		return nil, err
 	}
-	candidates := make([]ai.Provider, 0, len(enabled))
+	candidates := make([]ai.ProviderCandidate, 0, len(enabled))
 	for _, p := range enabled {
-		candidates = append(candidates, ai.Provider{ID: p.ID, Enabled: p.Enabled, Priority: p.Priority})
+		candidates = append(candidates, ai.ProviderCandidate{ID: p.ID, Enabled: p.Enabled, Priority: p.Priority})
 	}
 	selected, err := ai.RouteProvider(candidates)
 	if err != nil {

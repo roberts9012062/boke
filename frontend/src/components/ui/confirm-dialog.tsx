@@ -2,7 +2,10 @@
 // 确认弹窗组件（对齐设计稿「D/冷月/弹窗提示·确认弹窗」）：
 //   标题（问句）+ 说明文字 + 取消/主操作双按钮；危险操作（删除/退出）确认按钮用警示色。
 // 取代 window.confirm（系统默认弹窗）——全站弹窗风格统一。
+// 动效：遮罩淡入/淡出 + 面板缩放进出场（usePresence 播完离场动画再卸载）。
 "use client";
+
+import { usePresence } from "@/components/motion/use-presence";
 
 // ConfirmDialogProps 确认弹窗参数。
 interface ConfirmDialogProps {
@@ -29,19 +32,24 @@ export function ConfirmDialog({
   onConfirm,
   onClose,
 }: ConfirmDialogProps) {
-  if (!open) {
+  const { mounted, leaving } = usePresence(open, 180);
+  if (!mounted) {
     return null;
   }
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-6"
+      className={`fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-6 ${
+        leaving ? "animate-fade-out" : "animate-fade-in"
+      }`}
       role="dialog"
       aria-modal="true"
       aria-label={title}
       onClick={onClose}
     >
       <div
-        className="w-full max-w-[420px] rounded-xl border border-line bg-elevated p-6"
+        className={`w-full max-w-[420px] rounded-xl border border-line bg-elevated p-6 ${
+          leaving ? "animate-scale-out" : "animate-scale-in"
+        }`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* 标题（设计稿：问句，font-display） */}

@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 
 import { DesktopNav } from "@/components/desktop-nav";
 import { MobileTabbar } from "@/components/mobile-tabbar";
+import { Reveal } from "@/components/motion/reveal";
 import { PostCard } from "@/components/post-card";
 import { PostCardSkeletonList } from "@/components/post-card-skeleton";
 import { Avatar } from "@/components/ui/avatar";
@@ -239,7 +240,9 @@ export default function UserProfilePage() {
           ) : (
             <div className="post-card-list space-y-4">
               {posts.map((post) => (
-                <PostCard key={post.id} post={post} />
+                <Reveal key={post.id}>
+                  <PostCard post={post} />
+                </Reveal>
               ))}
               {posts.length === 0 && (
                 <div className="rounded-lg border border-line bg-elevated py-14 text-center">

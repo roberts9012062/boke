@@ -2,12 +2,14 @@
 // 桌面导航用户菜单：未登录显示「登录」入口；登录后显示头像 + 下拉菜单
 // （我的主页 / 运营后台(仅 admin) / 退出登录）。
 // 设计依据：M/冷月/我的 画板菜单项（查看主页 / 运营后台 / 退出登录）。
+// 动效：下拉菜单右上角缩放淡入/淡出（usePresence 播完离场动画再卸载）。
 "use client";
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
+import { usePresence } from "@/components/motion/use-presence";
 import { Avatar } from "@/components/ui/avatar";
 import { apiUnreadCount } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -20,6 +22,8 @@ export function UserMenu() {
   const [open, setOpen] = useState<boolean>(false);
   const [unread, setUnread] = useState<number>(0);
   const menuRef = useRef<HTMLDivElement>(null);
+  // 下拉菜单进出场（离场 180ms 与 animate-scale-out 一致）
+  const { mounted: menuMounted, leaving: menuLeaving } = usePresence(open, 180);
 
   // 未读通知角标轮询（30s，需求 3.8）
   useEffect(() => {
@@ -93,9 +97,13 @@ export function UserMenu() {
         )}
       </button>
 
-      {/* 下拉菜单 */}
-      {open && (
-        <div className="absolute right-0 top-11 w-44 overflow-hidden rounded-lg border border-line bg-elevated shadow-lg">
+      {/* 下拉菜单（进出场动画：右上角原点缩放淡入/淡出） */}
+      {menuMounted && (
+        <div
+          className={`absolute right-0 top-11 w-44 origin-top-right overflow-hidden rounded-lg border border-line bg-elevated shadow-lg ${
+            menuLeaving ? "animate-scale-out" : "animate-scale-in"
+          }`}
+        >
           {/* 用户信息头 */}
           <div className="border-b border-line px-4 py-3">
             <p className="truncate text-sm font-medium text-ink">{user.nickname}</p>

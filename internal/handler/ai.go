@@ -4,6 +4,8 @@
 package handler
 
 import (
+	"encoding/json"
+	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -97,6 +99,26 @@ func (h *AiHandler) TestProvider(c *gin.Context) {
 		return
 	}
 	resp.OK(c, gin.H{"ok": true, "message": "连通正常"})
+}
+
+// FetchModels 拉取供应商模型清单（POST /api/v1/admin/ai/providers/fetch-models，
+// body: {base_url, api_key}；以表单当前值直连，不落库）。
+func (h *AiHandler) FetchModels(c *gin.Context) {
+	var req struct {
+		BaseURL string `json:"base_url"` // 接口地址
+		APIKey  string `json:"api_key"`  // API Key（仅本次拉取用，不落库）
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, errs.ErrBadRequest)
+		return
+	}
+	models, err := h.ai.FetchModels(c.Request.Context(), req.BaseURL, req.APIKey)
+	if err != nil {
+		h.logger.Error("拉取模型失败", zap.Error(err))
+		resp.FailFrom(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"models": models})
 }
 
 // ---------- 任务配置 ----------
@@ -219,4 +241,136 @@ func (h *AiHandler) ReviewComments(c *gin.Context) {
 		return
 	}
 	resp.OK(c, result)
+}
+
+// ---------- 统一推理接口（通用入口，插件/未来功能直调） ----------
+
+// Generate 通用非流式生成（POST /api/v1/admin/ai/generate，body: {model, prompt, content}）。
+func (h *AiHandler) Generate(c *gin.Context) {
+	var req struct {
+		Model   string `json:"model"`   // 模型名
+		Prompt  string `json:"prompt"`  // 系统提示词
+		Content string `json:"content"` // 用户输入
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, errs.ErrBadRequest)
+		return
+	}
+	text, err := h.ai.Generate(c.Request.Context(), req.Model, req.Prompt, req.Content)
+	if err != nil {
+		h.logger.Error("AI 通用生成失败", zap.Error(err))
+		resp.FailFrom(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"text": text})
+}
+
+// GenerateStream 通用流式生成（POST /api/v1/admin/ai/generate/stream，SSE）。
+// 事件格式：data: {"text":"增量"} 直至 data: [DONE]。
+func (h *AiHandler) GenerateStream(c *gin.Context) {
+	var req struct {
+		Model   string `json:"model"`   // 模型名
+		Prompt  string `json:"prompt"`  // 系统提示词
+		Content string `json:"content"` // 用户输入
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, errs.ErrBadRequest)
+		return
+	}
+	stream, err := h.ai.GenerateStream(c.Request.Context(), req.Model, req.Prompt, req.Content)
+	if err != nil {
+		h.logger.Error("AI 流式生成失败", zap.Error(err))
+		resp.FailFrom(c, err)
+		return
+	}
+	defer stream.Close()
+
+	// SSE 响应头（关闭缓冲，逐块下发）
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+	c.Status(200)
+
+	flusher, ok := c.Writer.(http.Flusher)
+	if !ok {
+		resp.Fail(c, 500, errs.New(errs.CodeInternal, "当前环境不支持流式响应"))
+		return
+	}
+	// 逐 chunk 写出增量文本（JSON 编码，规避增量文本含换行导致的 SSE 解析歧义）
+	enc := json.NewEncoder(c.Writer)
+	for {
+		chunk, recvErr := stream.Recv()
+		if recvErr != nil {
+			break // io.EOF 或读取异常均视为结束
+		}
+		if _, err := c.Writer.Write([]byte("data: ")); err != nil {
+			break
+		}
+		if err := enc.Encode(map[string]string{"text": chunk.Text}); err != nil {
+			break
+		}
+		if _, err := c.Writer.Write([]byte("\n")); err != nil {
+			break
+		}
+		flusher.Flush()
+	}
+	_, _ = c.Writer.Write([]byte("data: [DONE]\n\n"))
+	flusher.Flush()
+}
+
+// Embedding 向量嵌入（POST /api/v1/admin/ai/embedding，body: {model, text}）。
+func (h *AiHandler) Embedding(c *gin.Context) {
+	var req struct {
+		Model string `json:"model"` // 模型名
+		Text  string `json:"text"`  // 待嵌入文本
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, errs.ErrBadRequest)
+		return
+	}
+	vector, err := h.ai.Embedding(c.Request.Context(), req.Model, req.Text)
+	if err != nil {
+		h.logger.Error("AI 嵌入失败", zap.Error(err))
+		resp.FailFrom(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"embedding": vector})
+}
+
+// ---------- 内置场景：智能回复助手 / SEO 建议 ----------
+
+// GenReply 智能回复助手（POST /api/v1/admin/ai/gen/reply?post_id=&action=，
+// action ∈ continue / polish / translate；返回处理后的文本）。
+func (h *AiHandler) GenReply(c *gin.Context) {
+	postID, err := strconv.ParseInt(c.Query("post_id"), 10, 64)
+	if err != nil || postID <= 0 {
+		resp.Fail(c, 400, errs.ErrBadRequest)
+		return
+	}
+	action := c.Query("action")
+	text, err := h.ai.GenReplyAssistant(c.Request.Context(), postID, action)
+	if err != nil {
+		h.logger.Error("AI 智能回复助手失败", zap.Int64("post_id", postID), zap.Error(err))
+		resp.FailFrom(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"text": text})
+}
+
+// GenSeoAdvice 生成 SEO 建议（POST /api/v1/admin/ai/gen/seo-advice?post_id=，
+// 返回 {title, description, keywords} 结构化建议，前端回填 SEO 面板）。
+func (h *AiHandler) GenSeoAdvice(c *gin.Context) {
+	postID, err := strconv.ParseInt(c.Query("post_id"), 10, 64)
+	if err != nil || postID <= 0 {
+		resp.Fail(c, 400, errs.ErrBadRequest)
+		return
+	}
+	advice, err := h.ai.GenSeoAdvice(c.Request.Context(), postID)
+	if err != nil {
+		h.logger.Error("AI 生成 SEO 建议失败", zap.Int64("post_id", postID), zap.Error(err))
+		resp.FailFrom(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"title": advice.Title, "description": advice.Description, "keywords": advice.Keywords})
 }

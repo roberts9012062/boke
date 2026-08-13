@@ -59,6 +59,8 @@ function ComposeContent() {
   // 编辑模式回填完成标记：SEO 面板须在历史值加载完成后挂载（PluginSlot props 为挂载时快照，
   // 提前挂载会拿到 initial:null 导致已发布帖子的 SEO 不回填）
   const [editLoaded, setEditLoaded] = useState<boolean>(!editing);
+  // 是否有插件订阅 compose.seo（有插件时桌面切换为左内容 + 右插件两栏布局）
+  const [hasSeoPlugin, setHasSeoPlugin] = useState<boolean>(false);
 
   // 编辑模式：加载帖子详情填充表单（草稿继续编辑与编辑已发布共用）
   useEffect(() => {
@@ -183,9 +185,14 @@ function ComposeContent() {
   return (
     <div className="flex min-h-screen flex-col">
       <DesktopNav />
-      <main className="mx-auto w-full max-w-[720px] flex-1 px-6 py-8">
+      <main className={`mx-auto w-full flex-1 px-6 py-8 ${hasSeoPlugin ? "lg:max-w-[1240px]" : "max-w-[720px]"}`}>
         {/* 标题（编辑模式：设计稿《编辑帖子》「编辑帖子」；走查纠偏补） */}
         <h1 className="mb-6 font-display text-2xl font-semibold text-ink">{editing ? "编辑帖子" : "写一帖"}</h1>
+
+        {/* 两栏布局：左=发布内容，右=插件面板（仅桌面；移动端回退单栏自然堆叠） */}
+        <div className="lg:flex lg:items-start lg:gap-8">
+          {/* 左栏：发布内容 */}
+          <div className="lg:min-w-0 lg:flex-1">
 
         {/* 类型 Tab（设计稿：文字/图片/音频/视频） */}
         <div className="flex gap-2 border-b border-line pb-4">
@@ -341,12 +348,6 @@ function ComposeContent() {
           )}
         </div>
 
-        {/* 插件扩展点：compose.seo（M4.1 发帖 SEO 面板——由 seo-optimizer 插件渲染；
-            无插件时槽位为空，发帖界面保持原样；卸载后自动还原）。
-            编辑模式须等详情回填完成再挂载（PluginSlot props 为挂载时快照，
-            提前挂载 initial 恒为 null，已发布帖子的 SEO 历史值无法回填） */}
-        {editLoaded && <PluginSlot slot="compose.seo" props={{ initial: seo, onChange: setSeo }} />}
-
         {/* 错误提示 */}
         {error && (
           <p className="mt-4 rounded-md bg-like/10 px-3 py-2 text-sm text-like" role="alert">
@@ -396,6 +397,23 @@ function ComposeContent() {
             </>
           )}
         </div>
+          </div>{/* 左栏：发布内容 结束 */}
+
+          {/* 右栏：插件面板（有插件订阅 compose.seo 时桌面显示；移动端自然堆叠到内容下方） */}
+          <aside className={`lg:shrink-0 ${hasSeoPlugin ? "lg:w-[360px]" : "lg:hidden"}`}>
+            {/* 插件扩展点：compose.seo（M4.1 发帖 SEO 面板——由 seo-optimizer 插件渲染；
+                无插件时槽位为空；卸载后自动还原）。
+                编辑模式须等详情回填完成再挂载（PluginSlot props 为挂载时快照，
+                提前挂载 initial 恒为 null，已发布帖子的 SEO 历史值无法回填） */}
+            {editLoaded && (
+              <PluginSlot
+                slot="compose.seo"
+                props={{ initial: seo, onChange: setSeo }}
+                onPluginsChange={(count) => setHasSeoPlugin(count > 0)}
+              />
+            )}
+          </aside>
+        </div>{/* 两栏布局 结束 */}
       </main>
       <MobileTabbar />
     </div>

@@ -76,7 +76,10 @@ export function CommentItem({
             liked ? "text-like" : "hover:text-ink"
           }`}
         >
-          <span aria-hidden>{liked ? "♥" : "♡"}</span>
+          {/* 爱心弹跳（liked 切换时重播 animate-pop） */}
+          <span aria-hidden className={`inline-block ${liked ? "animate-pop" : ""}`}>
+            {liked ? "♥" : "♡"}
+          </span>
           <span>{likeCount > 0 ? likeCount : "赞"}</span>
         </button>
         <button

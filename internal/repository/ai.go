@@ -20,6 +20,8 @@ type AiProvider struct {
 	Models         []string  // 可用模型列表（JSONB）
 	Enabled        bool      // 是否启用
 	Priority       int       // 路由优先级（小先选）
+	PriceInput     float64   // 输入单价（元/百万 token）
+	PriceOutput    float64   // 输出单价（元/百万 token）
 	CreatedAt      time.Time // 创建时间
 	UpdatedAt      time.Time // 更新时间
 }
@@ -61,7 +63,8 @@ func NewAiProviderRepo(pool *pgxpool.Pool) *AiProviderRepo {
 // ListAll 全部供应商（后台列表，按优先级排序）。
 func (r *AiProviderRepo) ListAll(ctx context.Context) ([]AiProvider, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT id, name, base_url, api_key_encrypted, models, enabled, priority, created_at, updated_at
+		SELECT id, name, base_url, api_key_encrypted, models, enabled, priority,
+		       price_input, price_output, created_at, updated_at
 		FROM ai_providers ORDER BY priority, id`)
 	if err != nil {
 		return nil, err
@@ -71,7 +74,7 @@ func (r *AiProviderRepo) ListAll(ctx context.Context) ([]AiProvider, error) {
 	for rows.Next() {
 		var p AiProvider
 		var models []byte
-		if err := rows.Scan(&p.ID, &p.Name, &p.BaseURL, &p.APIKeyEncrypted, &models, &p.Enabled, &p.Priority, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.BaseURL, &p.APIKeyEncrypted, &models, &p.Enabled, &p.Priority, &p.PriceInput, &p.PriceOutput, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal(models, &p.Models) // 模型列表解析失败降级为空（不影响主流程）
@@ -83,7 +86,8 @@ func (r *AiProviderRepo) ListAll(ctx context.Context) ([]AiProvider, error) {
 // ListEnabled 已启用供应商（任务自动路由候选）。
 func (r *AiProviderRepo) ListEnabled(ctx context.Context) ([]AiProvider, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT id, name, base_url, api_key_encrypted, models, enabled, priority
+		SELECT id, name, base_url, api_key_encrypted, models, enabled, priority,
+		       price_input, price_output
 		FROM ai_providers WHERE enabled = TRUE ORDER BY priority, id`)
 	if err != nil {
 		return nil, err
@@ -93,7 +97,7 @@ func (r *AiProviderRepo) ListEnabled(ctx context.Context) ([]AiProvider, error) 
 	for rows.Next() {
 		var p AiProvider
 		var models []byte
-		if err := rows.Scan(&p.ID, &p.Name, &p.BaseURL, &p.APIKeyEncrypted, &models, &p.Enabled, &p.Priority); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.BaseURL, &p.APIKeyEncrypted, &models, &p.Enabled, &p.Priority, &p.PriceInput, &p.PriceOutput); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal(models, &p.Models)
@@ -107,9 +111,10 @@ func (r *AiProviderRepo) FindByID(ctx context.Context, id int64) (*AiProvider, b
 	var p AiProvider
 	var models []byte
 	err := r.pool.QueryRow(ctx, `
-		SELECT id, name, base_url, api_key_encrypted, models, enabled, priority, created_at, updated_at
+		SELECT id, name, base_url, api_key_encrypted, models, enabled, priority,
+		       price_input, price_output, created_at, updated_at
 		FROM ai_providers WHERE id = $1`, id).Scan(
-		&p.ID, &p.Name, &p.BaseURL, &p.APIKeyEncrypted, &models, &p.Enabled, &p.Priority, &p.CreatedAt, &p.UpdatedAt)
+		&p.ID, &p.Name, &p.BaseURL, &p.APIKeyEncrypted, &models, &p.Enabled, &p.Priority, &p.PriceInput, &p.PriceOutput, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
 		if isNoRows(err) {
 			return nil, false, nil
@@ -125,10 +130,10 @@ func (r *AiProviderRepo) Create(ctx context.Context, p AiProvider) (int64, error
 	models, _ := json.Marshal(p.Models)
 	var id int64
 	err := r.pool.QueryRow(ctx, `
-		INSERT INTO ai_providers (name, base_url, api_key_encrypted, models, enabled, priority)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO ai_providers (name, base_url, api_key_encrypted, models, enabled, priority, price_input, price_output)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING id`,
-		p.Name, p.BaseURL, p.APIKeyEncrypted, models, p.Enabled, p.Priority).Scan(&id)
+		p.Name, p.BaseURL, p.APIKeyEncrypted, models, p.Enabled, p.Priority, p.PriceInput, p.PriceOutput).Scan(&id)
 	return id, err
 }
 
@@ -140,9 +145,10 @@ func (r *AiProviderRepo) Update(ctx context.Context, p AiProvider) error {
 		UPDATE ai_providers SET
 			name = $2, base_url = $3,
 			api_key_encrypted = CASE WHEN $4::text = '' THEN api_key_encrypted ELSE $4 END,
-			models = $5, enabled = $6, priority = $7, updated_at = now()
+			models = $5, enabled = $6, priority = $7,
+			price_input = $8, price_output = $9, updated_at = now()
 		WHERE id = $1`,
-		p.ID, p.Name, p.BaseURL, p.APIKeyEncrypted, models, p.Enabled, p.Priority)
+		p.ID, p.Name, p.BaseURL, p.APIKeyEncrypted, models, p.Enabled, p.Priority, p.PriceInput, p.PriceOutput)
 	return err
 }
 
@@ -236,12 +242,14 @@ func (r *AiUsageRepo) Record(ctx context.Context, u AiUsage) error {
 	return err
 }
 
-// StatsSummary 用量汇总（今日调用数/今日 token/累计调用/累计 token）。
+// StatsSummary 用量汇总（今日调用数/今日 token/累计调用/累计 token + 费用）。
 type AiUsageSummary struct {
-	TodayCalls  int64 `json:"today_calls"`  // 今日调用次数
-	TodayTokens int64 `json:"today_tokens"` // 今日 token 总量
-	TotalCalls  int64 `json:"total_calls"`  // 累计调用次数
-	TotalTokens int64 `json:"total_tokens"` // 累计 token 总量
+	TodayCalls  int64   `json:"today_calls"`  // 今日调用次数
+	TodayTokens int64   `json:"today_tokens"` // 今日 token 总量
+	TotalCalls  int64   `json:"total_calls"`  // 累计调用次数
+	TotalTokens int64   `json:"total_tokens"` // 累计 token 总量
+	TodayCost   float64 `json:"today_cost"`   // 今日费用（元）
+	TotalCost   float64 `json:"total_cost"`   // 累计费用（元）
 }
 
 // Summary 用量汇总（今日 + 累计）。
@@ -252,8 +260,10 @@ func (r *AiUsageRepo) Summary(ctx context.Context) (*AiUsageSummary, error) {
 			count(*) FILTER (WHERE created_at >= current_date),
 			COALESCE(sum(tokens_in + tokens_out) FILTER (WHERE created_at >= current_date), 0),
 			count(*),
-			COALESCE(sum(tokens_in + tokens_out), 0)
-		FROM ai_usage`).Scan(&s.TodayCalls, &s.TodayTokens, &s.TotalCalls, &s.TotalTokens)
+			COALESCE(sum(tokens_in + tokens_out), 0),
+			COALESCE(sum(cost) FILTER (WHERE created_at >= current_date), 0),
+			COALESCE(sum(cost), 0)
+		FROM ai_usage`).Scan(&s.TodayCalls, &s.TodayTokens, &s.TotalCalls, &s.TotalTokens, &s.TodayCost, &s.TotalCost)
 	if err != nil {
 		return nil, err
 	}
@@ -262,9 +272,10 @@ func (r *AiUsageRepo) Summary(ctx context.Context) (*AiUsageSummary, error) {
 
 // DayStat 单日用量（趋势图表）。
 type AiDayStat struct {
-	Day    string `json:"day"`     // 日期（YYYY-MM-DD）
-	Calls  int64  `json:"calls"`   // 当日调用次数
-	Tokens int64  `json:"tokens"`  // 当日 token 总量
+	Day    string  `json:"day"`     // 日期（YYYY-MM-DD）
+	Calls  int64   `json:"calls"`   // 当日调用次数
+	Tokens int64   `json:"tokens"`  // 当日 token 总量
+	Cost   float64 `json:"cost"`    // 当日费用（元）
 }
 
 // StatsByDay 近 N 日按日聚合（补零到每日，图表直用）。
@@ -272,7 +283,8 @@ func (r *AiUsageRepo) StatsByDay(ctx context.Context, days int) ([]AiDayStat, er
 	rows, err := r.pool.Query(ctx, `
 		SELECT to_char(created_at, 'YYYY-MM-DD') AS day,
 		       count(*) AS calls,
-		       COALESCE(sum(tokens_in + tokens_out), 0) AS tokens
+		       COALESCE(sum(tokens_in + tokens_out), 0) AS tokens,
+		       COALESCE(sum(cost), 0) AS cost
 		FROM ai_usage
 		WHERE created_at >= current_date - ($1::int - 1)
 		GROUP BY day ORDER BY day`, days)
@@ -283,7 +295,7 @@ func (r *AiUsageRepo) StatsByDay(ctx context.Context, days int) ([]AiDayStat, er
 	items := make([]AiDayStat, 0)
 	for rows.Next() {
 		var d AiDayStat
-		if err := rows.Scan(&d.Day, &d.Calls, &d.Tokens); err != nil {
+		if err := rows.Scan(&d.Day, &d.Calls, &d.Tokens, &d.Cost); err != nil {
 			return nil, err
 		}
 		items = append(items, d)

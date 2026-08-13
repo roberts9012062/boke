@@ -306,12 +306,18 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager, e
 		ai.PUT("/providers/:id", handlers.Ai.UpdateProvider)
 		ai.DELETE("/providers/:id", handlers.Ai.DeleteProvider)
 		ai.POST("/providers/:id/test", handlers.Ai.TestProvider)
+		ai.POST("/providers/fetch-models", handlers.Ai.FetchModels)
 		ai.GET("/tasks", handlers.Ai.ListTasks)
 		ai.PUT("/tasks/:name", handlers.Ai.UpdateTask)
 		ai.POST("/tasks/:name/toggle", handlers.Ai.ToggleTask)
 		ai.GET("/usage", handlers.Ai.UsageStats)
+		ai.POST("/generate", handlers.Ai.Generate)             // 统一非流式生成
+		ai.POST("/generate/stream", handlers.Ai.GenerateStream) // 统一流式生成（SSE）
+		ai.POST("/embedding", handlers.Ai.Embedding)           // 统一向量嵌入
 		ai.POST("/gen/summary", handlers.Ai.GenSummary)        // ?post_id= 生成摘要（seo_meta.summary）
 		ai.POST("/gen/tags", handlers.Ai.GenTags)              // ?post_id= 生成标签建议
+		ai.POST("/gen/reply", handlers.Ai.GenReply)            // ?post_id=&action= 智能回复助手
+		ai.POST("/gen/seo-advice", handlers.Ai.GenSeoAdvice)   // ?post_id= SEO 建议
 		ai.POST("/review/comments", handlers.Ai.ReviewComments) // 批量 AI 审核评论
 		// 数据报表域（M4-报表，设计稿《数据报表》；与举报 /reports 前缀并存，路径不同）
 		reportsView := adminGroup.Group("/reports", perm(casbin.DomainReports))

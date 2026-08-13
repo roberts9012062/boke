@@ -149,6 +149,12 @@ export function del<T>(path: string): Promise<T> {
   return request<T>(path, { method: "DELETE" });
 }
 
+// authHeaders 获取当前鉴权头（供流式 SSE 等非 JSON 封装场景复用，避免重复 token 逻辑）。
+export function authHeaders(): Record<string, string> {
+  const accessToken = tokenProvider?.getAccessToken() ?? "";
+  return accessToken ? { Authorization: `Bearer ${accessToken}` } : {};
+}
+
 // ---------- 认证便捷方法（M1.2） ----------
 
 // 登录（返回令牌对，由 AuthProvider 持久化）。

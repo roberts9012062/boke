@@ -1,7 +1,7 @@
 // src/lib/api-ai.ts
-// AI 模块 API 封装（M4）：供应商管理 / 任务配置 / 用量统计 / 内置场景。
+// AI 模块 API 封装（M4）：供应商管理 / 任务配置 / 用量统计 / 内置场景 / 统一接口。
 // 说明：与后端 /admin/ai/* 接口一一对应；独立文件避免 api.ts 持续膨胀。
-import { get, post, put, del } from "./api";
+import { get, post, put, del, authHeaders } from "./api";
 
 // ---------- 供应商 ----------
 
@@ -14,6 +14,8 @@ export interface AiProviderDTO {
   models: string[]; // 模型列表
   enabled: boolean; // 是否启用
   priority: number; // 路由优先级
+  price_input: number; // 输入单价（元/百万 token）
+  price_output: number; // 输出单价（元/百万 token）
 }
 
 // AiProviderInput 供应商新增/编辑输入（编辑时 api_key 留空 = 保持原值）。
@@ -24,6 +26,8 @@ export interface AiProviderInput {
   models: string[];
   enabled: boolean;
   priority: number;
+  price_input: number;
+  price_output: number;
 }
 
 // 供应商列表。
@@ -49,6 +53,11 @@ export function apiAiDeleteProvider(id: number): Promise<void> {
 // 测试供应商连通性（成功返回「连通正常」）。
 export function apiAiTestProvider(id: number): Promise<{ message: string }> {
   return post<{ message: string }>(`/admin/ai/providers/${id}/test`, {});
+}
+
+// 拉取供应商模型清单（以表单 base_url + api_key 直连，不落库）。
+export function apiAiFetchModels(baseUrl: string, apiKey: string): Promise<{ models: string[] }> {
+  return post<{ models: string[] }>("/admin/ai/providers/fetch-models", { base_url: baseUrl, api_key: apiKey });
 }
 
 // ---------- 任务配置 ----------
@@ -90,6 +99,8 @@ export interface AiUsageSummary {
   today_tokens: number; // 今日 token 总量
   total_calls: number; // 累计调用次数
   total_tokens: number; // 累计 token 总量
+  today_cost: number; // 今日费用（元）
+  total_cost: number; // 累计费用（元）
 }
 
 // AiDayStat 单日用量（趋势图表）。
@@ -97,6 +108,7 @@ export interface AiDayStat {
   day: string; // 日期 YYYY-MM-DD
   calls: number; // 当日调用次数
   tokens: number; // 当日 token 总量
+  cost: number; // 当日费用（元）
 }
 
 // 用量统计（汇总 + 近 7 日）。
@@ -119,4 +131,80 @@ export function apiAiGenTags(postId: number): Promise<{ tags: string[] }> {
 // 批量 AI 审核评论（后台评论管理手动兜底）。
 export function apiAiReviewComments(commentIds: number[]): Promise<{ ok: number; failed: number }> {
   return post<{ ok: number; failed: number }>("/admin/ai/review/comments", { comment_ids: commentIds });
+}
+
+// ---------- 统一接口（通用入口，插件前端/未来功能直调） ----------
+
+// AI 统一非流式生成。
+export function apiAiGenerate(input: { model: string; prompt: string; content: string }): Promise<{ text: string }> {
+  return post<{ text: string }>("/admin/ai/generate", input);
+}
+
+// apiAiGenerateStream 统一流式生成（SSE；逐增量回调 onChunk）。
+// 说明：走独立 fetch（request 封装期待 JSON 响应体，不适用 SSE）；错误码透传为 ApiError。
+export async function apiAiGenerateStream(
+  input: { model: string; prompt: string; content: string },
+  onChunk: (text: string) => void,
+): Promise<void> {
+  const response = await fetch("/api/v1/admin/ai/generate/stream", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok || !response.body) {
+    // 尝试解析统一错误体，透出后端提示
+    let message = "AI 流式生成失败";
+    try {
+      const body = (await response.json()) as { message?: string };
+      if (body.message) {
+        message = body.message;
+      }
+    } catch {
+      // 忽略解析失败，使用默认提示
+    }
+    throw new Error(message);
+  }
+  // 逐行解析 SSE：data: {"text":"..."} 直至 data: [DONE]
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    buffer += decoder.decode(value, { stream: true });
+    let idx = buffer.indexOf("\n\n");
+    while (idx >= 0) {
+      const event = buffer.slice(0, idx);
+      buffer = buffer.slice(idx + 2);
+      const data = event.replace(/^data:\s*/, "");
+      if (data && data !== "[DONE]") {
+        try {
+          const parsed = JSON.parse(data) as { text?: string };
+          if (parsed.text) {
+            onChunk(parsed.text);
+          }
+        } catch {
+          // 忽略无法解析的 chunk（容错，不中断流）
+        }
+      }
+      idx = buffer.indexOf("\n\n");
+    }
+  }
+}
+
+// AI 统一向量嵌入。
+export function apiAiEmbedding(input: { model: string; text: string }): Promise<{ embedding: number[] }> {
+  return post<{ embedding: number[] }>("/admin/ai/embedding", input);
+}
+
+// 智能回复助手（续写/润色/翻译）。
+export function apiAiGenReply(postId: number, action: "continue" | "polish" | "translate"): Promise<{ text: string }> {
+  return post<{ text: string }>(`/admin/ai/gen/reply?post_id=${postId}&action=${action}`, {});
+}
+
+// AI SEO 建议（标题/描述/关键词）。
+export function apiAiGenSeoAdvice(postId: number): Promise<{ title: string; description: string; keywords: string[] }> {
+  return post<{ title: string; description: string; keywords: string[] }>(`/admin/ai/gen/seo-advice?post_id=${postId}`, {});
 }

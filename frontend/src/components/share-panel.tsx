@@ -3,11 +3,13 @@
 // 分享帖子 + 标题/作者·话题 → 四操作（复制链接/生成海报/私信好友/二维码）+ 链接预览与复制。
 // #17 完整实现：复制链接真实；生成海报（canvas 冷月夜色海报 + 保存下载）；二维码（qrcode 库生成 + 下载）；
 // 私信好友跳转消息中心（转发选人流程后置，差异记录）。
+// 动效：遮罩淡入/淡出；面板移动端底部上滑、桌面缩放进出场（useDismiss 播完离场再回调）。
 "use client";
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { useDismiss } from "@/components/motion/use-dismiss";
 import { downloadDataUrl, drawSharePoster, qrDataUrl, type ShareContent } from "@/lib/share";
 
 // 分享操作项（设计稿四宫格）
@@ -38,6 +40,8 @@ export function SharePanel({
 }) {
   const router = useRouter();
   const [copied, setCopied] = useState<boolean>(false);
+  // 关闭过渡（先播离场动画，再回调父级卸载）
+  const { closing, close } = useDismiss(onClose, 220);
   // 视图：menu=四宫格 / qr=二维码 / poster=海报
   const [view, setView] = useState<"menu" | "qr" | "poster">("menu");
   const [qrData, setQrData] = useState<string>("");
@@ -109,14 +113,18 @@ export function SharePanel({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center sm:px-6"
+      className={`fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center sm:px-6 ${
+        closing ? "animate-fade-out" : "animate-fade-in"
+      }`}
       role="dialog"
       aria-modal="true"
       aria-label="分享帖子"
-      onClick={onClose}
+      onClick={close}
     >
       <div
-        className="relative w-full max-w-[420px] rounded-t-2xl border border-line bg-elevated p-6 sm:rounded-2xl"
+        className={`relative w-full max-w-[420px] rounded-t-2xl border border-line bg-elevated p-6 sm:rounded-2xl ${
+          closing ? "animate-slide-up-out sm:animate-scale-out" : "animate-slide-up sm:animate-scale-in"
+        }`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* 头部（设计稿：分享帖子 + 标题 + 作者 · 话题） */}
@@ -234,7 +242,7 @@ export function SharePanel({
         {/* 移动端取消（设计稿 M：取消） */}
         <button
           type="button"
-          onClick={onClose}
+          onClick={close}
           className="mt-4 w-full rounded-full border border-line py-2.5 text-sm text-ink-2 hover:text-ink sm:hidden"
         >
           取消
@@ -242,9 +250,9 @@ export function SharePanel({
         {/* 桌面关闭（右上角 ×） */}
         <button
           type="button"
-          onClick={onClose}
+          onClick={close}
           aria-label="关闭"
-          className="absolute right-4 top-4 hidden h-8 w-8 items-center justify-center rounded-full text-ink-3 hover:bg-muted hover:text-ink sm:flex"
+          className="absolute right-4 top-4 hidden h-8 w-8 items-center justify-center rounded-full text-ink-3 transition-colors hover:bg-muted hover:text-ink sm:flex"
         >
           ✕
         </button>

@@ -9,8 +9,8 @@ import (
 	"errors"
 )
 
-// Provider 路由输入所需的供应商字段（与 repository 层解耦的最小接口）。
-type Provider struct {
+// ProviderCandidate 路由输入所需的供应商字段（与 repository 层解耦的最小结构）。
+type ProviderCandidate struct {
 	ID       int64 // 供应商 ID
 	Enabled  bool  // 是否启用
 	Priority int   // 路由优先级（小先选）
@@ -21,8 +21,8 @@ var ErrNoProvider = errors.New("没有可用的 AI 供应商，请先在「AI �
 
 // RouteProvider 从供应商列表中选择最优路由目标（enabled 且 priority 最小）。
 // 返回：选中供应商；无可用时返回 ErrNoProvider。
-func RouteProvider(providers []Provider) (Provider, error) {
-	var best Provider
+func RouteProvider(providers []ProviderCandidate) (ProviderCandidate, error) {
+	var best ProviderCandidate
 	found := false
 	for _, p := range providers {
 		if !p.Enabled {
@@ -35,7 +35,7 @@ func RouteProvider(providers []Provider) (Provider, error) {
 		}
 	}
 	if !found {
-		return Provider{}, ErrNoProvider
+		return ProviderCandidate{}, ErrNoProvider
 	}
 	return best, nil
 }

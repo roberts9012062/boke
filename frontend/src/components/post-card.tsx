@@ -2,6 +2,7 @@
 // 帖子卡片（设计稿 Card Text/Image/Audio/Video）：
 // 作者行（头像/昵称/@账号·相对时间）→ 正文（截断 3-4 行）→ 媒体预览
 // （图片网格 / 音频播放条）→ 标签 → 底部互动条（赞/评论/收藏/分享）。
+// 动效：卡片 hover 轻浮起（阴影+描边加深）；图片 hover 微放大；点赞爱心弹跳。
 "use client";
 
 import Link from "next/link";
@@ -49,7 +50,7 @@ export function PostCard({ post }: { post: PostSummary }) {
   };
 
   return (
-    <article className="rounded-lg border border-line bg-elevated p-5">
+    <article className="rounded-lg border border-line bg-elevated p-5 transition-[translate,box-shadow,border-color] duration-[var(--yy-duration-base)] ease-[var(--yy-ease-out)] hover:-translate-y-0.5 hover:border-accent/40 hover:shadow-[var(--yy-shadow-card-hover)]">
       {/* 作者行：头像 + 昵称 + @账号·时间 */}
       <div className="flex items-center gap-3">
         <Link href={`/users/${post.author.id}`} className="shrink-0">
@@ -78,8 +79,8 @@ export function PostCard({ post }: { post: PostSummary }) {
       {/* 媒体预览：图片网格（列表首图）/ 音频播放条 */}
       {post.content_type === "image" && post.media.length > 0 && (
         <Link href={`/posts/${post.id}`} className="mt-3 block">
-          {/* 首图为主图，多图右侧小图（设计稿图片帖网格） */}
-          <div className="grid grid-cols-2 gap-1 overflow-hidden rounded-lg">
+          {/* 首图为主图，多图右侧小图（设计稿图片帖网格）；hover 微放大 */}
+          <div className="group grid grid-cols-2 gap-1 overflow-hidden rounded-lg">
             {post.media.slice(0, 2).map((m) => (
               // eslint-disable-next-line @next/next/no-img-element
               <img
@@ -87,7 +88,7 @@ export function PostCard({ post }: { post: PostSummary }) {
                 src={m.url}
                 alt=""
                 loading="lazy"
-                className={`aspect-[4/3] w-full object-cover ${
+                className={`aspect-[4/3] w-full object-cover transition-transform duration-[var(--yy-duration-slow)] ease-[var(--yy-ease-out)] group-hover:scale-[1.03] ${
                   post.media.length === 1 ? "col-span-2" : ""
                 }`}
               />
@@ -140,7 +141,10 @@ export function PostCard({ post }: { post: PostSummary }) {
             liked ? "text-like" : "hover:text-ink"
           }`}
         >
-          <span aria-hidden>{liked ? "♥" : "♡"}</span>
+          {/* 爱心弹跳（liked 切换时重播 animate-pop） */}
+          <span aria-hidden className={`inline-block ${liked ? "animate-pop" : ""}`}>
+            {liked ? "♥" : "♡"}
+          </span>
           <span>{likeCount}</span>
         </button>
         <Link href={`/posts/${post.id}#comments`} className="flex items-center gap-1 hover:text-ink">

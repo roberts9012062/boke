@@ -6,6 +6,7 @@
 import { useEffect, useState } from "react";
 
 import { apiAdminDeletePost, apiAdminSetPostStatus, apiSaveSeoMeta, apiSeoMeta, ApiError } from "@/lib/api";
+import { apiAiGenSeoAdvice } from "@/lib/api-ai";
 import { AiSummary } from "@/components/admin/ai/ai-summary";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { formatCompact, formatDateTime } from "@/lib/utils";
@@ -44,6 +45,7 @@ export function PostEditPanel({
   const [seoLoaded, setSeoLoaded] = useState<boolean>(false);
   const [seoSaved, setSeoSaved] = useState<boolean>(false);
   const [seoError, setSeoError] = useState<string>("");
+  const [seoAdviceBusy, setSeoAdviceBusy] = useState<boolean>(false); // AI SEO 建议生成中
   // 删除确认弹窗（取代 window.confirm——设计稿「确认弹窗」风格）
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState<boolean>(false);
   const [deleting, setDeleting] = useState<boolean>(false);
@@ -63,6 +65,23 @@ export function PostEditPanel({
       .catch(() => undefined)
       .finally(() => setSeoLoaded(true));
   }, [detail.id]);
+
+  // AI 生成 SEO 建议（回填标题/描述/关键词，不自动保存）
+  const genSeoAdvice = async () => {
+    setSeoAdviceBusy(true);
+    setSeoError("");
+    try {
+      const advice = await apiAiGenSeoAdvice(detail.id);
+      setSeoTitle(advice.title);
+      setSeoDesc(advice.description);
+      setSeoKeywords(advice.keywords.join(", "));
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : "生成失败";
+      setSeoError(msg.includes("AI 设置") || msg.includes("API Key") ? `${msg}（可前往侧栏「AI 设置」配置）` : msg);
+    } finally {
+      setSeoAdviceBusy(false);
+    }
+  };
 
   // 保存 SEO 元数据（M4.1：+URL 别名 / 收录策略，对齐画板《单帖SEO面板》）
   const saveSeo = async () => {
@@ -176,7 +195,18 @@ export function PostEditPanel({
 
       {/* SEO 面板（M4 激活：设计稿《后台编辑·文字·SEO》） */}
       <section className="rounded-lg border border-line bg-elevated p-5">
-        <h2 className="text-sm font-semibold text-ink">SEO 标题 / SEO 描述</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-ink">SEO 标题 / SEO 描述</h2>
+          {/* AI 生成 SEO 建议（回填标题/描述/关键词） */}
+          <button
+            type="button"
+            onClick={() => void genSeoAdvice()}
+            disabled={seoAdviceBusy}
+            className="rounded-full bg-accent/10 px-3 py-1 text-xs text-glow hover:bg-accent/20 disabled:opacity-50"
+          >
+            {seoAdviceBusy ? "生成中…" : "AI 生成建议"}
+          </button>
+        </div>
         <div className="mt-3 space-y-3">
           <div>
             <label htmlFor="seo-title" className="mb-1 block text-xs text-ink-3">

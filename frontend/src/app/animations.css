@@ -1,0 +1,176 @@
+/* app/animations.css
+ * 全站动效体系（纯 CSS）：动画工具类 + 关键帧 + 按钮微交互 + 滚动进场。
+ *
+ * 说明：
+ *   - @theme 注册 --animate-* 工具类（生成 animate-fade-up 等），Tailwind v4 CSS-first 配置
+ *   - 基调「克制丝滑」：除骨架屏扫光外全部动画 ≤0.3s 且一次性（不影响截图脚本 1.8s 等待）
+ *   - 页面入场 0.3s：兼顾「点击即出」的干脆感与「丝滑」层次感，避免跳转体感延迟
+ *   - 兼容「减少动效」：data-motion="reduced" 时 globals.css 的全局规则强制关闭所有动画
+ *   - 滚动进场隐藏规则由 JS 添加的 html.motion-ready 类门控（无 JS/爬虫时内容始终可见）
+ */
+
+/* ---------- 动画工具类注册 ---------- */
+@theme {
+  /* 页面/区块入场：上移淡入 */
+  --animate-fade-up: fade-up 0.3s var(--yy-ease-out) both;
+  /* 遮罩淡入/淡出 */
+  --animate-fade-in: fade-in 0.18s ease-out both;
+  --animate-fade-out: fade-out 0.18s ease-in both;
+  /* 弹层面板：缩放淡入/淡出 */
+  --animate-scale-in: scale-in 0.26s var(--yy-ease-out) both;
+  --animate-scale-out: scale-out 0.18s ease-in both;
+  /* Toast：顶部滑入 */
+  --animate-slide-down: slide-down 0.3s var(--yy-ease-out) both;
+  /* 移动端底部弹层：上滑进入/退出 */
+  --animate-slide-up: slide-up 0.3s var(--yy-ease-out) both;
+  --animate-slide-up-out: slide-up-out 0.22s ease-in both;
+  /* 点赞/图标弹跳（轻回弹；不设 fill：结束即释放 transform，避免锁定 hover 旋转等过渡） */
+  --animate-pop: pop 0.32s var(--yy-ease-pop);
+}
+
+/* ---------- 关键帧 ---------- */
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes scale-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.96) translateY(8px);
+  }
+}
+@keyframes slide-down {
+  from {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes slide-up-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+}
+@keyframes pop {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.25);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* ---------- 按钮全局微交互（点击按压反馈 + 统一过渡曲线） ---------- */
+/* 说明：仅设置基础属性；元素自带 transition-* 工具类时由工具类按需覆盖，不冲突 */
+@layer base {
+  button {
+    transition-property: color, background-color, border-color, text-decoration-color,
+      fill, stroke, opacity, box-shadow, transform;
+    transition-duration: var(--yy-duration-base);
+    transition-timing-function: var(--yy-ease-out);
+  }
+  /* 按压回缩（松手回弹）；禁用态不反馈 */
+  button:active:not(:disabled) {
+    transform: scale(0.98);
+    transition-duration: var(--yy-duration-fast);
+  }
+}
+
+/* ---------- 骨架屏扫光（组件类，替代 animate-pulse 的纯呼吸） ---------- */
+/* 渐变扫光：muted 底色上高光带往复移动；减少动效时退化为纯 muted 底色 */
+.skeleton-shimmer {
+  background-image: linear-gradient(
+    90deg,
+    var(--yy-muted) 25%,
+    var(--yy-border) 50%,
+    var(--yy-muted) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s linear infinite;
+}
+[data-motion="reduced"] .skeleton-shimmer {
+  background-image: none;
+  background-color: var(--yy-muted);
+}
+
+/* ---------- 滚动进场（Reveal 组件驱动，见 components/motion/reveal.tsx） ---------- */
+/* motion-ready 由 JS 挂载后添加；[data-motion="normal"] 条件保证减少动效时内容不被隐藏 */
+html.motion-ready[data-motion="normal"] [data-reveal] {
+  transition:
+    opacity 0.5s var(--yy-ease-out),
+    translate 0.5s var(--yy-ease-out);
+}
+html.motion-ready[data-motion="normal"] [data-reveal]:not(.is-in) {
+  opacity: 0;
+  translate: 0 12px;
+}
+
+/* ---------- 平滑滚动（锚点/回顶；减少动效时关闭） ---------- */
+html[data-motion="normal"] {
+  scroll-behavior: smooth;
+}

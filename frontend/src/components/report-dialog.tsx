@@ -2,10 +2,12 @@
 // 举报弹层（设计稿《举报》《举报成功》画板）：
 // 举报内容 → 请选择举报原因，我们会尽快处理。→ 6 原因单选 + 补充说明（可选）→ 取消/提交举报
 // 提交成功 → 已收到举报 / 感谢你的反馈。我们会在 24 小时内完成审核。 / 知道了。
+// 动效：遮罩淡入/淡出 + 面板缩放进出场；提交成功态重播入场。
 "use client";
 
 import { useState } from "react";
 
+import { useDismiss } from "@/components/motion/use-dismiss";
 import { apiSubmitReport, ApiError } from "@/lib/api";
 
 // 举报原因（设计稿预置选项）
@@ -25,6 +27,8 @@ export function ReportDialog({ targetType, targetId, onClose }: ReportDialogProp
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
   const [done, setDone] = useState<boolean>(false);
+  // 关闭过渡（先播离场动画，再回调父级卸载）
+  const { closing, close } = useDismiss(onClose, 180);
 
   // 提交举报
   const handleSubmit = async () => {
@@ -46,14 +50,18 @@ export function ReportDialog({ targetType, targetId, onClose }: ReportDialogProp
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-6"
+      className={`fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-6 ${
+        closing ? "animate-fade-out" : "animate-fade-in"
+      }`}
       role="dialog"
       aria-modal="true"
       aria-label="举报内容"
-      onClick={onClose}
+      onClick={close}
     >
       <div
-        className="w-full max-w-[420px] rounded-xl border border-line bg-elevated p-6"
+        className={`w-full max-w-[420px] rounded-xl border border-line bg-elevated p-6 ${
+          closing ? "animate-scale-out" : "animate-scale-in"
+        }`}
         onClick={(e) => e.stopPropagation()}
       >
         {!done ? (
@@ -97,8 +105,8 @@ export function ReportDialog({ targetType, targetId, onClose }: ReportDialogProp
             <div className="mt-5 flex justify-end gap-3">
               <button
                 type="button"
-                onClick={onClose}
-                className="rounded-full border border-line px-5 py-2 text-sm text-ink-2 hover:text-ink"
+                onClick={close}
+                className="rounded-full border border-line px-5 py-2 text-sm text-ink-2 transition-colors hover:text-ink"
               >
                 取消
               </button>
@@ -115,7 +123,7 @@ export function ReportDialog({ targetType, targetId, onClose }: ReportDialogProp
         ) : (
           <>
             {/* 成功态（设计稿《举报成功》：已收到举报 / 24 小时内完成审核 / 知道了） */}
-            <div className="py-6 text-center">
+            <div className="animate-fade-up py-6 text-center">
               <span className="text-3xl" aria-hidden>
                 ✅
               </span>
@@ -127,7 +135,7 @@ export function ReportDialog({ targetType, targetId, onClose }: ReportDialogProp
             <div className="flex justify-center">
               <button
                 type="button"
-                onClick={onClose}
+                onClick={close}
                 className="rounded-full bg-accent px-8 py-2 text-sm font-medium text-on-accent transition-opacity hover:opacity-90"
               >
                 知道了

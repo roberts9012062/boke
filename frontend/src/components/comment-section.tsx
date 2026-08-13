@@ -2,12 +2,14 @@
 // 评论区（设计稿 D/冷月/楼中楼 + 帖子详情）：
 // 「评论 · N」标题 → 写一条评论…（开放，无需登录）→ 顶层评论 + 楼中楼
 // （展开/收起回复、@提及回复、评论点赞、匿名昵称弹层、删除）。
+// 动效：匿名昵称弹层遮罩淡入/面板缩放进出场；楼中楼展开内容上移淡入。
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { CommentItem } from "@/components/comment-item";
 import PluginSlot from "@/components/plugin-slot";
+import { usePresence } from "@/components/motion/use-presence";
 import { apiComments, apiCreateComment, apiReplyComment, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { clearGuest, ensureGuest, readGuest } from "@/lib/guest";
@@ -27,6 +29,8 @@ export function CommentSection({ postId, initialCount = 0 }: { postId: number; i
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
   const inputRef = useRef<HTMLInputElement>(null);
+  // 匿名昵称弹层进出场（离场 180ms 与 animate-scale-out 一致）
+  const { mounted: guestMounted, leaving: guestLeaving } = usePresence(showGuestDialog, 180);
 
   // 加载评论列表
   const loadComments = useCallback(async () => {
@@ -189,10 +193,17 @@ export function CommentSection({ postId, initialCount = 0 }: { postId: number; i
       )}
 
       {/* 匿名昵称弹层（设计稿：开放，无需登录 → 首次弹昵称输入） */}
-      {showGuestDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-6" onClick={() => setShowGuestDialog(false)}>
+      {guestMounted && (
+        <div
+          className={`fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-6 ${
+            guestLeaving ? "animate-fade-out" : "animate-fade-in"
+          }`}
+          onClick={() => setShowGuestDialog(false)}
+        >
           <div
-            className="w-full max-w-sm rounded-lg border border-line bg-elevated p-5"
+            className={`w-full max-w-sm rounded-lg border border-line bg-elevated p-5 ${
+              guestLeaving ? "animate-scale-out" : "animate-scale-in"
+            }`}
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-label="匿名评论昵称"
@@ -243,9 +254,9 @@ export function CommentSection({ postId, initialCount = 0 }: { postId: number; i
             {/* 楼中楼：展开/收起回复（设计稿） */}
             {comment.reply_count > 0 && (
               <div className="ml-4 border-l border-line pl-4">
-                {/* 已展开：显示全部回复 */}
+                {/* 已展开：显示全部回复（上移淡入） */}
                 {expanded[comment.id] && (
-                  <div className="divide-y divide-line">
+                  <div className="animate-fade-up divide-y divide-line">
                     {comment.replies.map((reply) => (
                       <CommentItem
                         key={reply.id}

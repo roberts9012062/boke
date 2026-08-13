@@ -4,12 +4,13 @@
 // M1.3：时间线接入真实数据（全部/图/音/影过滤 + 分页加载）。
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { DesktopNav } from "@/components/desktop-nav";
 import { FeedTabs } from "@/components/feed-tabs";
 import { HotTopics } from "@/components/hot-topics";
 import { MobileTabbar } from "@/components/mobile-tabbar";
+import { Reveal } from "@/components/motion/reveal";
 import { PostCard } from "@/components/post-card";
 import { PostCardSkeletonList } from "@/components/post-card-skeleton";
 import { UserCard } from "@/components/user-card";
@@ -29,6 +30,8 @@ export default function HomePage() {
   const [page, setPage] = useState<number>(1);
   const [loadingMore, setLoadingMore] = useState<boolean>(false);
   const [feedError, setFeedError] = useState<string>("");
+  // 同步加载守卫：scroll 事件快速连续触发时，state 守卫是异步的，需 ref 立即阻断并发重复请求
+  const loadingMoreRef = useRef<boolean>(false);
 
   // 加载时间线（feed/过滤条件变化时重置分页）
   useEffect(() => {
@@ -60,23 +63,30 @@ export default function HomePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [feed, filter, user]);
 
-  // 加载更多（滚动到底部触发）
+  // 加载更多（滚动到底部触发；ref 同步守卫防并发，拼接按 id 去重兜底）
   const loadMore = async () => {
-    if (loadingMore || posts.length >= total) {
+    if (loadingMoreRef.current || posts.length >= total) {
       return;
     }
+    loadingMoreRef.current = true;
     setLoadingMore(true);
     try {
       const result =
         feed === "following"
           ? await apiFollowingFeed(page + 1)
           : await apiTimeline({ type: filter, page: page + 1 });
-      setPosts((prev) => [...prev, ...result.items]);
+      setPosts((prev) => {
+        // 按 id 去重（防御性：极端竞态下避免同一条重复出现，消除 key 冲突）
+        const seen = new Set<number>(prev.map((p) => p.id));
+        const fresh = result.items.filter((item) => !seen.has(item.id));
+        return [...prev, ...fresh];
+      });
       setPage((p) => p + 1);
       setTotal(result.total);
     } catch {
       // 加载失败静默（下次滚动重试）
     } finally {
+      loadingMoreRef.current = false;
       setLoadingMore(false);
     }
   };
@@ -147,11 +157,13 @@ export default function HomePage() {
             </div>
           )}
 
-          {/* 帖子流 */}
+          {/* 帖子流（Reveal 滚动进场：滚动加载更多的新卡片淡入上移） */}
           {!loading && (
             <div className="mt-4 post-card-list space-y-4">
               {posts.map((post) => (
-                <PostCard key={post.id} post={post} />
+                <Reveal key={post.id}>
+                  <PostCard post={post} />
+                </Reveal>
               ))}
 
               {/* 空状态：无帖子 */}

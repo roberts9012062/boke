@@ -1,13 +1,14 @@
 // src/components/post-card-skeleton.tsx
 // 帖子卡片骨架屏（设计稿《加载骨架》画板：头像/标题/正文占位）。
 // M1.1 首页无数据时展示；M1.3 接入数据后仅加载过程显示。
+// 动效：skeleton-shimmer 渐变扫光（animations.css），减少动效时退化为静态底色。
 import type { ReactNode } from "react";
 
-// SkeletonRow 单行占位条（宽度百分比控制长度，muted 底 + 呼吸动画）。
+// SkeletonRow 单行占位条（宽度百分比控制长度，扫光动画）。
 function SkeletonRow({ widthClass }: { widthClass: string }) {
   return (
     <div
-      className={`h-3 animate-pulse rounded-full bg-muted ${widthClass}`}
+      className={`h-3 skeleton-shimmer rounded-full ${widthClass}`}
       aria-hidden
     />
   );
@@ -19,7 +20,7 @@ export function PostCardSkeleton() {
     <article className="rounded-lg border border-line bg-elevated p-5">
       {/* 作者行：头像 + 昵称 + 时间 */}
       <div className="flex items-center gap-3">
-        <div className="h-10 w-10 animate-pulse rounded-full bg-muted" aria-hidden />
+        <div className="h-10 w-10 skeleton-shimmer rounded-full" aria-hidden />
         <div className="flex-1 space-y-2">
           <SkeletonRow widthClass="w-24" />
           <SkeletonRow widthClass="w-16" />

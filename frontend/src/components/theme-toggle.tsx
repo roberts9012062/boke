@@ -19,11 +19,18 @@ export function ThemeToggle() {
       type="button"
       onClick={handleToggle}
       title={theme === "cool-moon" ? "当前：冷月，点击切换薄雾" : "当前：薄雾，点击切换冷月"}
-      className="flex h-9 items-center gap-1.5 rounded-full border border-line bg-muted px-3 text-sm text-ink-2 transition-colors hover:text-ink"
+      className="group flex h-9 items-center gap-1.5 rounded-full border border-line bg-muted px-3 text-sm text-ink-2 transition-colors hover:text-ink"
       aria-label="切换主题"
     >
-      {/* 月亮图标（冷月）与云雾图标（薄雾）由文字符号表达，主题名实时显示 */}
-      <span aria-hidden>{theme === "cool-moon" ? "🌙" : "☁️"}</span>
+      {/* 月亮图标（冷月）与云雾图标（薄雾）由文字符号表达，主题名实时显示；
+          hover 轻旋转，切换主题时重播弹跳（key 随主题变化，animate-pop 无 fill 不锁定 transform） */}
+      <span
+        key={theme}
+        aria-hidden
+        className="inline-block animate-pop transition-transform duration-[var(--yy-duration-base)] ease-[var(--yy-ease-out)] group-hover:rotate-12"
+      >
+        {theme === "cool-moon" ? "🌙" : "☁️"}
+      </span>
       <span className="text-xs font-medium">{theme === "cool-moon" ? "冷月" : "薄雾"}</span>
     </button>
   );

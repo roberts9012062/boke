@@ -14,6 +14,8 @@ const TASK_META: Record<string, { label: string; desc: string }> = {
   "post.summary": { label: "帖子摘要", desc: "生成帖子摘要，写入 SEO 元数据（seo_meta.summary），编辑页「AI 生成摘要」触发" },
   "post.tags": { label: "自动标签", desc: "根据标题与正文提炼 3-5 个标签建议，编辑页「AI 生成标签」触发，确认后写入" },
   "comment.review": { label: "评论审核", desc: "新评论异步预审，高风险自动隐藏并进入审核队列；后台评论管理可手动批量" },
+  "reply.assistant": { label: "智能回复助手", desc: "作者编辑态「AI 续写 / 润色 / 翻译」，对正文执行相应处理" },
+  "seo.advice": { label: "SEO 建议", desc: "对文章给出 SEO 标题 / 描述 / 关键词建议，接入 SEO 面板回填" },
 };
 
 // TasksTab 任务配置管理。

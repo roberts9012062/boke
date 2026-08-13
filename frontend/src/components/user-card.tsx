@@ -42,7 +42,7 @@ export function UserCard() {
 
   return (
     <aside className="hidden w-[260px] shrink-0 md:block">
-      <section className="rounded-lg border border-line bg-elevated p-5">
+      <section className="rounded-lg border border-line bg-elevated p-5 transition-[box-shadow,border-color] duration-[var(--yy-duration-base)] ease-[var(--yy-ease-out)] hover:border-accent/40 hover:shadow-[var(--yy-shadow-card)]">
         {/* 头像 + 昵称 + 账号 */}
         <div className="flex items-center gap-3">
           <Avatar name={nickname} url={user?.avatar_url ?? ""} className="h-12 w-12 text-lg" />

@@ -10,7 +10,7 @@ import { AudioUploader } from "@/components/compose/audio-uploader";
 import { ImageUploader } from "@/components/compose/image-uploader";
 import { VideoUploader } from "@/components/compose/video-uploader";
 import { apiAdminUpdatePost, apiUploadMedia, ApiError } from "@/lib/api";
-import { apiAiGenTags } from "@/lib/api-ai";
+import { apiAiGenReply, apiAiGenTags } from "@/lib/api-ai";
 import type { AdminPostDetail, MediaDTO } from "@/types/api";
 
 // 正文上限（与后端 maxContentLen 一致）
@@ -55,6 +55,9 @@ export const PostEditForm = forwardRef<
   const [aiTags, setAiTags] = useState<string[]>([]);
   const [aiBusy, setAiBusy] = useState(false);
   const [aiError, setAiError] = useState("");
+  // AI 智能回复助手（续写/润色/翻译）
+  const [replyBusy, setReplyBusy] = useState<string>(""); // 空=空闲；否则为当前动作
+  const [replyError, setReplyError] = useState("");
 
   // genTags AI 生成标签建议（失败提示原因，未配 Key 引导去 AI 设置）。
   const genTags = async () => {
@@ -83,6 +86,27 @@ export const PostEditForm = forwardRef<
       }
       return [...current, tag].map((t) => `#${t}`).join(" ");
     });
+  };
+
+  // genReply AI 智能回复助手（续写/润色/翻译）：结果追加到正文末尾。
+  const genReply = async (action: "continue" | "polish" | "translate") => {
+    setReplyBusy(action);
+    setReplyError("");
+    try {
+      const r = await apiAiGenReply(detail.id, action);
+      if (!r.text) {
+        setReplyError("AI 未返回内容，请重试");
+        return;
+      }
+      // 追加结果（与原文用换行分隔；超过上限截断）
+      const merged = `${content}\n\n${r.text}`.slice(0, MAX_CONTENT);
+      setContent(merged);
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : "生成失败";
+      setReplyError(msg.includes("AI 设置") || msg.includes("API Key") ? `${msg}（可前往侧栏「AI 设置」配置）` : msg);
+    } finally {
+      setReplyBusy("");
+    }
   };
 
   // save 保存帖子（draft=保存草稿 / published=更新发布；成功返回 true）。
@@ -201,9 +225,31 @@ export const PostEditForm = forwardRef<
 
       {/* 正文 / 图说 / 说明（设计稿各画板对应文案） */}
       <div>
-        <label htmlFor="edit-content" className="mb-1.5 block text-sm text-ink-2">
-          {detail.content_type === "text" ? "正文" : detail.content_type === "image" ? "图说 / 正文" : "说明"}
-        </label>
+        <div className="mb-1.5 flex items-center justify-between">
+          <label htmlFor="edit-content" className="block text-sm text-ink-2">
+            {detail.content_type === "text" ? "正文" : detail.content_type === "image" ? "图说 / 正文" : "说明"}
+          </label>
+          {/* AI 智能回复助手（续写/润色/翻译，结果追加到正文末尾） */}
+          <div className="flex gap-1.5">
+            {(
+              [
+                { key: "continue", label: "续写" },
+                { key: "polish", label: "润色" },
+                { key: "translate", label: "翻译" },
+              ] as const
+            ).map((a) => (
+              <button
+                key={a.key}
+                type="button"
+                onClick={() => void genReply(a.key)}
+                disabled={replyBusy !== ""}
+                className="rounded-full bg-accent/10 px-2.5 py-1 text-xs text-glow hover:bg-accent/20 disabled:opacity-50"
+              >
+                {replyBusy === a.key ? "处理中…" : `AI ${a.label}`}
+              </button>
+            ))}
+          </div>
+        </div>
         <textarea
           id="edit-content"
           value={content}
@@ -214,6 +260,7 @@ export const PostEditForm = forwardRef<
           className="w-full rounded-lg border border-line bg-muted px-4 py-3 text-sm text-ink placeholder:text-ink-3 focus:border-accent focus:outline-none"
         />
         <p className="mt-1 text-right text-xs text-ink-3">{content.length}/{MAX_CONTENT}</p>
+        {replyError && <p className="mt-1 text-xs text-like">{replyError}</p>}
       </div>
 
       {/* 标签（设计稿：#月色 #夜读 #随笔；M4 增加 AI 生成建议） */}

@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 
 import { DesktopNav } from "@/components/desktop-nav";
 import { MobileTabbar } from "@/components/mobile-tabbar";
+import { Reveal } from "@/components/motion/reveal";
 import { apiDeletePost, apiDrafts } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -92,11 +93,12 @@ export default function DraftsPage() {
           </div>
         )}
 
-        {/* 草稿列表（设计稿：标题/摘要/类型徽标/时间/继续编辑） */}
+        {/* 草稿列表（设计稿：标题/摘要/类型徽标/时间/继续编辑；Reveal 滚动进场） */}
         {loaded && drafts.length > 0 && (
           <div className="space-y-3">
             {drafts.map((draft) => (
-              <div key={draft.id} className="rounded-lg border border-line bg-elevated p-4">
+              <Reveal key={draft.id}>
+                <div className="rounded-lg border border-line bg-elevated p-4 transition-[box-shadow,border-color] duration-[var(--yy-duration-base)] ease-[var(--yy-ease-out)] hover:border-accent/40">
                 <div className="flex items-center gap-2">
                   <span className="rounded-full bg-accent-soft px-2 py-0.5 text-xs text-glow">
                     {TYPE_LABEL[draft.content_type] ?? draft.content_type}
@@ -132,7 +134,8 @@ export default function DraftsPage() {
                     </button>
                   </div>
                 </div>
-              </div>
+                </div>
+              </Reveal>
             ))}
           </div>
         )}

@@ -35,21 +35,27 @@ async function fetchExtensionsCached(slot: string): Promise<{ plugin_id: string 
 
 // PluginSlot 插件槽位。
 // 参数：slot 槽位名（theme.header/post.footer/comment.footer/admin.menu/comment.item）；
-//      fallback 默认内容（replace 模式插件存在时隐藏）；props 透传给插件 register(ctx)。
+//      fallback 默认内容（replace 模式插件存在时隐藏）；props 透传给插件 register(ctx)；
+//      onPluginsChange 回调（M4.2：槽位实际挂载的插件数，0=无插件订阅，供父组件切换布局）。
 export default function PluginSlot({
   slot,
   fallback,
   props,
+  onPluginsChange,
 }: {
   slot: string;
   fallback?: React.ReactNode;
   props?: Record<string, unknown>;
+  onPluginsChange?: (count: number) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const { user } = useAuth();
   const [error, setError] = useState<string>("");
   // 是否存在 replace 模式插件（决定 fallback 是否渲染）
   const [replaced, setReplaced] = useState<boolean>(false);
+  // 保存最新回调（避免回调引用变化触发重挂载）
+  const onPluginsChangeRef = useRef(onPluginsChange);
+  onPluginsChangeRef.current = onPluginsChange;
 
   useEffect(() => {
     const el = containerRef.current;
@@ -64,19 +70,26 @@ export default function PluginSlot({
       ? { id: user.id, name: user.nickname || user.username, role: user.role ?? "" }
       : null;
 
-    // 判定 replace：并行拉 manifests，存在 mode:"replace" 且订阅本槽位的插件即视为替换
-    const checkReplaced = async (items: { plugin_id: string }[]): Promise<boolean> => {
-      const results = await Promise.all(
+    // 判定 replace + 统计订阅该槽位的插件数（并行拉 manifests）
+    const inspectPlugins = async (
+      items: { plugin_id: string }[],
+    ): Promise<{ hasReplace: boolean; count: number }> => {
+      const manifests = await Promise.all(
         items.map(async (p) => {
           try {
-            const manifest = await fetchManifest(p.plugin_id);
-            return manifest.extensionPoints.some((point) => point.slot === slot && point.mode === "replace");
+            return await fetchManifest(p.plugin_id);
           } catch {
-            return false;
+            return null;
           }
         }),
       );
-      return results.some(Boolean);
+      const subscribed = manifests.filter(
+        (m): m is NonNullable<typeof m> => m !== null && m.extensionPoints.some((pt) => pt.slot === slot),
+      );
+      const hasReplace = subscribed.some((m) =>
+        m.extensionPoints.some((pt) => pt.slot === slot && pt.mode === "replace"),
+      );
+      return { hasReplace, count: subscribed.length };
     };
 
     fetchExtensionsCached(slot)
@@ -84,11 +97,13 @@ export default function PluginSlot({
         if (cancelled) {
           return;
         }
-        const hasReplace = await checkReplaced(items);
+        const { hasReplace, count } = await inspectPlugins(items);
         if (cancelled) {
           return;
         }
         setReplaced(hasReplace);
+        // 通知父组件：该槽位实际有多少插件订阅（0 = 无插件内容）
+        onPluginsChangeRef.current?.(count);
         // 逐个挂载 running 插件的该槽位扩展（单插件失败不影响其他）
         return Promise.all(
           items.map(async (p) => {

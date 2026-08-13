@@ -68,7 +68,13 @@ export function UsageTab() {
     { label: "今日 Token", value: summary?.today_tokens ?? 0, suffix: "" },
     { label: "累计调用", value: summary?.total_calls ?? 0, suffix: "次" },
     { label: "累计 Token", value: summary?.total_tokens ?? 0, suffix: "" },
+    { label: "今日费用", value: summary?.today_cost ?? 0, suffix: "元", decimals: 4 },
+    { label: "累计费用", value: summary?.total_cost ?? 0, suffix: "元", decimals: 4 },
   ];
+
+  // formatValue 数值展示（费用保留 4 位小数，其余千分位整数）。
+  const formatValue = (c: (typeof cards)[number]) =>
+    c.decimals !== undefined ? c.value.toFixed(c.decimals) : c.value.toLocaleString();
 
   return (
     <div>
@@ -76,12 +82,12 @@ export function UsageTab() {
       {loaded && (
         <>
           {/* 汇总卡片 */}
-          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
             {cards.map((c) => (
               <div key={c.label} className="rounded-lg border border-line bg-elevated p-4">
                 <p className="text-xs text-ink-3">{c.label}</p>
                 <p className="mt-1 font-display text-2xl font-semibold text-ink">
-                  {c.value.toLocaleString()}
+                  {formatValue(c)}
                   <span className="ml-0.5 text-xs font-normal text-ink-3">{c.suffix}</span>
                 </p>
               </div>
@@ -99,7 +105,7 @@ export function UsageTab() {
 
           {/* 说明 */}
           <p className="mt-4 text-xs text-ink-3">
-            说明：Token 用量随每次 AI 调用自动记录（ai_usage 表）；费用折算（按供应商单价）暂未启用，后续版本补充。
+            说明：Token 用量随每次 AI 调用自动记录（ai_usage 表）；费用按供应商单价折算（未配置单价的供应商记 0）。
           </p>
         </>
       )}

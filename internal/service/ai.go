@@ -28,23 +28,27 @@ const (
 
 // AiProviderDTO 供应商 DTO（后台列表；API Key 不回显明文，仅掩码标记）。
 type AiProviderDTO struct {
-	ID        int64    `json:"id"`         // 供应商 ID
-	Name      string   `json:"name"`       // 名称
-	BaseURL   string   `json:"base_url"`   // 接口地址
-	APIKeySet bool     `json:"api_key_set"` // 是否已配置 API Key
-	Models    []string `json:"models"`     // 模型列表
-	Enabled   bool     `json:"enabled"`    // 是否启用
-	Priority  int      `json:"priority"`   // 路由优先级
+	ID         int64    `json:"id"`          // 供应商 ID
+	Name       string   `json:"name"`        // 名称
+	BaseURL    string   `json:"base_url"`    // 接口地址
+	APIKeySet  bool     `json:"api_key_set"` // 是否已配置 API Key
+	Models     []string `json:"models"`      // 模型列表
+	Enabled    bool     `json:"enabled"`     // 是否启用
+	Priority   int      `json:"priority"`    // 路由优先级
+	PriceInput float64  `json:"price_input"` // 输入单价（元/百万 token）
+	PriceOutput float64 `json:"price_output"` // 输出单价（元/百万 token）
 }
 
 // AiProviderInput 供应商新增/编辑输入（编辑时 api_key 留空 = 保持原值）。
 type AiProviderInput struct {
-	Name     string   `json:"name"`     // 名称（必填）
-	BaseURL  string   `json:"base_url"` // 接口地址（必填）
-	APIKey   string   `json:"api_key"`  // API Key（新增必填；编辑可留空）
-	Models   []string `json:"models"`   // 模型列表（必填至少 1 个）
-	Enabled  bool     `json:"enabled"`  // 是否启用
-	Priority int      `json:"priority"` // 路由优先级（1-100）
+	Name        string   `json:"name"`         // 名称（必填）
+	BaseURL     string   `json:"base_url"`     // 接口地址（必填）
+	APIKey      string   `json:"api_key"`      // API Key（新增必填；编辑可留空）
+	Models      []string `json:"models"`       // 模型列表（必填至少 1 个）
+	Enabled     bool     `json:"enabled"`      // 是否启用
+	Priority    int      `json:"priority"`     // 路由优先级（1-100）
+	PriceInput  float64  `json:"price_input"`  // 输入单价（元/百万 token，≥0）
+	PriceOutput float64  `json:"price_output"` // 输出单价（元/百万 token，≥0）
 }
 
 // AiTaskDTO 任务 DTO（后台任务配置列表）。
@@ -114,6 +118,7 @@ func (s *AiService) ListProviders(ctx context.Context) ([]AiProviderDTO, error) 
 			ID: p.ID, Name: p.Name, BaseURL: p.BaseURL,
 			APIKeySet: p.APIKeyEncrypted != "", Models: p.Models,
 			Enabled: p.Enabled, Priority: p.Priority,
+			PriceInput: p.PriceInput, PriceOutput: p.PriceOutput,
 		})
 	}
 	return items, nil
@@ -132,6 +137,7 @@ func (s *AiService) CreateProvider(ctx context.Context, input AiProviderInput) (
 		Name: input.Name, BaseURL: input.BaseURL,
 		APIKeyEncrypted: encrypted, Models: input.Models,
 		Enabled: input.Enabled, Priority: input.Priority,
+		PriceInput: input.PriceInput, PriceOutput: input.PriceOutput,
 	})
 }
 
@@ -160,6 +166,7 @@ func (s *AiService) UpdateProvider(ctx context.Context, id int64, input AiProvid
 		ID: id, Name: input.Name, BaseURL: input.BaseURL,
 		APIKeyEncrypted: encrypted, Models: input.Models,
 		Enabled: input.Enabled, Priority: input.Priority,
+		PriceInput: input.PriceInput, PriceOutput: input.PriceOutput,
 	})
 }
 
@@ -197,6 +204,24 @@ func (s *AiService) TestProvider(ctx context.Context, id int64) error {
 	return nil
 }
 
+// FetchModels 拉取供应商可用模型清单（后台「拉取模型」：以表单 base_url + api_key 直连，不落库）。
+// 返回：模型名列表（去重去空）；上游错误透出。
+func (s *AiService) FetchModels(ctx context.Context, baseURL string, apiKey string) ([]string, error) {
+	baseURL = strings.TrimSpace(baseURL)
+	if baseURL == "" || (!strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://")) {
+		return nil, errs.New(errs.CodeBadRequest, "接口地址需以 http(s):// 开头")
+	}
+	if strings.TrimSpace(apiKey) == "" {
+		return nil, errs.New(errs.CodeBadRequest, "请先填写 API Key")
+	}
+	client := ai.NewClient(baseURL, apiKey, "", aiRequestTimeout*time.Second)
+	models, err := client.Models(ctx)
+	if err != nil {
+		return nil, errs.New(errs.CodeUpstream, "拉取模型失败："+err.Error())
+	}
+	return models, nil
+}
+
 // AIModels 可用 AI 模型清单（脱敏：供应商名 + 模型列表；插件 AI 辅助数据源）。
 // 可用 = 启用 且 API Key 已配置（无 Key 的种子供应商不算"配置好的 AI"）。
 func (s *AiService) AIModels(ctx context.Context) ([]AiProviderDTO, error) {
@@ -213,47 +238,64 @@ func (s *AiService) AIModels(ctx context.Context) ([]AiProviderDTO, error) {
 	return ready, nil
 }
 
-// Generate 通用 AI 文本生成（插件 AI 辅助：按模型名精确匹配供应商 → 调用）。
-// 不走任务表（prompt 由调用方传入）；用量落库失败静默。
+// Generate 通用 AI 文本生成（插件/HTTP 通用接口：按模型名匹配供应商 → 统一推理）。
+// 不走任务表（prompt 由调用方传入）；用量与费用统一落库。
 func (s *AiService) Generate(ctx context.Context, model string, prompt string, content string) (string, error) {
 	if model == "" || prompt == "" {
 		return "", errs.New(errs.CodeBadRequest, "模型与提示词不能为空")
 	}
-	// 按模型找供应商（遍历启用供应商的 models 精确匹配）
-	providers, err := s.providers.ListAll(ctx)
+	provider, err := s.resolveProviderByModel(ctx, model)
 	if err != nil {
 		return "", err
 	}
-	var matched *repository.AiProvider
-	for i := range providers {
-		if !providers[i].Enabled {
-			continue
-		}
-		for _, m := range providers[i].Models {
-			if m == model {
-				matched = &providers[i]
-				break
-			}
-		}
-		if matched != nil {
-			break
-		}
-	}
-	if matched == nil {
-		return "", errs.New(errs.CodeBadRequest, "模型「"+model+"」未在已启用供应商中找到")
-	}
-	apiKey, err := decryptAPIKey(matched.APIKeyEncrypted, s.keySecret)
-	if err != nil || apiKey == "" {
-		return "", errs.New(errs.CodeUpstream, "供应商 API Key 未配置或解密失败")
-	}
-	client := ai.NewClient(matched.BaseURL, apiKey, model, aiRequestTimeout*time.Second)
-	result, err := client.Chat(ctx, prompt, content, 300)
+	result, err := s.chatProvider(ctx, provider, "plugin.generate", ai.ChatRequest{
+		Model: model,
+		Messages: []ai.Message{
+			{Role: "system", Content: prompt},
+			{Role: "user", Content: content},
+		},
+		MaxTokens: 300,
+	})
 	if err != nil {
-		return "", errs.New(errs.CodeUpstream, "AI 生成失败："+err.Error())
+		return "", err
 	}
-	// 用量落库（失败静默——观测数据不影响生成结果）
-	_ = s.usage.Record(ctx, repository.AiUsage{ProviderID: matched.ID, TaskName: "plugin.generate", TokensIn: result.InTokens, TokensOut: result.OutTokens})
 	return result.Text, nil
+}
+
+// GenerateStream 通用 AI 流式生成（HTTP/插件流式接口；SSE 逐增量）。
+// 说明：流式长连接暂不落 ai_usage（token 用量需上游 usage 流式块，后续增强）；观测不影响主流程。
+func (s *AiService) GenerateStream(ctx context.Context, model string, prompt string, content string) (ai.ChatStream, error) {
+	if model == "" || prompt == "" {
+		return nil, errs.New(errs.CodeBadRequest, "模型与提示词不能为空")
+	}
+	provider, err := s.resolveProviderByModel(ctx, model)
+	if err != nil {
+		return nil, err
+	}
+	return s.chatStreamProvider(ctx, provider, ai.ChatRequest{
+		Model: model,
+		Messages: []ai.Message{
+			{Role: "system", Content: prompt},
+			{Role: "user", Content: content},
+		},
+		MaxTokens: 1024,
+	})
+}
+
+// Embedding 通用向量嵌入（HTTP 统一接口；蓝图能力预留）。
+func (s *AiService) Embedding(ctx context.Context, model string, text string) ([]float64, error) {
+	if model == "" || strings.TrimSpace(text) == "" {
+		return nil, errs.New(errs.CodeBadRequest, "模型与文本不能为空")
+	}
+	provider, err := s.resolveProviderByModel(ctx, model)
+	if err != nil {
+		return nil, err
+	}
+	result, err := s.embedProvider(ctx, provider, ai.EmbeddingRequest{Model: model, Text: text})
+	if err != nil {
+		return nil, err
+	}
+	return result.Vector, nil
 }
 
 // validateProviderInput 供应商输入校验（新增必填 Key，编辑可留空）。
@@ -272,6 +314,9 @@ func validateProviderInput(input AiProviderInput, requireKey bool) error {
 	}
 	if input.Priority < 1 || input.Priority > 100 {
 		return errs.New(errs.CodeBadRequest, "路由优先级需为 1-100")
+	}
+	if input.PriceInput < 0 || input.PriceOutput < 0 {
+		return errs.New(errs.CodeBadRequest, "单价不能为负数")
 	}
 	return nil
 }

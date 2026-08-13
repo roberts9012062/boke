@@ -8,6 +8,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import { usePresence } from "@/components/motion/use-presence";
+
 // useOffline 监听浏览器离线状态（初始 false = 在线，仅在收到离线信号后为 true）。
 function useOffline(): boolean {
   const [offline, setOffline] = useState<boolean>(false);
@@ -33,20 +35,24 @@ function useOffline(): boolean {
 // OfflineOverlay 断网全屏提示（挂载在根布局，断网自动出现）。
 export function OfflineOverlay() {
   const offline = useOffline();
+  // 覆盖层进出场（断网淡入 / 恢复淡出后卸载）
+  const { mounted, leaving } = usePresence(offline, 180);
 
   // 重试：刷新当前页（网络恢复后重新加载数据）
   const handleRetry = useCallback(() => {
     window.location.reload();
   }, []);
 
-  // 在线时不渲染
-  if (!offline) {
+  // 在线（含淡出中已卸载）时不渲染
+  if (!mounted) {
     return null;
   }
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex flex-col items-center justify-center bg-bg px-8 text-center"
+      className={`fixed inset-0 z-[60] flex flex-col items-center justify-center bg-bg px-8 text-center ${
+        leaving ? "animate-fade-out" : "animate-fade-in"
+      }`}
       role="alert"
       aria-label="无网络"
     >

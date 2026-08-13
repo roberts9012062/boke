@@ -12,6 +12,15 @@
  *   accent 强调色 / accent-soft 强调弱底 / glow 高亮 / like 点赞色 / on-accent 强调色上的文字
  */
 
+/* ---------- 动画节奏令牌（全站动效统一，双主题一致） ---------- */
+:root {
+  --yy-duration-fast: 150ms; /* 按压/遮罩等即时反馈 */
+  --yy-duration-base: 240ms; /* hover/颜色等常规微交互 */
+  --yy-duration-slow: 400ms; /* 区块级进场 */
+  --yy-ease-out: cubic-bezier(0.22, 1, 0.36, 1); /* 出场减速（丝滑基调） */
+  --yy-ease-pop: cubic-bezier(0.34, 1.56, 0.64, 1); /* 轻微回弹（点赞弹跳） */
+}
+
 /* ---------- 冷月（暗色 · 深夜护眼） ---------- */
 :root,
 :root[data-theme="cool-moon"] {
@@ -38,6 +47,7 @@
   --yy-radius-md: 12px;
   --yy-radius-lg: 16px;
   --yy-shadow-card: 0 4px 24px rgba(0, 0, 0, 0.35);
+  --yy-shadow-card-hover: 0 8px 32px rgba(0, 0, 0, 0.5);
 }
 
 /* ---------- 薄雾（亮色 · 日间通透） ---------- */
@@ -65,4 +75,5 @@
   --yy-radius-md: 12px;
   --yy-radius-lg: 16px;
   --yy-shadow-card: 0 4px 24px rgba(31, 42, 64, 0.08);
+  --yy-shadow-card-hover: 0 8px 32px rgba(31, 42, 64, 0.16);
 }
