@@ -1,0 +1,4 @@
+{
+  "filePath": "O:/package/obj/newobj1/boke/scripts/login.pen",
+  "input": "Print(JSON.stringify(Get(n => n)).length)\nPrint(JSON.stringify(Get(n => n)).slice(0, 2000))"
+}

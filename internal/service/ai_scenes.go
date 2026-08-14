@@ -76,23 +76,30 @@ func replyActionLabel(action string) (string, error) {
 }
 
 // GenReplyAssistant 智能回复助手（M4 蓝图场景：AI 续写/润色/翻译）。
-// 参数：action ∈ continue / polish / translate。
+// 参数：action ∈ continue / polish / translate；content 前端当前编辑正文（空则回退查库）。
+// 说明：续写/润色/翻译必须对「编辑框内正在编辑的正文」操作——若仅按 postID 查库，
+//       用户在编辑框的未保存改动会被忽略，AI 拿到旧正文甚至空正文。故正文优先取传入值。
 // 返回：处理后的文本（非流式；前端编辑态触发）。
-func (s *AiService) GenReplyAssistant(ctx context.Context, postID int64, action string) (string, error) {
+func (s *AiService) GenReplyAssistant(ctx context.Context, postID int64, action string, content string) (string, error) {
 	label, err := replyActionLabel(action)
 	if err != nil {
 		return "", err
 	}
-	post, err := s.posts.FindByID(ctx, postID)
-	if err != nil {
-		return "", err
+	// 正文来源：优先前端传入的当前编辑正文；为空（旧调用/未传）回退按 postID 查库
+	body := strings.TrimSpace(content)
+	if body == "" {
+		post, err := s.posts.FindByID(ctx, postID)
+		if err != nil {
+			return "", err
+		}
+		body = post.Content
 	}
-	content := truncateRunes(post.Content, maxPromptLen)
-	if content == "" {
+	body = truncateRunes(body, maxPromptLen)
+	if body == "" {
 		return "", errs.New(errs.CodeBadRequest, "帖子正文为空，无法执行 AI 操作")
 	}
 	// {action} 与 {content} 占位符由任务提示词模板承载
-	input := "操作类型：" + label + "\n\n" + content
+	input := "操作类型：" + label + "\n\n" + body
 	result, err := s.runTask(ctx, TaskReplyAssistant, input)
 	if err != nil {
 		return "", err

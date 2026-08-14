@@ -9,6 +9,8 @@ import Link from "next/link";
 import { useState } from "react";
 
 import { AudioPlayer } from "@/components/audio-player";
+import { GALLERY_STYLES } from "@/components/image-gallery";
+import { MusicRefPlayer } from "@/components/music-ref-player";
 import { SharePanel } from "@/components/share-panel";
 import { Avatar } from "@/components/ui/avatar";
 import { useAppearance } from "@/lib/appearance";
@@ -80,7 +82,7 @@ export function PostCard({ post }: { post: PostSummary }) {
       {post.content_type === "image" && post.media.length > 0 && (
         <Link href={`/posts/${post.id}`} className="mt-3 block">
           {/* 首图为主图，多图右侧小图（设计稿图片帖网格）；hover 微放大 */}
-          <div className="group grid grid-cols-2 gap-1 overflow-hidden rounded-lg">
+          <div className="group relative grid grid-cols-2 gap-1 overflow-hidden rounded-lg">
             {post.media.slice(0, 2).map((m) => (
               // eslint-disable-next-line @next/next/no-img-element
               <img
@@ -93,12 +95,53 @@ export function PostCard({ post }: { post: PostSummary }) {
                 }`}
               />
             ))}
+            {/* 展示风格标签（非默认网格时显示） */}
+            {post.gallery_style && (
+              <span className="absolute bottom-1.5 right-1.5 rounded-md bg-black/55 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                {GALLERY_STYLES.find((s) => s.key === post.gallery_style)?.label ?? post.gallery_style}
+              </span>
+            )}
           </div>
         </Link>
       )}
       {post.content_type === "audio" && post.media.length > 0 && (
         <div className="mt-3">
           <AudioPlayer src={post.media[0].url} duration={0} autoplay={settings.autoplayMedia} />
+        </div>
+      )}
+
+      {/* 音乐嵌入（M7：正文内嵌音乐，列表直接渲染播放器）——
+          网易云引用（song_id）用自研播放器；第三方 iframe（QQ/旧网易云）保持 iframe */}
+      {post.music && post.music.song_id && (
+        <div className="mt-3">
+          <MusicRefPlayer
+            songId={post.music.song_id}
+            title={post.music.title}
+            artist={post.music.artist}
+            coverUrl={post.music.cover_url}
+            platform={post.music.platform === "qq" ? "qq" : "netease"}
+          />
+        </div>
+      )}
+      {post.music && !post.music.song_id && post.music.url && (
+        <div className="mt-3 overflow-hidden rounded-lg border border-line bg-elevated">
+          <iframe
+            src={post.music.url}
+            title={`内嵌音乐（${post.music.platform}）`}
+            allow="autoplay"
+            allowFullScreen
+            style={{
+              width: "100%",
+              height:
+                post.music.platform === "netease" && post.music.kind === "song"
+                  ? 66
+                  : post.music.platform === "netease"
+                    ? 430
+                    : 110,
+              border: 0,
+              display: "block",
+            }}
+          />
         </div>
       )}
 

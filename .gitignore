@@ -46,3 +46,7 @@ data/plugins/
 
 # demo æ’ä»¶è®¸å¯è¯å¯†é’¥ï¼ˆdata/demo-keys/ï¼ŒM3.5 ç§é’¥/è®¸å¯è¯ä¸å…¥åº“ï¼‰
 data/demo-keys/
+
+# DSH ¿ò¼ÜÄ¿Â¼£¨·ÇÏîÄ¿´úÂë£©
+dsh-reverse-security/
+

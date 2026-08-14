@@ -1,5 +1,8 @@
 // src/lib/avatar.ts
-// 头像处理工具（M1.7）：头像图片中心裁剪为正方形并压缩（canvas）。
+// 图片处理工具（M1.7 头像 + M5 插件设置图片字段）：
+//   - cropSquare：头像中心裁剪为正方形并压缩
+//   - cropImageRegion：按圆形裁剪器视口坐标反解原图区域（正方形输出）
+//   - cropImageRect：按矩形裁剪器视口坐标反解原图区域（任意宽高比输出，OG 图 1200×630）
 // 设计稿：头像建议正方形，不超过 5MB；此处统一缩至 256px JPEG，控制体积。
 "use client";
 
@@ -10,6 +13,28 @@ export interface CropRegion {
   offsetY: number; // 图片左上角相对视口的垂直位移（px）
   viewport: number; // 裁剪视口边长（px，正方形）
   outputSize: number; // 输出头像边长（px）
+}
+
+// CropRectRegion 矩形裁剪参数（OG 图等场景：16:9 视口 → 固定输出尺寸）。
+export interface CropRectRegion {
+  scale: number; // 图片显示缩放倍数
+  offsetX: number; // 图片左上角相对视口的水平位移（px）
+  offsetY: number; // 图片左上角相对视口的垂直位移（px）
+  viewportWidth: number; // 裁剪视口宽（px）
+  viewportHeight: number; // 裁剪视口高（px）
+  outputWidth: number; // 输出宽（px）
+  outputHeight: number; // 输出高（px）
+}
+
+// canvasToJpeg canvas 转 JPEG 文件（压缩质量 0.9；纯函数）。
+async function canvasToJpeg(canvas: HTMLCanvasElement, name: string): Promise<File> {
+  const blob = await new Promise<Blob | null>((resolve) => {
+    canvas.toBlob(resolve, "image/jpeg", 0.9);
+  });
+  if (!blob) {
+    throw new Error("图片压缩失败");
+  }
+  return new File([blob], name, { type: "image/jpeg" });
 }
 
 // cropSquare 将头像图片中心裁剪为正方形并缩放压缩。
@@ -34,15 +59,7 @@ export async function cropSquare(file: File, size = 256): Promise<File> {
   ctx.drawImage(bitmap, sx, sy, side, side, 0, 0, size, size);
   bitmap.close();
 
-  // canvas 转 Blob（JPEG 0.85 质量，体积远小于 5MB 上限）
-  const blob = await new Promise<Blob | null>((resolve) => {
-    canvas.toBlob(resolve, "image/jpeg", 0.85);
-  });
-  if (!blob) {
-    throw new Error("图片压缩失败");
-  }
-  // 文件名沿用原扩展名（.jpg），类型固定 jpeg
-  return new File([blob], "avatar.jpg", { type: "image/jpeg" });
+  return canvasToJpeg(canvas, "avatar.jpg");
 }
 
 // cropImageRegion 按裁剪器视口坐标裁剪头像（圆形区域的内切正方形）。
@@ -78,12 +95,40 @@ export async function cropImageRegion(file: File, region: CropRegion): Promise<F
   ctx.drawImage(bitmap, sx, sy, cropSide, cropSide, 0, 0, outputSize, outputSize);
   bitmap.close();
 
-  // canvas 转 Blob（JPEG 0.9 质量：头像体积小，取更高清晰度）
-  const blob = await new Promise<Blob | null>((resolve) => {
-    canvas.toBlob(resolve, "image/jpeg", 0.9);
-  });
-  if (!blob) {
-    throw new Error("图片压缩失败");
+  return canvasToJpeg(canvas, "avatar.jpg");
+}
+
+// cropImageRect 按矩形裁剪器视口坐标裁剪图片（OG 图等：16:9 视口 → 固定输出尺寸）。
+// 参数：file 原图；region 矩形裁剪参数（scale/offset/viewportWidth 等）。
+// 说明：图片经 scale + offset 变换后，反解原图矩形区域（宽 viewportWidth/scale、
+//       高 viewportHeight/scale），输出缩放至 outputWidth×outputHeight。
+// 返回：裁剪压缩后的 File（jpeg），可直接上传 /media。
+export async function cropImageRect(file: File, region: CropRectRegion): Promise<File> {
+  const bitmap = await createImageBitmap(file);
+  const { scale, offsetX, offsetY, viewportWidth, viewportHeight, outputWidth, outputHeight } = region;
+
+  // 反解原图矩形区域（左上角 (sx,sy)，宽高由视口比例换算）
+  const width = viewportWidth / scale;
+  const height = viewportHeight / scale;
+  let sx = Math.max(0, Math.min(-offsetX / scale, bitmap.width - width));
+  let sy = Math.max(0, Math.min(-offsetY / scale, bitmap.height - height));
+  const cropW = Math.min(width, bitmap.width - sx);
+  const cropH = Math.min(height, bitmap.height - sy);
+  if (cropW <= 0 || cropH <= 0) {
+    bitmap.close();
+    throw new Error("裁剪区域无效，请重新选择图片");
   }
-  return new File([blob], "avatar.jpg", { type: "image/jpeg" });
+
+  const canvas = document.createElement("canvas");
+  canvas.width = outputWidth;
+  canvas.height = outputHeight;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    bitmap.close();
+    throw new Error("当前浏览器不支持图片处理");
+  }
+  ctx.drawImage(bitmap, sx, sy, cropW, cropH, 0, 0, outputWidth, outputHeight);
+  bitmap.close();
+
+  return canvasToJpeg(canvas, "og-image.jpg");
 }

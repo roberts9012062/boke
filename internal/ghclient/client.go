@@ -1,8 +1,10 @@
 // internal/ghclient/client.go
-// GitHub 客户端（连接器类，外部系统接口）：拉取插件商城清单（plugins.json）+ Release 资产下载（M3.4）。
-// 说明（M3.1）：插件商城以 GitHub 仓库为内容载体——用户可自定义仓库地址（settings.plugin_source），
+// GitHub 客户端（连接器类，外部系统接口）：拉取插件商城内容 + Release 资产下载（M3.4）。
+// 说明（M3.1）：插件商城以 GitHub 仓库为内容载体——用户可自定义仓库地址（settings.plugin_source）。
+// 说明（M5 文件夹结构）：商城改为文件夹结构——每个插件一个文件夹，内含 plugin.json（元数据）
 //
-//	清单文件约定为仓库根目录 plugins.json（GitHub Contents API + raw 格式返回）。
+//	与 README.md（介绍）；文件统一经 FetchFile 拉取（Contents API + raw 格式），
+//	文件夹枚举经 tree.go FetchTree（git trees API）。
 //
 // 说明（M3.4）：安装链路按清单 assets.pattern 匹配 Release 资产下载 .bpk——元数据走 API（8s），
 //
@@ -17,6 +19,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -31,18 +34,31 @@ const downloadTimeout = 120 * time.Second
 
 // Client GitHub 客户端（连接器类）。
 type Client struct {
-	mu     sync.RWMutex // 保护 token（OAuth 回调后动态更新，M3.5）
-	token  string       // GitHub Token（.env GITHUB_TOKEN 或 OAuth 连接）
-	client *http.Client
+	mu      sync.RWMutex // 保护 token（OAuth 回调后动态更新，M3.5）
+	token   string       // GitHub Token（.env GITHUB_TOKEN 或 OAuth 连接）
+	client  *http.Client
+	baseURL string // API 基址（默认 https://api.github.com；测试注入 httptest）
 }
+
+// apiBaseURL GitHub API 默认基址。
+const apiBaseURL = "https://api.github.com"
 
 // NewClient 创建 GitHub 客户端。
 // 参数：token GitHub Token（可为空，仅公开仓库可用）。
 func NewClient(token string) *Client {
 	return &Client{
-		token:  token,
-		client: &http.Client{Timeout: requestTimeout},
+		token:   token,
+		client:  &http.Client{Timeout: requestTimeout},
+		baseURL: apiBaseURL,
 	}
+}
+
+// base 返回 API 基址（未注入时用默认值）。
+func (c *Client) base() string {
+	if c.baseURL != "" {
+		return c.baseURL
+	}
+	return apiBaseURL
 }
 
 // SetToken 动态更新 GitHub Token（OAuth 连接/断开时调用，并发安全）。
@@ -78,17 +94,50 @@ func validateRepo(owner string, repo string) error {
 	return nil
 }
 
-// FetchManifest 拉取仓库根目录的 plugins.json 清单。
-// 参数：ctx 上下文；owner 仓库属主；repo 仓库名。
-// 返回：清单文件原始内容（UTF-8）；仓库或文件不存在返回错误。
+// ErrFileNotFound 仓库文件不存在（HTTP 404，供上层区分"插件未提供 README"）。
+var ErrFileNotFound = errors.New("仓库文件不存在")
+
+// validateFilePath 校验仓库内文件路径合法性（防路径穿越；纯函数）。
+// 允许：非空、相对路径（无前导 /）、无反斜杠、无空段、无 . / .. 段。
+func validateFilePath(filePath string) error {
+	if filePath == "" {
+		return errors.New("文件路径不能为空")
+	}
+	if strings.HasPrefix(filePath, "/") || strings.Contains(filePath, "\\") {
+		return errors.New("文件路径格式不正确")
+	}
+	for _, part := range strings.Split(filePath, "/") {
+		if part == "" || part == "." || part == ".." {
+			return errors.New("文件路径格式不正确")
+		}
+	}
+	return nil
+}
+
+// encodeFilePath 逐段 URL 转义文件路径（保留 / 分隔；纯函数）。
+func encodeFilePath(filePath string) string {
+	parts := strings.Split(filePath, "/")
+	encoded := make([]string, 0, len(parts))
+	for _, part := range parts {
+		encoded = append(encoded, url.PathEscape(part))
+	}
+	return strings.Join(encoded, "/")
+}
+
+// FetchFile 拉取仓库内指定路径的文件原始内容（GitHub Contents API + raw 格式）。
+// 参数：filePath 相对仓库根的文件路径（如 seo-optimizer/README.md）；sizeLimit 大小上限字节（0=不限制）。
+// 返回：文件内容；文件不存在返回 ErrFileNotFound。
 // 说明：优先 Contents API（带 token 可访问私有仓库），响应为 base64 JSON 或 raw 文本（Accept 头指定）。
-func (c *Client) FetchManifest(ctx context.Context, owner string, repo string) ([]byte, error) {
+func (c *Client) FetchFile(ctx context.Context, owner string, repo string, filePath string, sizeLimit int64) ([]byte, error) {
 	if err := validateRepo(owner, repo); err != nil {
 		return nil, err
 	}
+	if err := validateFilePath(filePath); err != nil {
+		return nil, err
+	}
 
-	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/contents/plugins.json", owner, repo)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	reqURL := fmt.Sprintf("%s/repos/%s/%s/contents/%s", c.base(), owner, repo, encodeFilePath(filePath))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -99,18 +148,31 @@ func (c *Client) FetchManifest(ctx context.Context, owner string, repo string) (
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("拉取插件清单失败：%w", err)
+		return nil, fmt.Errorf("拉取仓库文件失败：%w", err)
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, ErrFileNotFound
+	}
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
-		return nil, fmt.Errorf("拉取插件清单失败（HTTP %d）：%s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return nil, fmt.Errorf("拉取仓库文件失败（HTTP %d）：%s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
-
-	raw, err := io.ReadAll(resp.Body)
+	// 大小上限（Content-Length 声明 + 流式读取双保险）
+	if sizeLimit > 0 && resp.ContentLength > sizeLimit {
+		return nil, fmt.Errorf("仓库文件超过大小上限（%dKB）", sizeLimit>>10)
+	}
+	reader := io.Reader(resp.Body)
+	if sizeLimit > 0 {
+		reader = io.LimitReader(resp.Body, sizeLimit+1)
+	}
+	raw, err := io.ReadAll(reader)
 	if err != nil {
 		return nil, err
+	}
+	if sizeLimit > 0 && int64(len(raw)) > sizeLimit {
+		return nil, fmt.Errorf("仓库文件超过大小上限（%dKB）", sizeLimit>>10)
 	}
 	// 兜底：部分响应为 base64 JSON（Accept 未生效时）
 	if content := decodeBase64IfJSON(raw); content != nil {

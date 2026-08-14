@@ -66,7 +66,7 @@ cp .env.example .env   # 填写数据库连接与 JWT_SECRET
 ./scripts/screenshot.sh   # Playwright 截图（视觉比对）
 ```
 
-> 管理员初始账号：`admin@yueyan.site` / `Yueyan2026`（迁移 011 后角色为超级管理员；首次登录后请修改）。
+> 管理员账号：`admin`（用户名）或 `admin@yueyan.site`（邮箱）/ `mateng321`（迁移 011 后角色为超级管理员；首次登录后请修改）。
 > 邮件发送：`.env` 配置 `SMTP_*` 后自动启用真实发送；未配置时重置链接写入 `logs/`（开发模式）。
 > AI：`.env` 可选配置 `AI_KEY_SECRET`（供应商 API Key 加密密钥，未配置回退 JWT_SECRET）；供应商 Key 在后台「AI 设置」填写。
 

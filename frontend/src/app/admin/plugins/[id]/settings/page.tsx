@@ -8,6 +8,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { Switch } from "@/components/ui/switch";
+import { ImageSettingField } from "@/components/admin/image-setting-field";
 import {
   apiPluginDetail,
   apiPluginSaveConfig,
@@ -93,7 +94,18 @@ export default function PluginSettings() {
         </div>
       ) : (
         <div className="mt-5 space-y-5 rounded-lg border border-line bg-elevated p-6">
-          {fields.map((field: PluginSettingField) => (
+          {fields.map((field: PluginSettingField) =>
+            field.type === "image" ? (
+              // 图片字段（M5：默认 OG 图等）：label 置顶 + 上传/裁剪/预览区
+              <div key={field.key} className="flex flex-col items-start gap-1.5">
+                <p className="text-sm text-ink">{field.label}</p>
+                <ImageSettingField
+                  field={field}
+                  value={values[field.key] ?? ""}
+                  onChange={(url) => setValues((prev) => ({ ...prev, [field.key]: url }))}
+                />
+              </div>
+            ) : (
             <div key={field.key} className="flex items-center justify-between gap-4">
               <p className="text-sm text-ink">{field.label}</p>
               {field.type === "switch" ? (
@@ -123,7 +135,8 @@ export default function PluginSettings() {
                 />
               )}
             </div>
-          ))}
+            )
+          )}
 
           {error && (
             <p className="rounded-md bg-like/10 px-3 py-2 text-sm text-like" role="alert">

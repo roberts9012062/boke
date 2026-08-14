@@ -6,6 +6,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import { BgmWidget } from "@/components/bgm-widget";
 import { DesktopNav } from "@/components/desktop-nav";
 import { FeedTabs } from "@/components/feed-tabs";
 import { HotTopics } from "@/components/hot-topics";
@@ -190,6 +191,9 @@ export default function HomePage() {
 
       {/* 移动端底部导航 */}
       <MobileTabbar />
+
+      {/* 首页背景音乐悬浮播放器（QQ 音乐插件设置开启后显示） */}
+      <BgmWidget />
     </div>
   );
 }

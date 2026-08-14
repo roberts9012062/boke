@@ -16,6 +16,7 @@ const ICON_PATHS: Record<string, string> = {
   plugins: '<path d="M9 4a2 2 0 1 1 3 1.7V9h6a2 2 0 1 1 0 4h-6v6a2 2 0 1 1-3 0v-6H4a2 2 0 1 1 0-4h5V5.7A2 2 0 0 1 9 4z"/>',
   market: '<path d="M6 8h12l-1 12a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/>',
   seo: '<circle cx="11" cy="11" r="7"/><path d="M16.5 16.5L21 21"/><path d="M8 11l2 2 3-4"/>',
+  music: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
   health: '<path d="M3 12h4l2-6 4 12 2-6h6"/>',
   serp: '<path d="M4 6h16M4 10h16M4 14h16M4 18h10"/>',
   ai: '<path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4"/><path d="M8 12a4 4 0 0 1 8 0"/><path d="M12 12l2.5 4.5h-5z"/>',

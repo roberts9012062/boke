@@ -341,7 +341,8 @@ func (h *AiHandler) Embedding(c *gin.Context) {
 // ---------- 内置场景：智能回复助手 / SEO 建议 ----------
 
 // GenReply 智能回复助手（POST /api/v1/admin/ai/gen/reply?post_id=&action=，
-// action ∈ continue / polish / translate；返回处理后的文本）。
+// action ∈ continue / polish / translate；body {content} 为当前编辑正文（缺省回退查库）。
+// 返回处理后的文本）。
 func (h *AiHandler) GenReply(c *gin.Context) {
 	postID, err := strconv.ParseInt(c.Query("post_id"), 10, 64)
 	if err != nil || postID <= 0 {
@@ -349,7 +350,13 @@ func (h *AiHandler) GenReply(c *gin.Context) {
 		return
 	}
 	action := c.Query("action")
-	text, err := h.ai.GenReplyAssistant(c.Request.Context(), postID, action)
+	// 请求体：{content} 编辑框当前正文（可选——为空时服务端按 post_id 查库）
+	var req struct {
+		Content string `json:"content"`
+	}
+	// 空 body 允许（旧调用兼容），忽略解析错误
+	_ = c.ShouldBindJSON(&req)
+	text, err := h.ai.GenReplyAssistant(c.Request.Context(), postID, action, req.Content)
 	if err != nil {
 		h.logger.Error("AI 智能回复助手失败", zap.Int64("post_id", postID), zap.Error(err))
 		resp.FailFrom(c, err)

@@ -1,0 +1,160 @@
+{
+  "version": "2.15",
+  "children": [
+    {
+      "type": "frame",
+      "id": "E9d2jv",
+      "x": 0,
+      "y": 0,
+      "name": "登录页",
+      "clip": true,
+      "width": 1200,
+      "height": 800,
+      "fill": "#F5F7FA",
+      "layout": "none",
+      "children": [
+        {
+          "type": "frame",
+          "id": "QMKM9",
+          "x": 400,
+          "y": 220,
+          "name": "登录卡片",
+          "width": 400,
+          "height": 360,
+          "fill": "#FFFFFF",
+          "cornerRadius": 16,
+          "stroke": "#E5E7EB",
+          "strokeWidth": 1,
+          "layout": "none",
+          "children": [
+            {
+              "type": "text",
+              "id": "Ze6yr",
+              "x": 0,
+              "y": 36,
+              "name": "标题",
+              "fill": "#111827",
+              "textGrowth": "fixed-width",
+              "width": 400,
+              "content": "登录",
+              "textAlign": "center",
+              "fontFamily": "Inter",
+              "fontSize": 28,
+              "fontWeight": "700"
+            },
+            {
+              "type": "text",
+              "id": "s8X1S",
+              "x": 40,
+              "y": 100,
+              "name": "邮箱标签",
+              "fill": "#374151",
+              "content": "邮箱",
+              "fontFamily": "Inter",
+              "fontSize": 14,
+              "fontWeight": "500"
+            },
+            {
+              "type": "frame",
+              "id": "y7OBw9",
+              "x": 40,
+              "y": 126,
+              "name": "邮箱输入框",
+              "width": 320,
+              "height": 46,
+              "fill": "#F9FAFB",
+              "cornerRadius": 8,
+              "stroke": "#D1D5DB",
+              "strokeWidth": 1,
+              "layout": "none",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "m2nrPS",
+                  "x": 14,
+                  "y": 13,
+                  "name": "邮箱占位文本",
+                  "fill": "#9CA3AF",
+                  "content": "请输入邮箱",
+                  "fontFamily": "Inter",
+                  "fontSize": 14,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "id": "Z2m9k",
+              "x": 40,
+              "y": 190,
+              "name": "密码标签",
+              "fill": "#374151",
+              "content": "密码",
+              "fontFamily": "Inter",
+              "fontSize": 14,
+              "fontWeight": "500"
+            },
+            {
+              "type": "frame",
+              "id": "ywkBN",
+              "x": 40,
+              "y": 216,
+              "name": "密码输入框",
+              "width": 320,
+              "height": 46,
+              "fill": "#F9FAFB",
+              "cornerRadius": 8,
+              "stroke": "#D1D5DB",
+              "strokeWidth": 1,
+              "layout": "none",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "V0lK93",
+                  "x": 14,
+                  "y": 13,
+                  "name": "密码占位文本",
+                  "fill": "#9CA3AF",
+                  "content": "请输入密码",
+                  "fontFamily": "Inter",
+                  "fontSize": 14,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "cbkne",
+              "x": 40,
+              "y": 280,
+              "name": "登录按钮",
+              "width": 320,
+              "height": 48,
+              "fill": "#4F46E5",
+              "cornerRadius": 8,
+              "layout": "none",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "d7EUhk",
+                  "x": 0,
+                  "y": 13,
+                  "name": "按钮文本",
+                  "fill": "#FFFFFF",
+                  "textGrowth": "fixed-width",
+                  "width": 320,
+                  "content": "登录",
+                  "textAlign": "center",
+                  "fontFamily": "Inter",
+                  "fontSize": 16,
+                  "fontWeight": "600"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "fileToken": "d230c123-1e20-4e91-878c-beb1f181dcf2"
+}

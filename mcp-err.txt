@@ -1,0 +1,6 @@
+2026/08/14 14:50:46 [MCP] Starting server in stdio mode
+2026/08/14 14:50:46 [TransportClient] connected to \\.\pipe\pencil-desktop
+2026/08/14 14:50:46 [TransportClient] received client ID: a6c4da25-237e-4177-b5c5-63fd89ac50b8
+2026/08/14 14:50:46 [TransportClient] attempting to send agent name 
+2026/08/14 14:50:46 [TransportClient] → tool=get-app-state request_id=0ac0a058-c5f8-422f-9f5a-6e459033921b
+2026/08/14 14:50:46 [TransportClient] ← ok tool=get-app-state request_id=0ac0a058-c5f8-422f-9f5a-6e459033921b took=388.6313ms

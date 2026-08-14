@@ -38,6 +38,7 @@ type Handlers struct {
 	Report   *handler.ReportHandler   // 数据报表控制器（M4-报表）
 	Backup   *handler.BackupHandler   // 备份导出控制器（M4-报表）
 	Role     *handler.RoleHandler     // 角色权限控制器（M5）
+	Music    *handler.MusicHandler    // 音乐解析控制器（M7：QQ songmid→songid）
 }
 
 // Register 注册全部路由并返回 Gin 引擎。
@@ -139,6 +140,14 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager, e
 
 	// ---------- 媒体模块（M1.3） ----------
 	authed.POST("/media", middleware.RequireNotRestricted(), handlers.Media.Upload) // 媒体上传（multipart；M5：受限访客 403）
+
+	// ---------- 音乐解析（M7：QQ 音乐 songmid→songid，发帖内嵌播放器用） ----------
+	authed.GET("/music/qq-resolve", handlers.Music.ResolveQQ)
+	// 网易云播放地址公开代理（M7 插件：访客无需登录即可播放，挂公开组）
+	api.GET("/music/netease-url", handlers.Music.NeteaseURL)
+	// QQ 音乐播放地址公开代理（M8 插件：访客无需登录即可播放，挂公开组）
+	api.GET("/music/qq-url", handlers.Music.QqURL)
+	api.GET("/music/qq-bgm", handlers.Music.QqBGM) // 首页背景音乐（公开：开关+歌单歌曲）
 
 	// ---------- 评论模块（M1.4） ----------
 	// 评论接口开放（登录/匿名均可）：挂可选鉴权识别登录用户身份；
@@ -265,6 +274,7 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager, e
 		// 插件域（M3.1：GitHub 仓库清单驱动商城 + 安装管理）
 		plugins := adminGroup.Group("/plugins", perm(casbin.DomainPlugins))
 		plugins.GET("/market", handlers.Plugin.Market)      // 商城清单（?source= 自定义仓库）
+		plugins.GET("/market/:id/readme", handlers.Plugin.Readme) // 插件介绍 README（M5 文件夹结构；?source= 自定义仓库）
 		plugins.GET("", handlers.Plugin.ListInstalled)      // 我的插件
 		plugins.POST("/install", handlers.Plugin.Install)   // 安装 {plugin_id}
 		plugins.POST("/upload", handlers.Plugin.Upload)     // 本地上传 .bpk 安装（?upgrade=1 升级）

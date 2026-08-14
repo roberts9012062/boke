@@ -112,13 +112,14 @@ func (r *PluginRepo) Reinstall(ctx context.Context, instanceID int64, version st
 	return err
 }
 
-// ListInstalled 已安装插件列表（排除卸载，按安装时间倒序）。
+// ListInstalled 已安装插件列表（排除卸载，按安装时间正序）。
+// 正序：先安装的在前（后台侧栏插件动态入口顺序跟随安装先后，SEO 等核心插件在上）。
 func (r *PluginRepo) ListInstalled(ctx context.Context) ([]PluginInstance, error) {
 	rows, err := r.pool.Query(ctx, `
 		SELECT id, plugin_id, name, version, repo_url, state, last_error, created_at
 		FROM plugin_instances
 		WHERE state != 'uninstalled'
-		ORDER BY created_at DESC`)
+		ORDER BY created_at ASC`)
 	if err != nil {
 		return nil, err
 	}

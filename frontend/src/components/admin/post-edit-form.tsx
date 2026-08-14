@@ -8,13 +8,13 @@ import { forwardRef, useImperativeHandle, useState } from "react";
 
 import { AudioUploader } from "@/components/compose/audio-uploader";
 import { ImageUploader } from "@/components/compose/image-uploader";
+import { MAX_CONTENT } from "@/components/compose/config";
+import { RichTextEditor } from "@/components/compose/rich-text-editor";
 import { VideoUploader } from "@/components/compose/video-uploader";
 import { apiAdminUpdatePost, apiUploadMedia, ApiError } from "@/lib/api";
 import { apiAiGenReply, apiAiGenTags } from "@/lib/api-ai";
+import { htmlToText } from "@/lib/rich-text";
 import type { AdminPostDetail, MediaDTO } from "@/types/api";
-
-// 正文上限（与后端 maxContentLen 一致）
-const MAX_CONTENT = 2000;
 
 // 可见性选项（设计稿《可见性》弹层三选项：公开/仅关注者/仅自己）
 const VISIBILITY_OPTIONS = [
@@ -31,6 +31,22 @@ function parseTags(text: string): string[] {
     .filter(Boolean);
 }
 
+// legacyContentToHtml 将旧格式（markdown/纯文本）正文转为编辑器可安全加载的 HTML。
+// 说明：旧帖正文不含 HTML 语义，直接转义后按段落回填，避免 `<`/`&` 被误解析。
+function legacyContentToHtml(text: string): string {
+  const escaped = text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+  if (escaped.trim() === "") {
+    return "";
+  }
+  return escaped
+    .split(/\n{2,}/)
+    .map((p) => `<p>${p.replace(/\n/g, "<br>")}</p>`)
+    .join("");
+}
+
 // PostEditFormHandle 表单操作句柄（父组件触发保存）。
 export interface PostEditFormHandle {
   save: (status: "draft" | "published") => Promise<boolean>; // 保存成功返回 true
@@ -43,7 +59,9 @@ export const PostEditForm = forwardRef<
 >(function PostEditForm({ detail, onSaved }, ref) {
   // 表单状态（从详情初始化；类型只读，媒体按类型独立管理）
   const [title, setTitle] = useState<string>(detail.title);
-  const [content, setContent] = useState<string>(detail.content);
+  const [content, setContent] = useState<string>(
+    detail.content_format === "html" ? detail.content : legacyContentToHtml(detail.content),
+  );
   const [tagsText, setTagsText] = useState<string>(detail.tags.map((t) => `#${t}`).join(" "));
   const [visibility, setVisibility] = useState<string>(detail.visibility);
   const [images, setImages] = useState<MediaDTO[]>(detail.media);
@@ -89,18 +107,22 @@ export const PostEditForm = forwardRef<
   };
 
   // genReply AI 智能回复助手（续写/润色/翻译）：结果追加到正文末尾。
+  // 注意：正文已是 HTML，传给 AI 前先 htmlToText 取纯文本；结果按新段落追加回 HTML。
   const genReply = async (action: "continue" | "polish" | "translate") => {
     setReplyBusy(action);
     setReplyError("");
     try {
-      const r = await apiAiGenReply(detail.id, action);
+      const r = await apiAiGenReply(detail.id, action, htmlToText(content));
       if (!r.text) {
         setReplyError("AI 未返回内容，请重试");
         return;
       }
-      // 追加结果（与原文用换行分隔；超过上限截断）
-      const merged = `${content}\n\n${r.text}`.slice(0, MAX_CONTENT);
-      setContent(merged);
+      // 追加结果（新段落；转义 AI 文本避免破坏 HTML）
+      const escaped = r.text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+      setContent(`${content}<p>${escaped}</p>`);
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : "生成失败";
       setReplyError(msg.includes("AI 设置") || msg.includes("API Key") ? `${msg}（可前往侧栏「AI 设置」配置）` : msg);
@@ -132,6 +154,7 @@ export const PostEditForm = forwardRef<
       await apiAdminUpdatePost(detail.id, {
         title,
         content,
+        content_format: "html",
         tags: parseTags(tagsText),
         media_ids: mediaIDs,
         visibility,
@@ -250,16 +273,13 @@ export const PostEditForm = forwardRef<
             ))}
           </div>
         </div>
-        <textarea
-          id="edit-content"
+        {/* 正文（M5 富文本：WYSIWYG，图片上传/视频内嵌/外链；与发帖页共用编辑器） */}
+        <RichTextEditor
           value={content}
-          onChange={(e) => setContent(e.target.value)}
-          rows={6}
-          maxLength={MAX_CONTENT}
+          onChange={(v) => setContent(v)}
           placeholder="写下内容…"
-          className="w-full rounded-lg border border-line bg-muted px-4 py-3 text-sm text-ink placeholder:text-ink-3 focus:border-accent focus:outline-none"
+          maxLength={MAX_CONTENT}
         />
-        <p className="mt-1 text-right text-xs text-ink-3">{content.length}/{MAX_CONTENT}</p>
         {replyError && <p className="mt-1 text-xs text-like">{replyError}</p>}
       </div>
 

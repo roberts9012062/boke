@@ -51,7 +51,7 @@ func (p *SeoPlugin) Info() sdk.Info {
 		Settings: []sdk.SettingField{
 			{Key: "site_title_suffix", Label: "站点标题后缀", Type: "text", Default: "· 月言"},
 			{Key: "auto_sitemap", Label: "自动生成 sitemap", Type: "switch", Default: "on"},
-			{Key: "og_image", Label: "默认 OG 图", Type: "text", Default: ""},
+			{Key: "og_image", Label: "默认 OG 图", Type: "image", Default: "/og-default.svg"},
 		},
 	}
 }

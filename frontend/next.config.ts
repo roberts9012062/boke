@@ -6,7 +6,8 @@
 //     前端代码统一请求相对路径 /api/v1/...（开发流程文档第 8 章约定）。
 //   - M3.6：/plugin-assets 插件前端资源同样代理到后端（运行时动态加载）。
 //   - 插件后置：CSP 安全头——script-src 含 'unsafe-inline'（Next 15 内联 RSC 脚本）
-//     与 blob:（插件 ESM 模块 Blob URL 动态 import）；frame-src 'self'（插件 iframe 沙箱同源）。
+//     与 blob:（插件 ESM 模块 Blob URL 动态 import）。
+//   - M5 富文本：frame-src 放开视频平台白名单（内嵌 bilibili/YouTube/腾讯/Vimeo 播放器）。
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
@@ -45,10 +46,11 @@ const nextConfig: NextConfig = {
               "default-src 'self'",
               `script-src ${scriptSrc.join(" ")}`,
               "style-src 'self' 'unsafe-inline'",
-              "img-src 'self' data: blob:",
-              "media-src 'self'",
+              // M7 网易云 / M8 QQ 音乐插件：放行网易云/QQ 音乐 CDN 的封面图片与音频直链（仅 https）
+              "img-src 'self' data: blob: https://*.music.126.net https://*.gtimg.cn",
+              "media-src 'self' https://*.music.126.net https://*.qq.com https://*.tc.qq.com",
               "font-src 'self' data:",
-              "frame-src 'self'",
+              "frame-src 'self' https://player.bilibili.com https://www.youtube.com https://www.youtube-nocookie.com https://v.qq.com https://player.vimeo.com https://music.163.com https://i.y.qq.com",
               "connect-src 'self' ws://localhost:3000",
               "object-src 'none'",
               "base-uri 'self'",

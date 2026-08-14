@@ -10,13 +10,17 @@ import { Suspense, useEffect, useState } from "react";
 
 import { AudioUploader } from "@/components/compose/audio-uploader";
 import { collectMediaIds, MAX_CONTENT, MAX_TAGS, TYPE_TABS, VISIBILITY_OPTIONS } from "@/components/compose/config";
+import { GalleryStylePicker } from "@/components/compose/gallery-style-picker";
 import { ImageUploader } from "@/components/compose/image-uploader";
+import type { GalleryStyle } from "@/components/image-gallery";
+import { RichTextEditor } from "@/components/compose/rich-text-editor";
 import { VideoUploader } from "@/components/compose/video-uploader";
 import { DesktopNav } from "@/components/desktop-nav";
 import { MobileTabbar } from "@/components/mobile-tabbar";
 import PluginSlot from "@/components/plugin-slot";
 import { apiCreatePost, apiPostDetail, apiUpdatePost, ApiError } from "@/lib/api";
 import type { PostSeoInput } from "@/types/api";
+import { htmlToText } from "@/lib/rich-text";
 import { useAuth } from "@/lib/auth";
 import type { MediaDTO, PostContentType } from "@/types/api";
 
@@ -50,6 +54,7 @@ function ComposeContent() {
   const [visibility, setVisibility] = useState<"public" | "followers" | "private">("public");
   const [visibilityOpen, setVisibilityOpen] = useState<boolean>(false);
   const [images, setImages] = useState<MediaDTO[]>([]);
+  const [galleryStyle, setGalleryStyle] = useState<GalleryStyle>(""); // 图片展示风格
   const [audio, setAudio] = useState<MediaDTO | null>(null);
   const [video, setVideo] = useState<MediaDTO | null>(null); // M2：视频发帖
   const [error, setError] = useState<string>("");
@@ -73,6 +78,7 @@ function ComposeContent() {
         setContent(d.content);
         setTags(d.tags.map((t) => t.name.replace(/^#/, "")));
         setVisibility(d.visibility === "private" ? "private" : d.visibility === "followers" ? "followers" : "public");
+        setGalleryStyle((d.gallery_style as GalleryStyle) ?? "");
         // 媒体按类型回填（图片多张 / 音频 / 视频）
         const medias = d.media ?? [];
         if (d.content_type === "image") {
@@ -109,9 +115,6 @@ function ComposeContent() {
     return null;
   }
 
-  // 字数统计（UTF-16 长度近似字符数）
-  const charCount = Array.from(content).length;
-
   // 添加标签（# 前缀识别，回车/空格提交）
   const addTag = (raw: string) => {
     const name = raw.trim().replace(/^#/, "");
@@ -130,8 +133,8 @@ function ComposeContent() {
   // 提交（new：draft=存草稿 / published=发布；edit：保存修改）
   const submit = async (status: "draft" | "published" | "edit") => {
     setError("");
-    // 发布/保存校验：正文非空（需求 3.4 发布必须内容）
-    if (status !== "draft" && content.trim() === "") {
+    // 发布/保存校验：正文非空（需求 3.4 发布必须内容；HTML 按纯文本判空）
+    if (status !== "draft" && htmlToText(content).trim() === "") {
       setError("正文不能为空");
       return;
     }
@@ -149,9 +152,11 @@ function ComposeContent() {
       if (editing) {
         // 编辑模式：更新帖子（类型不可变，后端 UpdatePostReq 不支持 content_type）
         await apiUpdatePost(editId, {
-          content: content.trim(),
+          content,
+          content_format: "html",
           tags,
           media_ids: collectMediaIds(contentType, images, audio, video),
+          gallery_style: galleryStyle,
           visibility,
           ...(seoPayload ? { seo: seoPayload } : {}),
         });
@@ -161,9 +166,11 @@ function ComposeContent() {
         const createStatus = status as "draft" | "published";
         const result = await apiCreatePost({
           content_type: contentType,
-          content: content.trim(),
+          content,
+          content_format: "html",
           tags,
           media_ids: collectMediaIds(contentType, images, audio, video),
+          gallery_style: galleryStyle,
           visibility,
           status: createStatus,
           ...(seoPayload ? { seo: seoPayload } : {}),
@@ -212,28 +219,22 @@ function ComposeContent() {
           ))}
         </div>
 
-        {/* 正文输入（设计稿占位：把月光写成句子…） */}
-        <textarea
-          value={content}
-          onChange={(e) => {
-            // 超限禁止输入（需求 3.4：0/2000）
-            if (Array.from(e.target.value).length <= MAX_CONTENT) {
-              setContent(e.target.value);
-            }
-          }}
-          placeholder="把月光写成句子…"
-          rows={6}
-          className="mt-6 w-full resize-none rounded-lg border border-line bg-elevated p-4 text-sm leading-relaxed text-ink placeholder:text-ink-3 focus:border-accent focus:outline-none"
-        />
-        {/* 字数统计（设计稿：0 / 2000） */}
-        <p className="mt-1 text-right text-xs text-ink-3">
-          {charCount} / {MAX_CONTENT}
-        </p>
+        {/* 正文输入（M5 富文本：WYSIWYG 编辑器，图片上传/视频内嵌/外链） */}
+        <div className="mt-6">
+          <RichTextEditor
+            value={content}
+            onChange={(v) => setContent(v)}
+            placeholder="把月光写成句子…"
+            maxLength={MAX_CONTENT}
+          />
+        </div>
 
         {/* 图片上传区（仅图片 Tab 显示） */}
         {contentType === "image" && (
           <div className="mt-4">
             <ImageUploader value={images} onChange={setImages} />
+            {/* 展示效果选择器（上传图片下方；点击风格实时预览） */}
+            <GalleryStylePicker value={galleryStyle} onChange={setGalleryStyle} images={images} />
           </div>
         )}
 

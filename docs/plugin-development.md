@@ -83,14 +83,26 @@ func main() { server.Serve(&MyPlugin{}) }
 }
 ```
 
-**市场清单**（GitHub 源 `plugins.json`，安装入口展示）补充字段：
+**市场清单**（插件源 GitHub 仓库，**文件夹结构**：每个插件一个文件夹，文件夹名 = 插件 ID，内含 `plugin.json` + `README.md`）：
+
+```
+yueyan-plugins/                  # 插件源仓库（默认 roberts9012062/yueyan-plugins）
+├── market.json                  # 可选：商城名称/描述（{name, description}）
+├── my-plugin/                   # 插件文件夹（文件夹名 = 插件 ID）
+│   ├── plugin.json              # 市场元数据（下表字段）
+│   └── README.md                # 插件介绍（商城「详情」弹窗渲染 Markdown）
+└── ...
+```
+
+`plugin.json` 字段（除 `.bpk` 包内 manifest.json 的基础字段外，市场展示补充）：
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `id` | string | 插件 ID（唯一，小写字母数字连字符） |
-| `name` / `version` / `author` / `description` | string | 基础信息 |
+| `name` / `version` / `description` | string | 基础信息 |
 | `category` | string | 类别：seo/security/performance/analytics/writing/ops/enhancement |
 | `price` | int | 价格（0=免费） |
+| `installs` / `official` | int / bool | 安装量 / 官方标签 |
 | `capabilities` | string[] | **能力声明**（见第 9 章；未知能力拒绝安装） |
 | `core_version` | string | 兼容核心版本（如 `>=0.1.0`） |
 | `requires` / `conflicts` | string[] | 依赖 / 冲突插件 ID |
@@ -98,6 +110,8 @@ func main() { server.Serve(&MyPlugin{}) }
 | `repo_url` | string | 源码仓库（Release 资产发布源） |
 | `nav` | object | 后台侧栏入口（`{href, label, icon}`） |
 | `settings_schema` | object[] | 设置项声明（`{key,label,type,default,options}`；type: text/switch/select） |
+
+> **约定**：`README.md` 为商城「详情」弹窗展示内容（渲染 Markdown，支持表格/列表/代码块），应包含功能特性、安装方式、配置说明与 FAQ；缺少该文件时详情页提示「暂无介绍」。
 
 ---
 
@@ -341,7 +355,7 @@ go run ./cmd/bp pack \
 ### 发布渠道
 
 1. **本地上传**：后台「我的插件 → 上传 .bpk」（≤50MB）
-2. **市场（GitHub 源）**：仓库 `plugins.json` 声明 + Release 发布 `{id}-{version}-{os}-{arch}.bpk` 资产（主进程校验 SHA-256 + 签名）
+2. **市场（GitHub 源）**：插件源仓库按**文件夹结构**声明（`{id}/plugin.json` + `{id}/README.md`，见第 3 章）+ 源码仓库 Release 发布 `{id}-{version}-{os}-{arch}.bpk` 资产（主进程校验 SHA-256 + 签名）
 
 ### 付费（许可证 + 在线购买）
 

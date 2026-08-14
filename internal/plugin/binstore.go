@@ -19,6 +19,11 @@ const pluginDataRoot = "plugins"
 // 插件 ID 白名单（小写字母/数字/中划线；防止清单恶意 id 做路径注入）。
 var pluginIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,99}$`)
 
+// ValidPluginID 校验插件 ID 合法性（小写字母/数字/中划线；供服务层防路径注入）。
+func ValidPluginID(pluginID string) bool {
+	return pluginIDPattern.MatchString(pluginID)
+}
+
 // binSuffix 插件二进制后缀（Windows .exe，其余平台空）。
 var binSuffix = func() string {
 	if runtime.GOOS == "windows" {

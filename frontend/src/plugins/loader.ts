@@ -70,7 +70,7 @@ export async function fetchManifest(pluginId: string): Promise<PluginManifest> {
   if (cached) {
     return cached;
   }
-  const res = await fetch(`${ASSETS_BASE}/${pluginId}/frontend/manifest.json`);
+  const res = await fetch(`${ASSETS_BASE}/${pluginId}/frontend/manifest.json`, { cache: "no-store" });
   if (!res.ok) {
     throw new Error(`插件 ${pluginId} 前端清单拉取失败`);
   }
@@ -88,7 +88,7 @@ export async function loadModule(pluginId: string, entry: string): Promise<Plugi
   if (cached) {
     return cached;
   }
-  const res = await fetch(`${ASSETS_BASE}/${pluginId}/frontend/${entry}`);
+  const res = await fetch(`${ASSETS_BASE}/${pluginId}/frontend/${entry}`, { cache: "no-store" });
   if (!res.ok) {
     throw new Error(`插件 ${pluginId} 前端模块拉取失败`);
   }

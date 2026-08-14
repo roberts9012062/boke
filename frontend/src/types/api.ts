@@ -130,12 +130,26 @@ export interface PostSummary {
   author: AuthorDTO; // 作者
   tags: TagDTO[]; // 标签
   media: MediaDTO[]; // 媒体预览
+  gallery_style: string; // 图片展示风格（grid/carousel/flip/stack/masonry/polaroid；空=网格）
+  music?: MusicEmbedDTO | null; // 音乐嵌入（正文内嵌 QQ/网易云，列表渲染迷你播放器，M7）
   like_count: number; // 点赞数
   comment_count: number; // 评论数
   view_count: number; // 浏览量
   favorite_count: number; // 收藏数（M1.7：列表聚合）
   favorited_at?: string; // 收藏时间（仅「我的收藏」列表返回，M1.7）
   published_at: string; // 发布时间（ISO8601）
+}
+
+// 音乐嵌入信息（列表卡片迷你播放器，M7）。
+// 两种形态：第三方 iframe（platform/url）+ 网易云引用（platform=netease + song_id，播放地址实时经插件获取）。
+export interface MusicEmbedDTO {
+  platform: "qq" | "netease"; // 平台
+  kind: string; // 类型：song / playlist / album
+  url?: string; // 播放器 iframe src（第三方 iframe 形态）
+  song_id?: string; // 网易云歌曲 ID（自研播放器形态）
+  title?: string; // 歌名
+  artist?: string; // 歌手
+  cover_url?: string; // 封面
 }
 
 // 后台内容管理帖子（PostSummary + 状态）
@@ -151,6 +165,7 @@ export interface AdminPostDetail {
   id: number; // 帖子 ID
   title: string; // 标题
   content: string; // 正文（文字帖/图说/说明）
+  content_format?: string; // 正文格式：markdown / html（空=markdown）
   content_type: PostContentType; // 内容类型
   status: string; // draft/published/taken_down
   visibility: "public" | "followers" | "private"; // 可见性
@@ -170,6 +185,7 @@ export interface AdminPostDetail {
 // 与后端 dto 同步。
 export interface PostDetail extends PostSummary {
   content: string; // 完整正文
+  content_format?: string; // 正文格式：markdown / html
   is_author: boolean; // 是否作者本人
   can_view: boolean; // 是否有权查看
   seo?: PostSeoOutput; // SEO 输出（M4.1 插件通道：robots 收录策略等）
@@ -180,8 +196,10 @@ export interface CreatePostReq {
   content_type: PostContentType; // 类型
   title?: string; // 标题（可选）
   content: string; // 正文（≤2000 字）
+  content_format?: string; // 正文格式：markdown / html
   tags: string[]; // 标签
   media_ids: number[]; // 媒体 ID
+  gallery_style?: string; // 图片展示风格（空=默认网格）
   visibility: "public" | "followers" | "private"; // 可见性（followers=仅关注者 M2）
   status: "draft" | "published"; // draft 草稿 / published 发布
   seo?: PostSeoInput; // SEO 输入（M4.1 插件通道：发帖 SEO 面板提交）

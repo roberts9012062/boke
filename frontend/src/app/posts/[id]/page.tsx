@@ -11,8 +11,10 @@ import { useEffect, useState } from "react";
 import { AudioPlayer } from "@/components/audio-player";
 import { CommentSection } from "@/components/comment-section";
 import { DesktopNav } from "@/components/desktop-nav";
+import { ImageGallery, type GalleryStyle } from "@/components/image-gallery";
 import { Lightbox } from "@/components/lightbox";
 import { MobileTabbar } from "@/components/mobile-tabbar";
+import { PostContent } from "@/components/post-content";
 import PluginSlot from "@/components/plugin-slot";
 import { ReportDialog } from "@/components/report-dialog";
 import { SharePanel } from "@/components/share-panel";
@@ -247,32 +249,38 @@ export default function PostDetailPage() {
               )}
             </div>
 
-            {/* 完整正文（设计稿文案：月光落在窗台上…不必急着被人听懂） */}
-            <p className="mt-5 whitespace-pre-wrap break-words text-[15px] leading-relaxed text-ink">
-              {post.content}
-            </p>
+            {/* 完整正文（M5 富文本：html=消毒渲染，markdown=Markdown 渲染） */}
+            <div className="mt-5">
+              <PostContent content={post.content} format={post.content_format} />
+            </div>
 
-            {/* 图片：点击打开灯箱 */}
+            {/* 图片：默认网格（点击开灯箱）；自定义风格按 ImageGallery 渲染 */}
             {post.content_type === "image" && post.media.length > 0 && (
-              <div className="mt-4 grid grid-cols-2 gap-1 overflow-hidden rounded-lg">
-                {post.media.map((m, i) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    onClick={() => setLightboxIndex(i)}
-                    className="block w-full"
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={m.url}
-                      alt=""
-                      loading="lazy"
-                      className={`aspect-[4/3] w-full object-cover ${
-                        post.media.length === 1 ? "col-span-2" : ""
-                      }`}
-                    />
-                  </button>
-                ))}
+              <div className="mt-4">
+                {post.gallery_style ? (
+                  <ImageGallery media={post.media} style={post.gallery_style as GalleryStyle} />
+                ) : (
+                  <div className="grid grid-cols-2 gap-1 overflow-hidden rounded-lg">
+                    {post.media.map((m, i) => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => setLightboxIndex(i)}
+                        className="block w-full"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={m.url}
+                          alt=""
+                          loading="lazy"
+                          className={`aspect-[4/3] w-full object-cover ${
+                            post.media.length === 1 ? "col-span-2" : ""
+                          }`}
+                        />
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 

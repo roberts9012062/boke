@@ -22,6 +22,7 @@ import type {
   PageResult,
   PostDetail,
   PostReactionState,
+  PostSeoInput,
   PostSummary,
   SearchResult,
   TopicDTO,
@@ -236,7 +237,7 @@ export function apiCreatePost(req: CreatePostReq): Promise<{ id: number }> {
 // 更新帖子（走查纠偏：编辑已发布帖子 / 草稿继续编辑；后端 PUT /posts/:id，类型不可变）。
 export function apiUpdatePost(
   postId: number,
-  req: { title?: string; content?: string; tags?: string[]; media_ids?: number[]; visibility?: string },
+  req: { title?: string; content?: string; content_format?: string; tags?: string[]; media_ids?: number[]; gallery_style?: string; visibility?: string; seo?: PostSeoInput },
 ): Promise<{ id: number }> {
   return put<{ id: number }>(`/posts/${postId}`, req);
 }
@@ -264,6 +265,28 @@ export function apiUploadMedia(file: File): Promise<UploadResult> {
   form.append("file", file);
   return request<UploadResult>("/api/v1/media", { method: "POST", body: form });
 }
+
+// QQ 音乐 songmid→songid 解析（M7：外链播放器仅支持 songid，发帖插入音乐时调用）。
+export function apiResolveQQMusic(
+  songmid: string,
+): Promise<{ songmid: string; songid: number; title: string; artist: string }> {
+  return get<{ songmid: string; songid: number; title: string; artist: string }>(
+    `/music/qq-resolve?songmid=${encodeURIComponent(songmid)}`,
+  );
+}
+
+// QqBgmSong 首页背景音乐歌单歌曲。
+export interface QqBgmSong {
+  song_mid: string; // 歌曲 MID
+  name: string; // 歌名
+  artist: string; // 歌手
+}
+
+// 首页背景音乐配置与歌单歌曲（公开；插件按站长设置返回）。
+export function apiQqBgm(): Promise<{ enabled: boolean; playlist_tid: string; songs: QqBgmSong[] }> {
+  return get<{ enabled: boolean; playlist_tid: string; songs: QqBgmSong[] }>(`/music/qq-bgm`);
+}
+
 
 // ---------- 评论方法（M1.4） ----------
 
@@ -495,6 +518,7 @@ export function apiAdminUpdatePost(
   req: {
     title: string;
     content: string;
+    content_format?: string;
     tags: string[];
     media_ids: number[];
     visibility: string;
@@ -804,6 +828,12 @@ export function apiPluginMarket(source = ""): Promise<{
   return get<{ source: string; name: string; description: string; items: MarketPlugin[] }>(
     `/admin/plugins/market${query}`,
   );
+}
+
+// 插件介绍 README 原文（商城「详情」弹窗渲染用；source 为空 = settings 默认源）。
+export function apiPluginMarketReadme(pluginId: string, source = ""): Promise<{ readme: string }> {
+  const query = source ? `?source=${encodeURIComponent(source)}` : "";
+  return get<{ readme: string }>(`/admin/plugins/market/${encodeURIComponent(pluginId)}/readme${query}`);
 }
 
 // 我的插件列表。

@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <!-- 月言博客默认 OG 图（1200×630，分享卡片无封面时的兜底图） -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1e2a44"/>
+      <stop offset="1" stop-color="#0f1626"/>
+    </linearGradient>
+    <linearGradient id="glow" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5b7cfa" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#5b7cfa" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <!-- 背景与氛围光 -->
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <circle cx="1010" cy="520" r="300" fill="url(#glow)"/>
+  <!-- 月牙（品牌元素：圆月 + 遮挡） -->
+  <circle cx="940" cy="190" r="96" fill="#f5e9c9"/>
+  <circle cx="1000" cy="162" r="80" fill="#0f1626"/>
+  <!-- 标题与副标语 -->
+  <text x="96" y="330" font-family="'PingFang SC','Microsoft YaHei','Noto Sans CJK SC',sans-serif" font-size="76" font-weight="600" letter-spacing="6" fill="#e8eefc">月言</text>
+  <text x="99" y="396" font-family="'PingFang SC','Microsoft YaHei','Noto Sans CJK SC',sans-serif" font-size="30" letter-spacing="2" fill="#9aa7c0">月色微博客 · 分享每一个字</text>
+  <!-- 底部装饰线 -->
+  <rect x="96" y="452" width="72" height="4" rx="2" fill="#5b7cfa"/>
+</svg>

@@ -93,14 +93,16 @@ func (s *PostService) Create(ctx context.Context, userID int64, req model.Create
 
 	// ---------- 组装实体 ----------
 	post := model.Post{
-		AuthorID:    userID,
-		Title:       strings.TrimSpace(req.Title),
-		Summary:     buildSummary(req.Content),
-		Content:     req.Content,
-		ContentType: req.ContentType,
-		Status:      req.Status,
-		Visibility:  req.Visibility,
-		MediaIDs:    req.MediaIDs,
+		AuthorID:      userID,
+		Title:         strings.TrimSpace(req.Title),
+		Summary:       buildSummary(req.Content),
+		Content:       req.Content,
+		ContentFormat: normalizeContentFormat(req.ContentFormat),
+		ContentType:   req.ContentType,
+		Status:        req.Status,
+		Visibility:    req.Visibility,
+		GalleryStyle:  req.GalleryStyle,
+		MediaIDs:      req.MediaIDs,
 	}
 	// 发布时写入发布时间
 	if req.Status == model.PostStatusPublished {
@@ -159,11 +161,14 @@ func (s *PostService) Update(ctx context.Context, userID int64, postID int64, re
 		post.Title = title
 	}
 	if req.Content != nil {
-		if utf8.RuneCountInString(*req.Content) > maxContentLen {
+		if utf8.RuneCountInString(plainText(*req.Content)) > maxContentLen {
 			return errs.New(errs.CodeBadRequest, "正文不能超过 2000 字")
 		}
 		post.Content = *req.Content
 		post.Summary = buildSummary(*req.Content)
+	}
+	if req.ContentFormat != nil {
+		post.ContentFormat = normalizeContentFormat(*req.ContentFormat)
 	}
 	if req.Visibility != nil {
 		if *req.Visibility != model.VisibilityPublic &&
@@ -176,6 +181,9 @@ func (s *PostService) Update(ctx context.Context, userID int64, postID int64, re
 	if req.MediaIDs != nil {
 		post.MediaIDs = req.MediaIDs
 		post.CoverURL = s.firstMediaURL(ctx, req.MediaIDs)
+	}
+	if req.GalleryStyle != nil {
+		post.GalleryStyle = *req.GalleryStyle
 	}
 
 	// ---------- 落库 ----------
@@ -311,13 +319,15 @@ func (s *PostService) GetDetail(ctx context.Context, postID int64, viewerID int6
 			Summary:      post.Summary,
 			ContentType:  post.ContentType,
 			Visibility:   post.Visibility,
+			GalleryStyle: post.GalleryStyle,
 			LikeCount:    post.LikeCount,
 			CommentCount: post.CommentCount,
 			ViewCount:    post.ViewCount + 1,
 		},
-		Content:  post.Content,
-		IsAuthor: post.AuthorID == viewerID,
-		CanView:  true,
+		Content:       post.Content,
+		ContentFormat: post.ContentFormat,
+		IsAuthor:      post.AuthorID == viewerID,
+		CanView:       true,
 	}
 
 	// ---------- 插件钩子：content.render（M3.9 同步，可改写正文；失败/拒绝不影响展示） ----------

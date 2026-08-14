@@ -200,8 +200,9 @@ export function apiAiEmbedding(input: { model: string; text: string }): Promise<
 }
 
 // 智能回复助手（续写/润色/翻译）。
-export function apiAiGenReply(postId: number, action: "continue" | "polish" | "translate"): Promise<{ text: string }> {
-  return post<{ text: string }>(`/admin/ai/gen/reply?post_id=${postId}&action=${action}`, {});
+// 参数：content 编辑框当前正文（AI 需对未保存的改动执行操作）。
+export function apiAiGenReply(postId: number, action: "continue" | "polish" | "translate", content: string): Promise<{ text: string }> {
+  return post<{ text: string }>(`/admin/ai/gen/reply?post_id=${postId}&action=${action}`, { content });
 }
 
 // AI SEO 建议（标题/描述/关键词）。

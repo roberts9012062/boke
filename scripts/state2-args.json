@@ -1,0 +1,6 @@
+{
+  "include_schema": false,
+  "include_canvas_design": true,
+  "include_scripts_and_shaders": false,
+  "include_browser": false
+}

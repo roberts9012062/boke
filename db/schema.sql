@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS posts (
     status         VARCHAR(20)  NOT NULL DEFAULT 'draft',                   -- 状态：draft=草稿 / pending=待审核 / published=已发布 / deleted=已删除
     visibility     VARCHAR(20)  NOT NULL DEFAULT 'public',                  -- 可见性：public=公开 / private=私密 / password=密码访问
     cover_url      VARCHAR(500) NOT NULL DEFAULT '',                        -- 封面图
+    gallery_style  VARCHAR(20)  NOT NULL DEFAULT '',                        -- 图片展示风格：grid/carousel/flip/filmstrip/masonry/polaroid（空=网格）
     view_count     BIGINT NOT NULL DEFAULT 0,                               -- 浏览量
     like_count     BIGINT NOT NULL DEFAULT 0,                               -- 点赞数
     comment_count  BIGINT NOT NULL DEFAULT 0,                               -- 评论数

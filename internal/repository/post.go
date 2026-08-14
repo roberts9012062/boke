@@ -27,15 +27,15 @@ func NewPostRepo(pool *pgxpool.Pool) *PostRepo {
 }
 
 // postColumns 帖子查询列清单（不含 media_ids，单独扫描）。
-const postColumns = `id, author_id, title, summary, content, content_type, status, visibility, cover_url, view_count, like_count, comment_count, published_at, created_at, updated_at`
+const postColumns = `id, author_id, title, summary, content, content_format, content_type, status, visibility, cover_url, gallery_style, view_count, like_count, comment_count, published_at, created_at, updated_at`
 
 // scanPost 将查询行扫描为 Post 实体（media_ids 需单独处理）。
 func scanPost(row pgx.Row) (model.Post, error) {
 	var p model.Post
 	var mediaIDs []byte
 	err := row.Scan(
-		&p.ID, &p.AuthorID, &p.Title, &p.Summary, &p.Content,
-		&p.ContentType, &p.Status, &p.Visibility, &p.CoverURL,
+		&p.ID, &p.AuthorID, &p.Title, &p.Summary, &p.Content, &p.ContentFormat,
+		&p.ContentType, &p.Status, &p.Visibility, &p.CoverURL, &p.GalleryStyle,
 		&p.ViewCount, &p.LikeCount, &p.CommentCount,
 		&p.PublishedAt, &p.CreatedAt, &p.UpdatedAt, &mediaIDs,
 	)
@@ -57,8 +57,8 @@ func scanFavoritePost(row pgx.Row) (FavoritePostRow, error) {
 	var mediaIDs []byte
 	var favoritedAt time.Time
 	err := row.Scan(
-		&p.ID, &p.AuthorID, &p.Title, &p.Summary, &p.Content,
-		&p.ContentType, &p.Status, &p.Visibility, &p.CoverURL,
+		&p.ID, &p.AuthorID, &p.Title, &p.Summary, &p.Content, &p.ContentFormat,
+		&p.ContentType, &p.Status, &p.Visibility, &p.CoverURL, &p.GalleryStyle,
 		&p.ViewCount, &p.LikeCount, &p.CommentCount,
 		&p.PublishedAt, &p.CreatedAt, &p.UpdatedAt, &mediaIDs,
 		&favoritedAt,
@@ -86,11 +86,11 @@ func (r *PostRepo) Create(ctx context.Context, p model.Post) (int64, error) {
 	}
 	var id int64
 	err = r.pool.QueryRow(ctx, `
-		INSERT INTO posts (author_id, title, summary, content, content_type, status, visibility, cover_url, media_ids, published_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		INSERT INTO posts (author_id, title, summary, content, content_format, content_type, status, visibility, cover_url, gallery_style, media_ids, published_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING id`,
-		p.AuthorID, p.Title, p.Summary, p.Content, p.ContentType,
-		p.Status, p.Visibility, p.CoverURL, mediaJSON, p.PublishedAt,
+		p.AuthorID, p.Title, p.Summary, p.Content, p.ContentFormat, p.ContentType,
+		p.Status, p.Visibility, p.CoverURL, p.GalleryStyle, mediaJSON, p.PublishedAt,
 	).Scan(&id)
 	return id, err
 }
@@ -110,11 +110,11 @@ func (r *PostRepo) Update(ctx context.Context, p model.Post) (bool, error) {
 	}
 	tag, err := r.pool.Exec(ctx, `
 		UPDATE posts SET
-			title = $2, summary = $3, content = $4, content_type = $5,
-			visibility = $6, cover_url = $7, media_ids = $8, updated_at = now()
+			title = $2, summary = $3, content = $4, content_format = $5, content_type = $6,
+			visibility = $7, cover_url = $8, gallery_style = $9, media_ids = $10, updated_at = now()
 		WHERE id = $1`,
-		p.ID, p.Title, p.Summary, p.Content, p.ContentType,
-		p.Visibility, p.CoverURL, mediaJSON,
+		p.ID, p.Title, p.Summary, p.Content, p.ContentFormat, p.ContentType,
+		p.Visibility, p.CoverURL, p.GalleryStyle, mediaJSON,
 	)
 	if err != nil {
 		return false, err

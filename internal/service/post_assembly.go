@@ -7,6 +7,8 @@ package service
 
 import (
 	"context"
+	"html"
+	"regexp"
 	"strings"
 	"time"
 
@@ -34,6 +36,8 @@ func (s *PostService) assembleSummaries(ctx context.Context, posts []model.Post,
 			Summary:      summaryPreviewText(post.Content),
 			ContentType:  post.ContentType,
 			Visibility:   post.Visibility,
+			GalleryStyle: post.GalleryStyle,
+			Music:        extractMusicEmbed(post.Content),
 			LikeCount:    post.LikeCount,
 			CommentCount: post.CommentCount,
 			ViewCount:    post.ViewCount,
@@ -153,21 +157,22 @@ func (s *PostService) GetAdminDetail(ctx context.Context, postID int64) (*model.
 	}
 
 	detail := &model.AdminPostDetail{
-		ID:           post.ID,
-		Title:        post.Title,
-		Content:      post.Content,
-		ContentType:  post.ContentType,
-		Status:       post.Status,
-		Visibility:   post.Visibility,
-		CoverURL:     post.CoverURL,
-		Tags:         tagNames,
-		Media:        summary.Media,
-		ViewCount:    post.ViewCount,
-		LikeCount:    post.LikeCount,
-		CommentCount: post.CommentCount,
-		Author:       summary.Author,
-		CreatedAt:    post.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:    post.UpdatedAt.Format(time.RFC3339),
+		ID:            post.ID,
+		Title:         post.Title,
+		Content:       post.Content,
+		ContentFormat: post.ContentFormat,
+		ContentType:   post.ContentType,
+		Status:        post.Status,
+		Visibility:    post.Visibility,
+		CoverURL:      post.CoverURL,
+		Tags:          tagNames,
+		Media:         summary.Media,
+		ViewCount:     post.ViewCount,
+		LikeCount:     post.LikeCount,
+		CommentCount:  post.CommentCount,
+		Author:        summary.Author,
+		CreatedAt:     post.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:     post.UpdatedAt.Format(time.RFC3339),
 	}
 	if post.PublishedAt != nil {
 		detail.PublishedAt = post.PublishedAt.Format(time.RFC3339)
@@ -185,12 +190,78 @@ func (s *PostService) isMutual(ctx context.Context, viewerID int64, authorID int
 	return err == nil && followedBack
 }
 
-// summaryPreviewText 列表摘要：正文前 60 字符（替换换行为空格，省略号结尾）。
+// summaryPreviewText 列表摘要：正文前 60 字符（剥 HTML + 剥 Markdown 标记 + 替换换行为空格，省略号结尾）。
+// 说明：必须走 plainText（先剥 HTML）——历史修复：只 stripMarkdown 时富文本帖子的
+//       <div>/<iframe> 等标签源码会泄漏进摘要（前端列表显示成一堆代码）。
 func summaryPreviewText(content string) string {
-	flat := strings.Join(strings.Fields(content), " ")
+	flat := strings.Join(strings.Fields(plainText(content)), " ")
 	runes := []rune(flat)
 	if len(runes) > summaryPreview {
 		return string(runes[:summaryPreview]) + "…"
 	}
 	return flat
+}
+
+// 音乐嵌入节点正则：<div data-music-embed="qq|netease" ...>（正文序列化格式固定）。
+var (
+	musicEmbedDivRe    = regexp.MustCompile(`(?s)<div[^>]*data-music-embed="(qq|netease)"`)
+	musicEmbedKindRe   = regexp.MustCompile(`data-music-kind="([^"]+)"`)
+	musicEmbedIframeRe = regexp.MustCompile(`(?s)<iframe[^>]*src="([^"]+)"`)
+	musicEmbedIDRe     = regexp.MustCompile(`data-music-id="([^"]+)"`)
+	musicEmbedTitleRe  = regexp.MustCompile(`data-music-title="([^"]*)"`)
+	musicEmbedArtistRe = regexp.MustCompile(`data-music-artist="([^"]*)"`)
+	musicEmbedCoverRe  = regexp.MustCompile(`data-music-cover="([^"]*)"`)
+)
+
+// extractMusicEmbed 从正文 HTML 提取首个音乐嵌入（列表卡片渲染迷你播放器用；纯函数）。
+// 两种形态：
+//   - 第三方 iframe：<div data-music-embed="qq" data-music-kind="song"><iframe src="..."></iframe></div>
+//   - 网易云引用：<div data-music-embed="netease" data-music-kind="song" data-music-id="..." data-music-title="..." ...>
+// 返回 nil 表示正文无音乐嵌入（普通文字/图片/视频帖不解析）。
+func extractMusicEmbed(content string) *model.MusicEmbedDTO {
+	loc := musicEmbedDivRe.FindStringSubmatchIndex(content)
+	if loc == nil {
+		return nil
+	}
+	platform := content[loc[2]:loc[3]]
+	// 仅取嵌入 div 之后的内容，避免误取正文其他 iframe（如视频嵌入）
+	rest := content[loc[1]:]
+	kind := "song"
+	if m := musicEmbedKindRe.FindStringSubmatch(rest); m != nil {
+		kind = m[1]
+	}
+	// 网易云歌曲引用形态（data-music-id 存在，无 iframe；播放地址实时经插件获取）
+	songID := ""
+	if m := musicEmbedIDRe.FindStringSubmatch(rest); m != nil {
+		songID = m[1]
+	}
+	if songID != "" {
+		title := firstAttr(musicEmbedTitleRe, rest)
+		artist := firstAttr(musicEmbedArtistRe, rest)
+		cover := firstAttr(musicEmbedCoverRe, rest)
+		return &model.MusicEmbedDTO{
+			Platform: platform, Kind: kind, SongID: songID,
+			Title: html.UnescapeString(title), Artist: html.UnescapeString(artist), CoverURL: html.UnescapeString(cover),
+		}
+	}
+	// 第三方 iframe 形态（QQ 音乐/旧网易云）
+	src := ""
+	if m := musicEmbedIframeRe.FindStringSubmatch(rest); m != nil {
+		src = m[1]
+	}
+	if src == "" {
+		return nil
+	}
+	// 反转义实体（正文序列化时 & 会写成 &amp;，前端 React 属性渲染不做 HTML 解码，
+	// 必须在这里还原成干净 URL，否则带参播放器链接失效）
+	return &model.MusicEmbedDTO{Platform: platform, Kind: kind, URL: html.UnescapeString(src)}
+}
+
+// firstAttr 取正则首个捕获组（无匹配返回空串；纯函数）。
+func firstAttr(re *regexp.Regexp, s string) string {
+	m := re.FindStringSubmatch(s)
+	if len(m) > 1 {
+		return m[1]
+	}
+	return ""
 }

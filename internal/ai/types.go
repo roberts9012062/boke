@@ -16,8 +16,8 @@ type Result struct {
 
 // Message 对话消息（OpenAI 兼容格式）。
 type Message struct {
-	Role    string // system / user / assistant
-	Content string // 消息内容
+	Role    string `json:"role"`    // system / user / assistant
+	Content string `json:"content"` // 消息内容
 }
 
 // ChatRequest 对话补全请求（统一契约，供应商无关）。

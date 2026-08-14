@@ -35,6 +35,15 @@ func (s *PostService) viewerHash(viewerID int64, guestToken string) string {
 	return ""
 }
 
+// normalizeContentFormat 归一化正文格式（空/未知 → markdown；html 保留）。
+// 说明：旧客户端不传时默认 markdown，兼容存量帖子；纯函数。
+func normalizeContentFormat(format string) string {
+	if format == "html" {
+		return "html"
+	}
+	return "markdown"
+}
+
 // validatePostReq 校验发帖参数（类型/字数/标签/可见性）。
 func validatePostReq(req model.CreatePostReq) error {
 	// 内容类型：文字/图片/音频/视频（视频 M2 已开放）
@@ -43,8 +52,8 @@ func validatePostReq(req model.CreatePostReq) error {
 	default:
 		return errs.New(errs.CodeBadRequest, "帖子类型不正确")
 	}
-	// 正文 ≤2000 字
-	if utf8.RuneCountInString(req.Content) > maxContentLen {
+	// 正文 ≤2000 字（按纯文本计——HTML 标签/Markdown 标记不占字数）
+	if utf8.RuneCountInString(plainText(req.Content)) > maxContentLen {
 		return errs.New(errs.CodeBadRequest, "正文不能超过 2000 字")
 	}
 	// 标签 ≤5 个，每个 ≤20 字符
@@ -65,9 +74,9 @@ func validatePostReq(req model.CreatePostReq) error {
 	return nil
 }
 
-// buildSummary 生成摘要：正文前 100 字符（去除换行）。
+// buildSummary 生成摘要：剥离 HTML/Markdown 标记后取正文前 100 字符（去除换行）。
 func buildSummary(content string) string {
-	flat := strings.Join(strings.Fields(content), " ")
+	flat := strings.Join(strings.Fields(plainText(content)), " ")
 	runes := []rune(flat)
 	if len(runes) > summaryLen {
 		return string(runes[:summaryLen])
@@ -103,7 +112,7 @@ func (s *PostService) UpdateByAdmin(ctx context.Context, postID int64, req model
 	if utf8.RuneCountInString(req.Title) > maxTitleLen {
 		return errs.New(errs.CodeBadRequest, "标题过长")
 	}
-	if utf8.RuneCountInString(req.Content) > maxContentLen {
+	if utf8.RuneCountInString(plainText(req.Content)) > maxContentLen {
 		return errs.New(errs.CodeBadRequest, "正文不能超过 2000 字")
 	}
 	if len(req.Tags) > maxTags {
@@ -141,6 +150,7 @@ func (s *PostService) UpdateByAdmin(ctx context.Context, postID int64, req model
 	post.Title = strings.TrimSpace(req.Title)
 	post.Summary = buildSummary(req.Content)
 	post.Content = req.Content
+	post.ContentFormat = normalizeContentFormat(req.ContentFormat)
 	post.Visibility = req.Visibility
 	post.MediaIDs = req.MediaIDs
 	// 封面策略：显式传 cover_url 优先（视频帖「更换封面」）；否则图片帖取第一张，其余保留原值

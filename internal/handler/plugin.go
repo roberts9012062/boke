@@ -48,16 +48,7 @@ func (h *PluginHandler) HookAPI(c *gin.Context) bool {
 	return false
 }
 
-// Market 插件商城（GET /api/v1/admin/plugins/market?source=）。
-// 参数：source 自定义插件源仓库（可选，空 = settings 默认）。
-func (h *PluginHandler) Market(c *gin.Context) {
-	manifest, items, actualSource, err := h.plugins.Market(c.Request.Context(), c.Query("source"))
-	if err != nil {
-		resp.FailFrom(c, err)
-		return
-	}
-	resp.OK(c, gin.H{"source": actualSource, "name": manifest.Name, "description": manifest.Description, "items": items})
-}
+// Market / Readme 商城控制器见 plugin_market.go（M5 文件夹结构）。
 
 // ListInstalled 已安装插件（GET /api/v1/admin/plugins）。
 func (h *PluginHandler) ListInstalled(c *gin.Context) {
@@ -231,6 +222,10 @@ func (h *PluginHandler) Asset(c *gin.Context) {
 		resp.Fail(c, 404, errs.ErrNotFound)
 		return
 	}
+	// 禁用缓存：插件前端资源（尤其 manifest.json）动态更新，
+	// 若命中浏览器启发式缓存会导致「未声明页面」等陈旧清单问题。
+	c.Header("Cache-Control", "no-store, no-cache, must-revalidate")
+	c.Header("Pragma", "no-cache")
 	c.File(target)
 }
 

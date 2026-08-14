@@ -223,6 +223,8 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 	backupSvc := service.NewBackupService(backupRepo, cfg.DataDir, logger)
 	// 角色权限服务（M5：矩阵查询 + 权限域编辑持久化；audit 复用）
 	roleSvc := service.NewRoleService(enforcer, adminRepo, settingRepo, auditRepo)
+	// QQ 音乐解析服务（M7：songmid→songid，发帖内嵌播放器；无数据库依赖）
+	musicSvc := service.NewQQMusicService()
 	// GitHub OAuth 服务（M3.5：连接 GitHub 拉取私有/加速清单；凭证未配置时入口隐藏）
 	oauthSvc := service.NewOAuthService(cfg.GitHubOAuthClientID, cfg.GitHubOAuthSecret, cfg.AIKeySecret, cfg.GitHubToken, settingRepo, ghClient)
 	oauthSvc.RestoreToken(ctx) // 启动恢复 OAuth token（有则优先于 .env 静态 token）
@@ -263,6 +265,7 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 		Report:     handler.NewReportHandler(reportSvc, logger),
 		Backup:     handler.NewBackupHandler(backupSvc, logger),
 		Role:       handler.NewRoleHandler(roleSvc),
+		Music:      handler.NewMusicHandler(musicSvc, pluginSvc),
 	}
 	return handlers, jwtMgr, enforcer, cleanup, nil
 }

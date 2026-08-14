@@ -1,11 +1,11 @@
 // internal/service/plugin.go
-// 插件服务（M3.1）：插件商城（GitHub 仓库清单驱动）+ 插件管理（安装/启用禁用/卸载）。
+// 插件服务（M3.1）：插件管理（安装/启用禁用/卸载）+ 钩子生命周期联动。
+// 商城清单与插件介绍见 plugin_market.go（M5 文件夹结构）；Release 下载安装见 plugin_bpk.go。
 // 设计稿《插件商城》《插件安装·免费/付费/Loading/成功》《插件卸载·SEO/成功》。
 package service
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -19,14 +19,8 @@ import (
 	"github.com/roberts9012062/boke/pkg/errs"
 )
 
-// 默认插件源（独立插件仓库 yueyan-plugins，清单 plugins.json 在仓库根目录）。
-const defaultPluginSource = "roberts9012062/yueyan-plugins"
-
 // 核心版本（插件清单 core_version 兼容校验基准，如 ">=0.1.0"）。
 const coreVersion = "0.1.0"
-
-// 清单缓存时长（5 分钟，避免每次拉取 GitHub）。
-const manifestCacheTTL = 5 * time.Minute
 
 // 插件状态（plugin_instances.state，架构附录 B 状态字典）。
 const (
@@ -37,65 +31,7 @@ const (
 	PluginUninstalled = "uninstalled" // 已卸载（软删标记）
 )
 
-// ---------- 清单模型（GitHub plugins.json 结构） ----------
-
-// PluginManifest 插件清单（仓库根目录 plugins.json）。
-type PluginManifest struct {
-	Name        string       `json:"name"`        // 插件库名称
-	Description string       `json:"description"` // 插件库描述
-	Plugins     []PluginInfo `json:"plugins"`     // 插件列表
-}
-
-// PluginInfo 插件信息（清单项，含兼容性契约字段）。
-type PluginInfo struct {
-	ID           string   `json:"id"`           // 插件 ID（唯一）
-	Name         string   `json:"name"`         // 插件名称
-	Version      string   `json:"version"`      // 版本
-	Category     string   `json:"category"`     // 类别：seo/security/performance/analytics/writing/ops/enhancement
-	Price        int      `json:"price"`        // 价格（0=免费，>0 为 ¥）
-	Installs     int      `json:"installs"`     // 安装量
-	Official     bool     `json:"official"`     // 官方标签
-	Description  string   `json:"description"`  // 一句话描述
-	Capabilities []string `json:"capabilities"` // 能力清单（安装弹层展示）
-	RepoURL      string   `json:"repo_url"`     // 来源仓库
-	CoreVersion  string   `json:"core_version"` // 兼容核心版本（如 ">=0.1.0"；空=不限制，M3.2 兼容性）
-	Requires     []string `json:"requires"`     // 依赖插件 ID（需已安装，M3.2）
-	Conflicts    []string `json:"conflicts"`    // 冲突插件 ID（不可同时安装，M3.2）
-	Platforms    []string `json:"platforms,omitempty"` // 支持平台（linux/darwin/windows，M3.4）
-	Assets       *PluginAssets `json:"assets,omitempty"` // Release 资产声明（M3.4）
-	Nav          *PluginNav `json:"nav,omitempty"` // 侧栏入口声明（安装启用后注册，前端扩展点）
-	SettingsSchema []PluginSettingField `json:"settings_schema,omitempty"` // 设置项 schema（schema 驱动设置页）
-}
-
-// PluginNav 插件侧栏入口声明（前端数据驱动扩展）。
-type PluginNav struct {
-	Href  string `json:"href"`  // 后台路径
-	Label string `json:"label"` // 菜单名
-	Icon  string `json:"icon"`  // 图标 key（前端 nav-icons 注册表）
-}
-
-// PluginAssets 插件 Release 资产声明（M3.4：.bpk 下载安装匹配）。
-type PluginAssets struct {
-	Pattern string `json:"pattern"` // 资产名模式（如 {id}-{version}-{os}-{arch}.bpk）
-	SHA256  string `json:"sha256"`  // 包 SHA-256（清单声明，可选；下载后实算比对）
-}
-
-// PluginSettingField 插件设置项（schema 驱动通用设置页）。
-type PluginSettingField struct {
-	Key     string `json:"key"`     // 设置键（存 settings：plugin_{id}_{key}）
-	Label   string `json:"label"`   // 标签
-	Type    string `json:"type"`    // text / switch / select
-	Default string `json:"default"` // 默认值
-	Options []string `json:"options"` // select 选项
-}
-
-// MarketPluginDTO 商城插件 DTO（清单项 + 已安装状态）。
-type MarketPluginDTO struct {
-	PluginInfo
-	Installed bool   `json:"installed"`  // 是否已安装
-	State     string `json:"state"`      // 已安装时的状态（running/disabled/installed）
-	InstanceID int64 `json:"instance_id"` // 已安装时的实例 ID（0=未安装）
-}
+// ---------- 清单模型与缓存（见 plugin_market.go：文件夹结构） ----------
 
 // InstalledPluginDTO 已安装插件 DTO（我的插件页）。
 type InstalledPluginDTO struct {
@@ -112,13 +48,7 @@ type InstalledPluginDTO struct {
 	SettingsSchema []PluginSettingField `json:"settings_schema,omitempty"` // 设置项 schema（设置页）
 }
 
-// manifestCache 清单缓存（source → 内容 + 时间；并发安全）。
-type manifestCache struct {
-	mu       sync.Mutex
-	content  []byte
-	fetched  time.Time
-	source   string
-}
+// manifestCache/readmeCache 类型定义见 plugin_market.go（商城缓存）。
 
 // PluginService 插件服务（连接器类）。
 type PluginService struct {
@@ -128,7 +58,8 @@ type PluginService struct {
 	settings   *repository.SettingRepo // 插件源设置
 	orders     *repository.PluginOrderRepo // 购买订单（M3.9 支付渠道）
 	keySecret  string                 // AES 加密种子（M3.9 签发私钥加密存储）
-	cache      manifestCache         // 清单缓存（5 分钟）
+	cache      manifestCache         // 商城清单缓存（5 分钟，plugin_market.go）
+	readme     readmeCache           // 插件介绍缓存（5 分钟，plugin_market.go）
 	dispatcher plugin.Dispatcher     // 钩子调度器（M3.2 扩展框架；生命周期联动注册/注销钩子）
 	manager    *plugin.PluginManager // 进程管理器（M3.3 进程外插件；可空=纯内置模式）
 	store      *plugin.BinStore      // 二进制存储（M3.4 .bpk 解包落点/临时区）
@@ -141,100 +72,7 @@ type PluginService struct {
 //      licenses 许可证仓库（M3.5，可空则激活接口不可用）；
 //      orders 购买订单仓库（M3.9 支付渠道）；keySecret AES 加密种子（签发私钥加密存储）。
 func NewPluginService(gh *ghclient.Client, plugs *repository.PluginRepo, settings *repository.SettingRepo, dispatcher plugin.Dispatcher, manager *plugin.PluginManager, store *plugin.BinStore, licenses *repository.LicenseRepo, orders *repository.PluginOrderRepo, keySecret string) *PluginService {
-	return &PluginService{gh: gh, plugs: plugs, licenses: licenses, settings: settings, orders: orders, keySecret: keySecret, cache: manifestCache{}, dispatcher: dispatcher, manager: manager, store: store}
-}
-
-// pluginSource 读取插件源仓库（settings.plugin_source，默认 roberts9012062/boke）。
-func (s *PluginService) pluginSource(ctx context.Context) string {
-	if v, ok, err := s.settings.Get(ctx, "plugin_source"); err == nil && ok && v != "" {
-		return v
-	}
-	return defaultPluginSource
-}
-
-// fetchManifest 拉取并解析清单（缓存 5 分钟；source 空则用设置值）。
-func (s *PluginService) fetchManifest(ctx context.Context, source string) (*PluginManifest, error) {
-	if source == "" {
-		source = s.pluginSource(ctx)
-	}
-	source = strings.TrimSpace(source)
-
-	// 缓存命中（同源 + 未过期）
-	s.cache.mu.Lock()
-	if s.cache.source == source && len(s.cache.content) > 0 && time.Since(s.cache.fetched) < manifestCacheTTL {
-		content := s.cache.content
-		s.cache.mu.Unlock()
-		return parseManifest(content)
-	}
-	s.cache.mu.Unlock()
-
-	// 拉取（GitHub Contents API，仓库根目录 plugins.json）
-	parts := strings.SplitN(source, "/", 2)
-	if len(parts) != 2 {
-		return nil, errs.New(errs.CodeBadRequest, "插件源格式应为 owner/repo")
-	}
-	raw, err := s.gh.FetchManifest(ctx, parts[0], parts[1])
-	if err != nil {
-		return nil, errs.New(errs.CodeUpstream, err.Error())
-	}
-
-	// 写缓存
-	s.cache.mu.Lock()
-	s.cache.content = raw
-	s.cache.fetched = time.Now()
-	s.cache.source = source
-	s.cache.mu.Unlock()
-
-	return parseManifest(raw)
-}
-
-// parseManifest 解析清单 JSON。
-func parseManifest(raw []byte) (*PluginManifest, error) {
-	var manifest PluginManifest
-	if err := json.Unmarshal(raw, &manifest); err != nil {
-		return nil, errs.New(errs.CodeUpstream, "插件清单格式不正确")
-	}
-	if len(manifest.Plugins) == 0 {
-		return nil, errs.New(errs.CodeUpstream, "插件清单为空")
-	}
-	return &manifest, nil
-}
-
-// ---------- 商城 ----------
-
-// Market 拉取插件商城（清单 + 已安装状态合并）。
-// 参数：source 插件源仓库（空 = 设置值）。
-// 返回：清单、插件列表、实际生效源（前端展示用）。
-func (s *PluginService) Market(ctx context.Context, source string) (*PluginManifest, []MarketPluginDTO, string, error) {
-	actual := source
-	if actual == "" {
-		actual = s.pluginSource(ctx)
-	}
-	manifest, err := s.fetchManifest(ctx, source)
-	if err != nil {
-		return nil, nil, actual, err
-	}
-	// 已安装实例（plugin_id → 实例）
-	installed, err := s.plugs.ListInstalled(ctx)
-	if err != nil {
-		return nil, nil, actual, err
-	}
-	byID := make(map[string]repository.PluginInstance, len(installed))
-	for _, inst := range installed {
-		byID[inst.PluginID] = inst
-	}
-
-	items := make([]MarketPluginDTO, 0, len(manifest.Plugins))
-	for _, p := range manifest.Plugins {
-		dto := MarketPluginDTO{PluginInfo: p}
-		if inst, ok := byID[p.ID]; ok {
-			dto.Installed = true
-			dto.State = inst.State
-			dto.InstanceID = inst.ID
-		}
-		items = append(items, dto)
-	}
-	return manifest, items, actual, nil
+	return &PluginService{gh: gh, plugs: plugs, licenses: licenses, settings: settings, orders: orders, keySecret: keySecret, cache: manifestCache{}, readme: readmeCache{items: make(map[string]readmeEntry)}, dispatcher: dispatcher, manager: manager, store: store}
 }
 
 // ---------- 插件管理 ----------
