@@ -58,7 +58,17 @@ gh_api() {
   local body="${3:-}"
   local args=(-sS -X "$method" "$API$path" -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github+json")
   if [ -n "$body" ]; then
-    args+=(-H "Content-Type: application/json" -d "$body")
+    # Windows 命令行长度有限（~32KB，源码/go.sum 的 base64 JSON 会超限）——
+    # body 落临时文件经 --data-binary 传递，规避 Argument list too long
+    local tmp
+    tmp=$(mktemp)
+    printf '%s' "$body" > "$tmp"
+    local out
+    out=$(curl "${args[@]}" -H "Content-Type: application/json" --data-binary "@$tmp")
+    local rc=$?
+    rm -f "$tmp"
+    printf '%s' "$out"
+    return $rc
   fi
   curl "${args[@]}"
 }

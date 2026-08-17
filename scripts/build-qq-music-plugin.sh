@@ -23,10 +23,10 @@ LOG_FILE="$LOG_DIR/build-qq-music-plugin-$(date +%Y%m%d-%H%M%S).log"
 
 echo "[构建] cmd/qq-music-plugin → $OUT_DIR/$BIN_NAME" | tee -a "$LOG_FILE"
 mkdir -p "$OUT_DIR"
-go build -o "$OUT_DIR/$BIN_NAME" ./cmd/qq-music-plugin 2>&1 | tee -a "$LOG_FILE"
+go build -o "$OUT_DIR/$BIN_NAME" -C marketplace-repo ./qq-music 2>&1 | tee -a "$LOG_FILE"
 
 echo "[同步] 前端资产 → $OUT_DIR/frontend/" | tee -a "$LOG_FILE"
 mkdir -p "$OUT_DIR/frontend"
-cp -r "$PROJECT_ROOT/cmd/qq-music-plugin/frontend/." "$OUT_DIR/frontend/" 2>&1 | tee -a "$LOG_FILE"
+cp -r "$PROJECT_ROOT/marketplace-repo/qq-music/frontend/." "$OUT_DIR/frontend/" 2>&1 | tee -a "$LOG_FILE"
 
 echo "[完成] QQ 音乐插件就绪：$OUT_DIR/（二进制 + 前端资产），日志：$LOG_FILE" | tee -a "$LOG_FILE"

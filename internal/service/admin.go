@@ -408,25 +408,3 @@ func (s *AdminService) MergeTag(ctx context.Context, srcID int64, dstID int64) e
 func (s *AdminService) DeleteTag(ctx context.Context, tagID int64) error {
 	return s.tags.Delete(ctx, tagID)
 }
-
-// ---------- 站点设置 ----------// Settings 站点设置读取。
-func (s *AdminService) Settings(ctx context.Context) (map[string]string, error) {
-	return s.settings.All(ctx)
-}
-
-// SaveSettings 站点设置保存（站点名/描述/注册开关/评论开关/默认主题/维护开关）。
-func (s *AdminService) SaveSettings(ctx context.Context, updates map[string]string) error {
-	// 白名单校验（防注入任意键；plugin_ 前缀为插件配置键，M3.2 schema 驱动设置页）
-	allowed := map[string]bool{
-		"site_name": true, "site_description": true,
-		"allow_register": true, "comment_open": true,
-		"theme": true, "maintenance_mode": true, // 维护开关（M2）
-		"plugin_source": true, // 插件源仓库（M3.1，owner/repo）
-	}
-	for key := range updates {
-		if !allowed[key] && !strings.HasPrefix(key, "plugin_") {
-			return errs.New(errs.CodeBadRequest, "不支持的设置项："+key)
-		}
-	}
-	return s.settings.SetMany(ctx, updates)
-}

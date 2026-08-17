@@ -427,6 +427,13 @@ func (s *SeoService) SitemapXML(ctx context.Context) (string, error) {
 		fmt.Fprintf(&b, "  <url><loc>%s/posts/%d</loc><lastmod>%s</lastmod></url>\n",
 			s.siteURL, row.ID, row.UpdatedAt.Format("2006-01-02"))
 	}
+	// 已发布自定义页面（/pages/{slug}；查询失败不阻断 sitemap 生成）
+	if pages, err := s.seo.PagesForSitemap(ctx); err == nil {
+		for _, page := range pages {
+			fmt.Fprintf(&b, "  <url><loc>%s/pages/%s</loc><lastmod>%s</lastmod></url>\n",
+				s.siteURL, page.Slug, page.UpdatedAt.Format("2006-01-02"))
+		}
+	}
 	b.WriteString(`</urlset>`)
 	return b.String(), nil
 }

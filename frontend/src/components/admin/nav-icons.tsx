@@ -7,6 +7,8 @@
 const ICON_PATHS: Record<string, string> = {
   dashboard: '<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>',
   posts: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
+  pages: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/>',
+  nav: '<path d="M4 6h16M4 12h10M4 18h7"/><path d="M17 15l2.5 2.5L22 15"/>',
   comments: '<path d="M21 12a8 8 0 0 1-8 8H4l2.5-2.5A8 8 0 1 1 21 12z"/>',
   users: '<circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><path d="M16 5a3.5 3.5 0 0 1 0 7"/><path d="M18.5 14.5c2 1 3.5 3 3.5 5.5"/>',
   media: '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="M3 17l5-5 4 4 3-3 6 6"/>',
@@ -17,11 +19,13 @@ const ICON_PATHS: Record<string, string> = {
   market: '<path d="M6 8h12l-1 12a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/>',
   seo: '<circle cx="11" cy="11" r="7"/><path d="M16.5 16.5L21 21"/><path d="M8 11l2 2 3-4"/>',
   music: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
+  video: '<rect x="3" y="6" width="13" height="12" rx="2"/><path d="M16 10.5l5-2.5v8l-5-2.5"/>',
   health: '<path d="M3 12h4l2-6 4 12 2-6h6"/>',
   serp: '<path d="M4 6h16M4 10h16M4 14h16M4 18h10"/>',
   ai: '<path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4"/><path d="M8 12a4 4 0 0 1 8 0"/><path d="M12 12l2.5 4.5h-5z"/>',
   report: '<path d="M4 20V10M10 20V4M16 20v-8M22 20H2"/>',
   backup: '<path d="M12 3v12M8 11l4 4 4-4"/><path d="M4 17v3h16v-3"/>',
+  docs: '<path d="M4 5a2 2 0 0 1 2-2h5v18H6a2 2 0 0 1-2-2z"/><path d="M11 3h5a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-5"/><path d="M7 7h1.5M7 10h1.5M14 7h1.5M14 10h1.5"/>',
 };
 
 // NavIcon 侧栏图标组件。

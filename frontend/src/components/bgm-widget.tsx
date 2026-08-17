@@ -41,7 +41,8 @@ export function BgmWidget() {
         const a = new Audio(r.url);
         audioRef.current = a;
         a.play().catch(() => {});
-        a.onended = () => setPlaying(false);
+        // 播完自动切下一首（歌单循环），而不是停止
+        a.onended = () => playAt(index + 1, 5);
         a.onerror = () => playAt(index + 1, tries - 1);
         setCurrent(song);
         setPlaying(true);

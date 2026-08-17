@@ -49,6 +49,7 @@ export default function AdminPlugins() {
   // 可更新检查与升级（M3.6 后置：一键升级）
   const [updates, setUpdates] = useState<PluginUpdateItem[]>([]);
   const [upgradingId, setUpgradingId] = useState<number | null>(null);
+  const [upgradeDone, setUpgradeDone] = useState<string>(""); // 升级成功提示（插件名+目标版本）
 
   // 选择 .bpk 后上传安装（成功后刷新列表）
   const onPickFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -80,8 +81,13 @@ export default function AdminPlugins() {
   const upgradePlugin = async (plugin: InstalledPlugin) => {
     setUpgradingId(plugin.id);
     setError("");
+    setUpgradeDone("");
     try {
       await apiUpgradePlugin(plugin.id);
+      const target = updates.find((u) => u.instance_id === plugin.id);
+      setUpgradeDone(
+        `✓ ${plugin.name} 已升级${target ? "至 v" + target.latest_version : "成功"}，登录态与配置保留`,
+      );
       load();
       setUpdates((prev) => prev.filter((u) => u.instance_id !== plugin.id));
     } catch (err) {
@@ -176,6 +182,11 @@ export default function AdminPlugins() {
       {uploadDone && (
         <p className="mt-4 rounded-md bg-accent-soft px-3 py-2 text-sm text-glow" role="status">
           ✓ 安装包已上传并安装，可在下方列表启用
+        </p>
+      )}
+      {upgradeDone && (
+        <p className="mt-4 rounded-md bg-accent-soft px-3 py-2 text-sm text-glow" role="status">
+          {upgradeDone}
         </p>
       )}
 

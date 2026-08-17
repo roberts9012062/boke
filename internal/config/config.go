@@ -109,10 +109,13 @@ func Load() (Config, error) {
 		cfg.SiteBaseURL = "http://localhost:3000"
 	}
 	// AI 供应商 API Key 加密密钥（M4：AES-256-GCM 派生；未配置时回退 JWT_SECRET
-	// 保证开箱即用，生产环境建议单独配置 AI_KEY_SECRET，避免与 JWT 密钥同源）
+	// 保证开箱即用——E6 安全告警：同源意味着 JWT 泄露等价于机密加密密钥泄露，
+	// 且已有密文按该种子加密，直接更换密钥会导致解密失败（轮换需迁移密文，另行设计）。
+	// 生产环境务必单独配置 AI_KEY_SECRET，消除此警告）
 	cfg.AIKeySecret = os.Getenv("AI_KEY_SECRET")
 	if cfg.AIKeySecret == "" {
 		cfg.AIKeySecret = cfg.JWTSecret
+		fmt.Fprintln(os.Stderr, "[安全告警] AI_KEY_SECRET 未配置，机密加密密钥回退 JWT_SECRET（同源风险）；生产环境请单独配置 AI_KEY_SECRET 并迁移密文")
 	}
 	return cfg, nil
 }

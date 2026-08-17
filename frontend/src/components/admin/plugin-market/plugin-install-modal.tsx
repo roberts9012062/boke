@@ -6,7 +6,7 @@
 import { Modal } from "@/components/ui/modal";
 import type { MarketPlugin } from "@/lib/api";
 
-import { categoryLabel } from "./labels";
+import { capabilityLabel, categoryLabel } from "./labels";
 
 // PluginInstallModal 安装/购买弹层。
 // 参数：target 目标插件（null=关闭）；installing 安装中；installed 成功态；
@@ -56,14 +56,14 @@ export function PluginInstallModal({
               {categoryLabel(target.category)} · {target.price > 0 ? "付费" : "免费"} · v{target.version}
             </p>
 
-            {/* 能力清单（设计稿：站点地图/元信息/Open Graph/robots.txt） */}
+            {/* 能力清单（合法枚举 → 中文文案；未知枚举回退原文） */}
             <ul className="mt-4 space-y-1.5">
               {target.capabilities.map((cap) => (
                 <li key={cap} className="flex items-center gap-2 text-sm text-ink-2">
                   <span className="text-glow" aria-hidden>
                     ✓
                   </span>
-                  {cap}
+                  {capabilityLabel(cap)}
                 </li>
               ))}
               {target.price > 0 && (

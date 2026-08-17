@@ -27,6 +27,7 @@ const (
 const (
 	DomainDashboard  = "dashboard"  // 仪表盘
 	DomainPosts      = "posts"      // 内容管理
+	DomainPages      = "pages"      // 自定义页面（后台创建独立页面 + 导航自定义）
 	DomainComments   = "comments"   // 评论管理
 	DomainUsers      = "users"      // 用户管理
 	DomainMedia      = "media"      // 媒体库
@@ -43,17 +44,17 @@ const (
 
 // AllDomains 全部资源域（superadmin 通配矩阵用）。
 var AllDomains = []string{
-	DomainDashboard, DomainPosts, DomainComments, DomainUsers, DomainMedia,
-	DomainTags, DomainSettings, DomainRoles, DomainModeration, DomainPlugins,
-	DomainSeo, DomainAi, DomainReports, DomainBackups,
+	DomainDashboard, DomainPosts, DomainPages, DomainComments, DomainUsers,
+	DomainMedia, DomainTags, DomainSettings, DomainRoles, DomainModeration,
+	DomainPlugins, DomainSeo, DomainAi, DomainReports, DomainBackups,
 }
 
 // defaultMatrix 默认权限矩阵（角色 → 可访问域；设计稿权限范围对齐）。
 var defaultMatrix = map[string][]string{
 	RoleSuperAdmin: AllDomains, // 全部权限
-	RoleEditor: { // 内容·评论·媒体·审核
-		DomainDashboard, DomainPosts, DomainComments, DomainMedia, DomainTags,
-		DomainModeration, DomainSeo, DomainAi, DomainReports,
+	RoleEditor: { // 内容·评论·媒体·审核 + 自定义页面
+		DomainDashboard, DomainPosts, DomainPages, DomainComments, DomainMedia,
+		DomainTags, DomainModeration, DomainSeo, DomainAi, DomainReports,
 	},
 	RoleAuthor: { // 发布·媒体上传（posts 域仅本人内容，service 层数据隔离）
 		DomainDashboard, DomainPosts, DomainMedia,

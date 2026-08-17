@@ -47,6 +47,15 @@ data/plugins/
 # demo 插件许可证密钥（data/demo-keys/，M3.5 私钥/许可证不入库）
 data/demo-keys/
 
-# DSH ���Ŀ¼������Ŀ���룩
+# DSH 框架目录（非项目代码）
 dsh-reverse-security/
 
+
+# market root signing keys (P1 package signature, never commit)
+data/keys/
+
+# 插件库工作副本（源码/清单/README 归 yueyan-plugins 仓库，经 push-marketplace-repo.sh 同步）
+marketplace-repo/
+
+# GUI 测试截图（浏览器验证产物）
+gui-test-screenshots/

@@ -27,6 +27,8 @@ interface NavItem {
 const MAIN_ITEMS: NavItem[] = [
   { href: "/admin", label: "仪表盘", icon: "dashboard", available: true },
   { href: "/admin/posts", label: "内容管理", icon: "posts", available: true },
+  { href: "/admin/pages", label: "自定义页面", icon: "pages", available: true },
+  { href: "/admin/nav", label: "头部导航", icon: "nav", available: true },
   { href: "/admin/comments", label: "评论", icon: "comments", available: true },
   { href: "/admin/users", label: "用户/访客", icon: "users", available: true },
   { href: "/admin/media", label: "媒体库", icon: "media", available: true }, // M2.9 激活
@@ -41,10 +43,11 @@ const MAIN_ITEMS: NavItem[] = [
   { href: "/admin/backup", label: "备份导出", icon: "backup", available: true }, // M4-报表 激活
 ];
 
-// 插件二级子菜单（插件为一级菜单，子项：插件商城 / 我的插件；M3.1 激活）
+// 插件二级子菜单（插件为一级菜单，子项：插件商城 / 我的插件 / 开发文档；M3.1 激活）
 const PLUGIN_SUB_ITEMS: NavItem[] = [
   { href: "/admin/plugin-market", label: "插件商城", icon: "market", available: true },
   { href: "/admin/plugins", label: "我的插件", icon: "plugins", available: true },
+  { href: "/plugin-reference", label: "插件开发文档", icon: "docs", available: true },
 ];
 
 // 内容治理组（M2 新增：设计稿侧栏未含此三项，独立分组置于底部，差异记录）
@@ -136,9 +139,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <span className="font-display text-sm font-semibold text-ink">月言 · 管理</span>
         </Link>
 
-        {/* 主菜单（设计稿 12 项平铺 + 插件一级可展开） */}
+        {/* 主菜单（设计稿主项平铺 + 插件一级可展开；前 10 项插在插件菜单上方） */}
         <nav className="flex-1 overflow-y-auto px-2 py-2">
-          <NavList items={MAIN_ITEMS.slice(0, 8)} pathname={pathname} />
+          <NavList items={MAIN_ITEMS.slice(0, 10)} pathname={pathname} />
 
           {/* 插件（一级菜单，可展开；二级：插件商城/我的插件） */}
           <div className="mb-0.5">
@@ -196,7 +199,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             )}
           </div>
 
-          <NavList items={MAIN_ITEMS.slice(8)} pathname={pathname} />
+          <NavList items={MAIN_ITEMS.slice(10)} pathname={pathname} />
 
           {/* 内容治理组（M2 补充：分隔线 + 小标题，设计稿侧栏未含） */}
           <div className="mb-1 mt-3 px-3 text-[10px] uppercase tracking-wider text-ink-3">

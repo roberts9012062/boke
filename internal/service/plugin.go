@@ -63,6 +63,8 @@ type PluginService struct {
 	dispatcher plugin.Dispatcher     // 钩子调度器（M3.2 扩展框架；生命周期联动注册/注销钩子）
 	manager    *plugin.PluginManager // 进程管理器（M3.3 进程外插件；可空=纯内置模式）
 	store      *plugin.BinStore      // 二进制存储（M3.4 .bpk 解包落点/临时区）
+	servicesOnce sync.Once           // seam 注册表懒初始化保护（B2）
+	services   *plugin.ServiceRegistry // seam 服务注册表（懒初始化，见 plugin_seam.go）
 }
 
 // NewPluginService 创建插件服务。
@@ -161,8 +163,8 @@ func (s *PluginService) Install(ctx context.Context, pluginID string) error {
 		if existing.State != PluginUninstalled {
 			return errs.New(errs.CodeConflict, "插件「"+info.Name+"」已安装")
 		}
-		// 重新安装：复用记录（恢复 installed + 更新版本/来源），再尝试激活
-		if err := s.plugs.Reinstall(ctx, existing.ID, info.Version, info.RepoURL); err != nil {
+		// 重新安装：复用记录（恢复 installed + 更新版本/来源/能力登记），再尝试激活
+		if err := s.plugs.Reinstall(ctx, existing.ID, info.Version, info.RepoURL, info.Capabilities); err != nil {
 			return fmt.Errorf("重新安装插件失败：%w", err)
 		}
 		s.activateInstalled(ctx, existing.ID, info.ID)
@@ -173,11 +175,12 @@ func (s *PluginService) Install(ctx context.Context, pluginID string) error {
 	}
 	// 新建实例（默认 installed；激活成功转 running——M3.3 进程外插件需二进制）
 	instanceID, err := s.plugs.Create(ctx, repository.PluginInstance{
-		PluginID: info.ID,
-		Name:     info.Name,
-		Version:  info.Version,
-		RepoURL:  info.RepoURL,
-		State:    PluginInstalled,
+		PluginID:     info.ID,
+		Name:         info.Name,
+		Version:      info.Version,
+		RepoURL:      info.RepoURL,
+		State:        PluginInstalled,
+		Capabilities: info.Capabilities,
 	})
 	if err != nil {
 		return fmt.Errorf("安装插件失败：%w", err)
@@ -357,7 +360,8 @@ func (s *PluginService) registerHooks(pluginID string) {
 		return
 	}
 	for _, reg := range regs {
-		s.dispatcher.Register(reg.Hook, reg.Handler)
+		// D3：优先级注册（小值先执行；同值按注册顺序）
+		s.dispatcher.RegisterRanked(reg.Hook, "builtin/"+pluginID+"/"+reg.Hook, reg.Priority, reg.Handler)
 	}
 	pluginHooks.byPlugin[pluginID] = &hookRegistrations{items: regs}
 }
@@ -374,7 +378,8 @@ func (s *PluginService) unregisterHooks(pluginID string) {
 		return
 	}
 	for _, reg := range regs.items {
-		s.dispatcher.Unregister(reg.Hook, reg.Handler)
+		// 与注册对称：按 builtin 唯一标识精确移除
+		s.dispatcher.UnregisterWithID(reg.Hook, "builtin/"+pluginID+"/"+reg.Hook)
 	}
 	delete(pluginHooks.byPlugin, pluginID)
 }

@@ -1,67 +1,55 @@
 // internal/handler/plugin_test.go
-// 插件前端资源静态服务单元测试（M3.6）：正常访问 / 路径穿越拒绝 / 不存在 404 / ID 不合法。
+// 插件前端资产静态服务单元测试（M3.6 + P0 加固）：
+// 路径白名单清理（sanitizeAssetPath 纯函数表驱动）+ handler 层穿越/非法路径拒绝。
 package handler
 
 import (
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/gin-gonic/gin"
-
-	"github.com/roberts9012062/boke/internal/plugin"
-	"github.com/roberts9012062/boke/internal/service"
 )
 
-// newAssetTestHandler 构造 Asset handler（真实 BinStore 于临时目录 + 预置 frontend 文件）。
-func newAssetTestHandler(t *testing.T) (*PluginHandler, string) {
-	t.Helper()
-	gin.SetMode(gin.TestMode)
-	dataDir := t.TempDir()
-	store := plugin.NewBinStore(dataDir)
-	// 预置插件前端资源（模拟 .bpk 解包落盘）
-	base := filepath.Join(dataDir, "plugins", "test-plugin", "frontend")
-	if err := os.MkdirAll(base, 0o755); err != nil {
-		t.Fatalf("创建资源目录失败：%v", err)
+// TestSanitizeAssetPath 表驱动：frontend/ 子树放行、目录回退、白名单外与穿越拒绝。
+func TestSanitizeAssetPath(t *testing.T) {
+	cases := []struct {
+		name    string // 用例名
+		in      string // 请求 filepath（gin 通配捕获，带前导斜杠）
+		want    string // 期望清理后的安全相对路径
+		wantOK  bool   // 期望是否放行
+	}{
+		{name: "正常前端资源", in: "/frontend/manifest.json", want: "frontend/manifest.json", wantOK: true},
+		{name: "子目录资源", in: "/frontend/css/main.css", want: "frontend/css/main.css", wantOK: true},
+		{name: "根访问回退首页", in: "/", want: "frontend/index.html", wantOK: true},
+		{name: "空路径回退首页", in: "", want: "frontend/index.html", wantOK: true},
+		{name: "frontend 目录回退首页", in: "/frontend", want: "frontend/index.html", wantOK: true},
+		{name: "frontend 目录斜杠回退首页", in: "/frontend/", want: "frontend/index.html", wantOK: true},
+		// P0 加固：包内敏感文件一律拒绝（此前 plugin.exe/pubkey.pem 可被匿名下载）
+		{name: "二进制本体拒绝", in: "/plugin.exe", want: "", wantOK: false},
+		{name: "许可证公钥拒绝", in: "/pubkey.pem", want: "", wantOK: false},
+		{name: "包内清单拒绝", in: "/manifest.json", want: "", wantOK: false},
+		{name: "校验清单拒绝", in: "/checksums.json", want: "", wantOK: false},
+		// 穿越：Clean 消解后必须仍在 frontend/ 子树内
+		{name: "穿越到包内文件", in: "/frontend/../plugin.exe", want: "", wantOK: false},
+		{name: "穿越逃逸插件目录", in: "/../../secret.txt", want: "", wantOK: false},
+		{name: "穿越系统路径", in: "/../etc/passwd", want: "", wantOK: false},
+		{name: "双斜杠仍放行前端资源", in: "/frontend//index.js", want: "frontend/index.js", wantOK: true},
 	}
-	manifest := filepath.Join(base, "manifest.json")
-	if err := os.WriteFile(manifest, []byte(`{"extensionPoints":[{"slot":"post.footer","entry":"index.js"}]}`), 0o644); err != nil {
-		t.Fatalf("写入 manifest 失败：%v", err)
-	}
-	if err := os.WriteFile(filepath.Join(base, "index.js"), []byte("export default function register(){}"), 0o644); err != nil {
-		t.Fatalf("写入 index.js 失败：%v", err)
-	}
-	svc := service.NewPluginService(nil, nil, nil, nil, nil, store, nil, nil, "test-key")
-	return NewPluginHandler(svc, nil), base
-}
-
-// TestAssetNormal 正常访问 frontend/manifest.json → 200 + 内容。
-func TestAssetNormal(t *testing.T) {
-	h, _ := newAssetTestHandler(t)
-	req := httptest.NewRequest(http.MethodGet, "/plugin-assets/test-plugin/frontend/manifest.json", nil)
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = req
-	c.Params = gin.Params{
-		{Key: "id", Value: "test-plugin"},
-		{Key: "filepath", Value: "/frontend/manifest.json"},
-	}
-	h.Asset(c)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("期望 200，实际 %d", rec.Code)
-	}
-	if body := rec.Body.String(); !contains(body, "extensionPoints") {
-		t.Fatalf("响应内容不符：%s", body)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := sanitizeAssetPath(tc.in)
+			if ok != tc.wantOK || got != tc.want {
+				t.Fatalf("sanitizeAssetPath(%q) = (%q, %v)，期望 (%q, %v)", tc.in, got, ok, tc.want, tc.wantOK)
+			}
+		})
 	}
 }
 
-// TestAssetPathTraversal 路径穿越（../ 逃逸插件目录）→ 404 拒绝。
+// TestAssetPathTraversal 路径穿越（../ 逃逸插件目录）→ 404 拒绝（白名单在 DB 查询前拦截）。
 func TestAssetPathTraversal(t *testing.T) {
-	h, base := newAssetTestHandler(t)
-	// 在插件目录外放一个敏感文件（验证穿越无法读取）
-	_ = os.WriteFile(filepath.Join(filepath.Dir(filepath.Dir(base)), "secret.txt"), []byte("secret"), 0o644)
+	gin.SetMode(gin.TestMode)
+	h := NewPluginHandler(nil, nil)
 	req := httptest.NewRequest(http.MethodGet, "/plugin-assets/test-plugin/../../secret.txt", nil)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
@@ -79,9 +67,28 @@ func TestAssetPathTraversal(t *testing.T) {
 	}
 }
 
+// TestAssetSensitiveFile 白名单外文件（plugin.exe）→ 404 拒绝。
+func TestAssetSensitiveFile(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h := NewPluginHandler(nil, nil)
+	req := httptest.NewRequest(http.MethodGet, "/plugin-assets/test-plugin/plugin.exe", nil)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = req
+	c.Params = gin.Params{
+		{Key: "id", Value: "test-plugin"},
+		{Key: "filepath", Value: "/plugin.exe"},
+	}
+	h.Asset(c)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("白名单外文件应 404，实际 %d", rec.Code)
+	}
+}
+
 // TestAssetInvalidID 非法插件 ID（含路径字符）→ 404。
 func TestAssetInvalidID(t *testing.T) {
-	h, _ := newAssetTestHandler(t)
+	gin.SetMode(gin.TestMode)
+	h := NewPluginHandler(nil, nil)
 	req := httptest.NewRequest(http.MethodGet, "/plugin-assets/../etc/passwd", nil)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
@@ -90,20 +97,6 @@ func TestAssetInvalidID(t *testing.T) {
 	h.Asset(c)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("非法 ID 应 404，实际 %d", rec.Code)
-	}
-}
-
-// TestAssetNotFound 不存在文件 → 404。
-func TestAssetNotFound(t *testing.T) {
-	h, _ := newAssetTestHandler(t)
-	req := httptest.NewRequest(http.MethodGet, "/plugin-assets/test-plugin/frontend/nope.js", nil)
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = req
-	c.Params = gin.Params{{Key: "id", Value: "test-plugin"}, {Key: "filepath", Value: "/frontend/nope.js"}}
-	h.Asset(c)
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("不存在应 404，实际 %d", rec.Code)
 	}
 }
 

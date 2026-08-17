@@ -153,6 +153,7 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 	aiTaskRepo := repository.NewAiTaskRepo(conn)         // AI 任务（M4）
 	aiUsageRepo := repository.NewAiUsageRepo(conn)       // AI 用量（M4）
 	seoRepo := repository.NewSeoRepo(conn)               // SEO 元数据（M4：摘要落库）
+	pageRepo := repository.NewPageRepo(conn)             // 自定义页面（导航自定义数据源）
 	backupRepo := repository.NewBackupRepo(conn)         // 备份记录（M4-报表）
 	licenseRepo := repository.NewLicenseRepo(conn)       // 插件许可证（M3.5）
 	orderRepo := repository.NewPluginOrderRepo(conn)     // 插件购买订单（M3.9 支付渠道）
@@ -192,10 +193,21 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 			}
 			return configProvider(ctx, pluginID)
 		},
+		func(ctx context.Context, pluginID string) ([]string, error) {
+			// 登记能力查询（P2 加固）：pluginRepo 此处已就绪，无需延迟绑定；
+			// 门控 = 安装登记能力 ∩ 二进制自报能力（见 manager.Start）
+			inst, err := pluginRepo.FindByPluginID(ctx, pluginID)
+			if err != nil {
+				return nil, err
+			}
+			return inst.Capabilities, nil
+		},
 		func() plugin.DataProvider {
 			return dataProvider // 延迟闭包：装配完成前返回 nil（不注册数据服务）
 		},
 	)
+	// E4：进程管理器接入结构化日志（此前 fmt.Fprintf(os.Stderr)，不可检索不可分级）
+	pluginManager.SetLogger(logger)
 	// 内容治理服务（M2：举报/敏感词/封禁；先建供发帖/评论拦截注入）
 	moderationSvc := service.NewModerationService(reportRepo, sensitiveRepo, banRepo, userRepo, postRepo, commentRepo)
 	// 启动时加载敏感词表（后台变更后自动刷新）
@@ -225,13 +237,23 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 	roleSvc := service.NewRoleService(enforcer, adminRepo, settingRepo, auditRepo)
 	// QQ 音乐解析服务（M7：songmid→songid，发帖内嵌播放器；无数据库依赖）
 	musicSvc := service.NewQQMusicService()
+	// 自定义页面服务（后台创建独立页面，前台 /pages/{slug} 访问）
+	pageSvc := service.NewPageService(pageRepo)
 	// GitHub OAuth 服务（M3.5：连接 GitHub 拉取私有/加速清单；凭证未配置时入口隐藏）
 	oauthSvc := service.NewOAuthService(cfg.GitHubOAuthClientID, cfg.GitHubOAuthSecret, cfg.AIKeySecret, cfg.GitHubToken, settingRepo, ghClient)
 	oauthSvc.RestoreToken(ctx) // 启动恢复 OAuth token（有则优先于 .env 静态 token）
-	// 启动同步已启用插件（M3.2 钩子 + M3.3 进程外插件拉起子进程，重启恢复）
-	if err := pluginSvc.SyncActivePlugins(ctx); err != nil {
-		logger.Warn("插件启动同步失败", zap.Error(err))
-	}
+	// 启动同步已启用插件（M3.2 钩子 + M3.3 进程外插件拉起子进程，重启恢复）。
+	// 后台执行（修复历史 bug）：此前复用装配 ctx（Run 传入 buildHandlers 的 10s 超时）同步执行——
+	// 初始化稍慢（DB 首连/OAuth 恢复等）轮到插件恢复时 ctx 已近过期，握手被静默取消，
+	// DB 保持 running 而进程未拉起（状态假象，插件 API 全 500）且时序敏感、时好时坏。
+	// 插件握手最长达分钟级，本就不应阻塞 HTTP 就绪：独立 ctx 后台恢复，失败仅告警。
+	go func() {
+		syncCtx, syncCancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		defer syncCancel()
+		if err := pluginSvc.SyncActivePlugins(syncCtx); err != nil {
+			logger.Warn("插件启动同步失败", zap.Error(err))
+		}
+	}()
 
 	// ---------- 角色策略加载（M5：自定义矩阵恢复 → 用户角色全量同步） ----------
 	// 先恢复后台编辑过的权限矩阵（settings.role_permissions），再同步用户角色分组
@@ -266,6 +288,8 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 		Backup:     handler.NewBackupHandler(backupSvc, logger),
 		Role:       handler.NewRoleHandler(roleSvc),
 		Music:      handler.NewMusicHandler(musicSvc, pluginSvc),
+		Video:      handler.NewVideoHandler(pluginSvc),
+		Page:       handler.NewPageHandler(pageSvc, logger),
 	}
 	return handlers, jwtMgr, enforcer, cleanup, nil
 }
@@ -310,7 +334,9 @@ func Run(cfg config.Config, logger *zap.Logger) error {
 		Addr:         ":" + cfg.ServerPort,
 		Handler:      engine,
 		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
+		// 写超时放宽：插件升级（Release 下载+替换）与 .bpk 上传是长操作，
+		// 30 秒会把进行中的请求掐断为 500（实测：升级必失败）
+		WriteTimeout: 180 * time.Second,
 	}
 
 	// 启动服务（独立 goroutine，失败时上报）

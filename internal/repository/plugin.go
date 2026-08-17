@@ -21,6 +21,7 @@ type PluginInstance struct {
 	RepoURL   string    // 来源仓库
 	State     string    // 状态：installed/running/disabled/uninstalled
 	Pubkey    string    // 许可证公钥（M3.5：付费插件包内 pubkey.pem 登记）
+	Capabilities []string // 能力登记（P2 加固：安装时落库；运行时门控与二进制自报取交集）
 	LastError string    // 最近错误
 	CreatedAt time.Time // 安装时间
 }
@@ -38,11 +39,15 @@ func NewPluginRepo(pool *pgxpool.Pool) *PluginRepo {
 // Create 安装插件（写入实例，默认 running）。
 func (r *PluginRepo) Create(ctx context.Context, inst PluginInstance) (int64, error) {
 	var id int64
-	err := r.pool.QueryRow(ctx, `
-		INSERT INTO plugin_instances (plugin_id, name, version, repo_url, state)
-		VALUES ($1, $2, $3, $4, $5)
+	capsRaw, err := json.Marshal(inst.Capabilities)
+	if err != nil {
+		return 0, err
+	}
+	err = r.pool.QueryRow(ctx, `
+		INSERT INTO plugin_instances (plugin_id, name, version, repo_url, state, capabilities)
+		VALUES ($1, $2, $3, $4, $5, $6::jsonb)
 		RETURNING id`,
-		inst.PluginID, inst.Name, inst.Version, inst.RepoURL, inst.State).Scan(&id)
+		inst.PluginID, inst.Name, inst.Version, inst.RepoURL, inst.State, string(capsRaw)).Scan(&id)
 	return id, err
 }
 
@@ -60,18 +65,20 @@ func (r *PluginRepo) Exists(ctx context.Context, pluginID string) (bool, error) 
 // FindByID 按实例 ID 查询（生命周期联动：启用/禁用/卸载前取插件 ID）。
 func (r *PluginRepo) FindByID(ctx context.Context, id int64) (PluginInstance, error) {
 	var inst PluginInstance
-	var pubkey *string // 免费插件无公钥：pubkey_pem 为 NULL（pgx 扫 **string 得 nil）
+	var pubkey *string    // 免费插件无公钥：pubkey_pem 为 NULL（pgx 扫 **string 得 nil）
+	var capsRaw []byte    // capabilities JSONB（默认 '[]'）
 	err := r.pool.QueryRow(ctx, `
-		SELECT id, plugin_id, name, version, repo_url, state, pubkey_pem, last_error, created_at
+		SELECT id, plugin_id, name, version, repo_url, state, pubkey_pem, capabilities, last_error, created_at
 		FROM plugin_instances WHERE id = $1`, id).Scan(
 		&inst.ID, &inst.PluginID, &inst.Name, &inst.Version,
-		&inst.RepoURL, &inst.State, &pubkey, &inst.LastError, &inst.CreatedAt)
+		&inst.RepoURL, &inst.State, &pubkey, &capsRaw, &inst.LastError, &inst.CreatedAt)
 	if err != nil {
 		return PluginInstance{}, wrapNotFound(err)
 	}
 	if pubkey != nil {
 		inst.Pubkey = *pubkey
 	}
+	inst.Capabilities = decodeCapabilities(capsRaw)
 	return inst, nil
 }
 
@@ -80,17 +87,19 @@ func (r *PluginRepo) FindByID(ctx context.Context, id int64) (PluginInstance, er
 func (r *PluginRepo) FindByPluginID(ctx context.Context, pluginID string) (PluginInstance, error) {
 	var inst PluginInstance
 	var pubkey *string // 免费插件无公钥：pubkey_pem 为 NULL
+	var capsRaw []byte // capabilities JSONB（默认 '[]'）
 	err := r.pool.QueryRow(ctx, `
-		SELECT id, plugin_id, name, version, repo_url, state, pubkey_pem, last_error, created_at
+		SELECT id, plugin_id, name, version, repo_url, state, pubkey_pem, capabilities, last_error, created_at
 		FROM plugin_instances WHERE plugin_id = $1`, pluginID).Scan(
 		&inst.ID, &inst.PluginID, &inst.Name, &inst.Version,
-		&inst.RepoURL, &inst.State, &pubkey, &inst.LastError, &inst.CreatedAt)
+		&inst.RepoURL, &inst.State, &pubkey, &capsRaw, &inst.LastError, &inst.CreatedAt)
 	if err != nil {
 		return PluginInstance{}, wrapNotFound(err)
 	}
 	if pubkey != nil {
 		inst.Pubkey = *pubkey
 	}
+	inst.Capabilities = decodeCapabilities(capsRaw)
 	return inst, nil
 }
 
@@ -102,13 +111,18 @@ func (r *PluginRepo) SetPubkey(ctx context.Context, pluginID string, pubkeyPEM s
 	return err
 }
 
-// Reinstall 重新安装（复用已卸载记录：状态恢复 installed + 版本/来源更新）。
+// Reinstall 重新安装（复用已卸载记录：状态恢复 installed + 版本/来源/能力登记更新）。
 // 说明（M3.1）：plugin_id 唯一约束，卸载为软删（uninstalled），重装需 UPDATE 复用而非 INSERT；
-//              M3.3 起安装默认 installed，激活成功（内置注册/进程外拉起）后转 running。
-func (r *PluginRepo) Reinstall(ctx context.Context, instanceID int64, version string, repoURL string) error {
-	_, err := r.pool.Exec(ctx, `
-		UPDATE plugin_instances SET state = 'installed', version = $2, repo_url = $3, updated_at = now()
-		WHERE id = $1`, instanceID, version, repoURL)
+//              M3.3 起安装默认 installed，激活成功（内置注册/进程外拉起）后转 running；
+//              capabilities 为安装来源声明的能力（P2 加固：运行时门控取交集依据）。
+func (r *PluginRepo) Reinstall(ctx context.Context, instanceID int64, version string, repoURL string, capabilities []string) error {
+	capsRaw, err := json.Marshal(capabilities)
+	if err != nil {
+		return err
+	}
+	_, err = r.pool.Exec(ctx, `
+		UPDATE plugin_instances SET state = 'installed', version = $2, repo_url = $3, capabilities = $4::jsonb, updated_at = now()
+		WHERE id = $1`, instanceID, version, repoURL, string(capsRaw))
 	return err
 }
 
@@ -116,7 +130,7 @@ func (r *PluginRepo) Reinstall(ctx context.Context, instanceID int64, version st
 // 正序：先安装的在前（后台侧栏插件动态入口顺序跟随安装先后，SEO 等核心插件在上）。
 func (r *PluginRepo) ListInstalled(ctx context.Context) ([]PluginInstance, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT id, plugin_id, name, version, repo_url, state, last_error, created_at
+		SELECT id, plugin_id, name, version, repo_url, state, capabilities, last_error, created_at
 		FROM plugin_instances
 		WHERE state != 'uninstalled'
 		ORDER BY created_at ASC`)
@@ -128,10 +142,12 @@ func (r *PluginRepo) ListInstalled(ctx context.Context) ([]PluginInstance, error
 	items := make([]PluginInstance, 0)
 	for rows.Next() {
 		var inst PluginInstance
+		var capsRaw []byte // capabilities JSONB（默认 '[]'）
 		if err := rows.Scan(&inst.ID, &inst.PluginID, &inst.Name, &inst.Version,
-			&inst.RepoURL, &inst.State, &inst.LastError, &inst.CreatedAt); err != nil {
+			&inst.RepoURL, &inst.State, &capsRaw, &inst.LastError, &inst.CreatedAt); err != nil {
 			return nil, err
 		}
+		inst.Capabilities = decodeCapabilities(capsRaw)
 		items = append(items, inst)
 	}
 	return items, rows.Err()
@@ -199,4 +215,16 @@ func (r *PluginRepo) Delete(ctx context.Context, instanceID int64) error {
 	_, err := r.pool.Exec(ctx,
 		`UPDATE plugin_instances SET state = 'uninstalled', updated_at = now() WHERE id = $1`, instanceID)
 	return err
+}
+
+// decodeCapabilities 解析 capabilities JSONB（空/损坏返回空列表——收紧策略：无登记=无扩展能力）。
+func decodeCapabilities(raw []byte) []string {
+	if len(raw) == 0 {
+		return []string{}
+	}
+	caps := make([]string, 0)
+	if err := json.Unmarshal(raw, &caps); err != nil {
+		return []string{}
+	}
+	return caps
 }

@@ -776,9 +776,18 @@ export function apiPluginOAuthStatus(): Promise<{ status: PluginOAuthStatus }> {
   return get<{ status: PluginOAuthStatus }>("/admin/plugin-oauth/status");
 }
 
-// 前台插件扩展清单（M3.6：公开——页面槽位加载 running 且含前端资产的插件，未登录可用）。
-export function apiPluginExtensions(): Promise<{ items: { plugin_id: string; name: string }[] }> {
-  return get<{ items: { plugin_id: string; name: string }[] }>("/plugin-extensions");
+// PluginExtensionItem 前台插件扩展项（公开接口返回；site_nav/site_pages 为插件声明的前台扩展）。
+export interface PluginExtensionItem {
+  plugin_id: string; // 插件 ID
+  name: string; // 插件名称
+  site_nav?: { label: string; path: string; icon?: string }[]; // 插件声明的前台导航项
+  site_pages?: string[]; // 插件声明的前台公开页面路由（scope=site）
+}
+
+// 前台插件扩展清单（M3.6：公开——页面槽位加载 running 且含前端资产的插件，未登录可用；
+// site.page 扩展：同时返回插件声明的 site_nav/site_pages 供前台导航与公开壳路由消费）。
+export function apiPluginExtensions(): Promise<{ items: PluginExtensionItem[] }> {
+  return get<{ items: PluginExtensionItem[] }>("/plugin-extensions");
 }
 
 // ---------- 插件升级（M3.6 后置：一键升级） ----------

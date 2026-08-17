@@ -11,7 +11,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // 开发代理：/api、/media 与 /plugin-assets → 后端 Gin 服务
+  // 开发代理：/api、/media、/plugin-assets 与 /plugin-sdk → 后端 Gin 服务
   async rewrites() {
     return [
       {
@@ -25,6 +25,12 @@ const nextConfig: NextConfig = {
       {
         source: "/plugin-assets/:path*",
         destination: "http://localhost:8080/plugin-assets/:path*",
+      },
+      {
+        // 插件前端共享 SDK（E2）：插件 ESM 模块以绝对路径 import /plugin-sdk/shared.js，
+        // 模块图按同源 URL 解析——dev 下必须代理到 Gin（与生产同域反代行为一致）
+        source: "/plugin-sdk/:path*",
+        destination: "http://localhost:8080/plugin-sdk/:path*",
       },
     ];
   },
@@ -48,7 +54,8 @@ const nextConfig: NextConfig = {
               "style-src 'self' 'unsafe-inline'",
               // M7 网易云 / M8 QQ 音乐插件：放行网易云/QQ 音乐 CDN 的封面图片与音频直链（仅 https）
               "img-src 'self' data: blob: https://*.music.126.net https://*.gtimg.cn",
-              "media-src 'self' https://*.music.126.net https://*.qq.com https://*.tc.qq.com",
+              // media-src 含 blob:：插件 MSE 播放器（B站 DASH 1080P）经 objectURL 装载媒体
+              "media-src 'self' blob: https://*.music.126.net https://*.qq.com https://*.tc.qq.com",
               "font-src 'self' data:",
               "frame-src 'self' https://player.bilibili.com https://www.youtube.com https://www.youtube-nocookie.com https://v.qq.com https://player.vimeo.com https://music.163.com https://i.y.qq.com",
               "connect-src 'self' ws://localhost:3000",

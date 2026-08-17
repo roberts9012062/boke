@@ -199,6 +199,79 @@ export function apiAiEmbedding(input: { model: string; text: string }): Promise<
   return post<{ embedding: number[] }>("/admin/ai/embedding", input);
 }
 
+// ---------- 多轮对话（自定义页面构建器等对话式调用方） ----------
+
+// ChatMsg 多轮对话消息（与后端 internal/ai.Message 对齐）。
+export interface ChatMsg {
+  role: "system" | "user" | "assistant"; // 角色
+  content: string; // 消息内容
+}
+
+// ChatInput 多轮生成输入（messages 完整携带含 system 提示词与历史轮次）。
+export interface ChatInput {
+  model: string; // 模型名
+  messages: ChatMsg[]; // 对话历史（首条为 system）
+  max_tokens: number; // 输出上限（后端 clamp 1~16000；整页 HTML 建议 8192）
+}
+
+// AI 多轮非流式生成（旧单轮接口 apiAiGenerate 保持不变）。
+export function apiAiGenerateChat(input: ChatInput): Promise<{ text: string }> {
+  return post<{ text: string }>("/admin/ai/generate", input);
+}
+
+// apiAiGenerateChatStream 多轮流式生成（SSE；逐增量回调 onChunk）。
+// 复用与 apiAiGenerateStream 相同的 SSE 解析协议，仅请求体换为多轮形态。
+export async function apiAiGenerateChatStream(
+  input: ChatInput,
+  onChunk: (text: string) => void,
+): Promise<void> {
+  const response = await fetch("/api/v1/admin/ai/generate/stream", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok || !response.body) {
+    // 尝试解析统一错误体，透出后端提示
+    let message = "AI 流式生成失败";
+    try {
+      const body = (await response.json()) as { message?: string };
+      if (body.message) {
+        message = body.message;
+      }
+    } catch {
+      // 忽略解析失败，使用默认提示
+    }
+    throw new Error(message);
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    buffer += decoder.decode(value, { stream: true });
+    let idx = buffer.indexOf("\n\n");
+    while (idx >= 0) {
+      const event = buffer.slice(0, idx);
+      buffer = buffer.slice(idx + 2);
+      const data = event.replace(/^data:\s*/, "");
+      if (data && data !== "[DONE]") {
+        try {
+          const parsed = JSON.parse(data) as { text?: string };
+          if (parsed.text) {
+            onChunk(parsed.text);
+          }
+        } catch {
+          // 忽略无法解析的 chunk（容错，不中断流）
+        }
+      }
+      idx = buffer.indexOf("\n\n");
+    }
+  }
+}
+
 // 智能回复助手（续写/润色/翻译）。
 // 参数：content 编辑框当前正文（AI 需对未保存的改动执行操作）。
 export function apiAiGenReply(postId: number, action: "continue" | "polish" | "translate", content: string): Promise<{ text: string }> {

@@ -244,22 +244,45 @@ func (s *AiService) Generate(ctx context.Context, model string, prompt string, c
 	if model == "" || prompt == "" {
 		return "", errs.New(errs.CodeBadRequest, "模型与提示词不能为空")
 	}
+	// prompt + content 组装为单轮消息，委托通用多轮入口（默认输出上限 300）
+	return s.GenerateChat(ctx, model, []ai.Message{
+		{Role: "system", Content: prompt},
+		{Role: "user", Content: content},
+	}, 300)
+}
+
+// GenerateChat 通用多轮 AI 生成（自定义页面构建器等对话式调用方使用）。
+// 说明：messages 由调用方完整携带（含 system 提示词与历史轮次）；
+// maxTokens 输出上限（≤0 取默认 300，超过 16000 截断——整页 HTML 生成需要大额度，
+// 同时防止滥用）；用量落库 task 名沿用 plugin.generate。
+func (s *AiService) GenerateChat(ctx context.Context, model string, messages []ai.Message, maxTokens int) (string, error) {
+	if model == "" || len(messages) == 0 {
+		return "", errs.New(errs.CodeBadRequest, "模型与对话消息不能为空")
+	}
 	provider, err := s.resolveProviderByModel(ctx, model)
 	if err != nil {
 		return "", err
 	}
 	result, err := s.chatProvider(ctx, provider, "plugin.generate", ai.ChatRequest{
-		Model: model,
-		Messages: []ai.Message{
-			{Role: "system", Content: prompt},
-			{Role: "user", Content: content},
-		},
-		MaxTokens: 300,
+		Model:     model,
+		Messages:  messages,
+		MaxTokens: clampMaxTokens(maxTokens),
 	})
 	if err != nil {
 		return "", err
 	}
 	return result.Text, nil
+}
+
+// clampMaxTokens 输出上限收敛（纯函数）：默认 300，区间 1~16000。
+func clampMaxTokens(v int) int {
+	if v <= 0 {
+		return 300
+	}
+	if v > 16000 {
+		return 16000
+	}
+	return v
 }
 
 // GenerateStream 通用 AI 流式生成（HTTP/插件流式接口；SSE 逐增量）。
@@ -268,17 +291,26 @@ func (s *AiService) GenerateStream(ctx context.Context, model string, prompt str
 	if model == "" || prompt == "" {
 		return nil, errs.New(errs.CodeBadRequest, "模型与提示词不能为空")
 	}
+	// prompt + content 组装为单轮消息，委托通用多轮流式入口（默认输出上限 1024）
+	return s.GenerateChatStream(ctx, model, []ai.Message{
+		{Role: "system", Content: prompt},
+		{Role: "user", Content: content},
+	}, 1024)
+}
+
+// GenerateChatStream 通用多轮流式生成（对话式调用方使用；SSE 逐增量）。
+func (s *AiService) GenerateChatStream(ctx context.Context, model string, messages []ai.Message, maxTokens int) (ai.ChatStream, error) {
+	if model == "" || len(messages) == 0 {
+		return nil, errs.New(errs.CodeBadRequest, "模型与对话消息不能为空")
+	}
 	provider, err := s.resolveProviderByModel(ctx, model)
 	if err != nil {
 		return nil, err
 	}
 	return s.chatStreamProvider(ctx, provider, ai.ChatRequest{
-		Model: model,
-		Messages: []ai.Message{
-			{Role: "system", Content: prompt},
-			{Role: "user", Content: content},
-		},
-		MaxTokens: 1024,
+		Model:     model,
+		Messages:  messages,
+		MaxTokens: clampMaxTokens(maxTokens),
 	})
 }
 

@@ -174,10 +174,10 @@ def issue_license(exp_ts, out_path):
 def build_bpk_version(version, out_path):
     """cmd/bp 打包指定版本（升级链路验证用：0.2.0 新版本）。"""
     r = subprocess.run(["go", "run", "./cmd/bp", "pack",
-                        "-plugin", "cmd/demo-plugin/yueyan-plugin.json",
+                        "-plugin", "marketplace-repo/demo-plugin/yueyan-plugin.json",
                         "-bin", "dist/demo-plugin/plugin.bin",
                         "-pubkey", "data/demo-keys/public.pem",
-                        "-frontend", "cmd/demo-plugin/frontend",
+                        "-frontend", "marketplace-repo/demo-plugin/frontend",
                         "-os", "windows", "-arch", "amd64",
                         "-version", version,
                         "-out", "dist"],

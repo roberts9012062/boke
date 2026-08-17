@@ -154,3 +154,97 @@ func TestRegistryDispatchModifyCollect(t *testing.T) {
 		t.Fatalf("拒绝应阻断（含改写收集），实际 %+v", res)
 	}
 }
+
+// ---------- B1：waterfall 链式改写管道（分发模式对齐 Cordis 事件目录） ----------
+
+// TestRegistryWaterfallChained 链式改写：下游处理器收到上游改写后的载荷，
+// 最终 Modify 为管道末端值（多改写者组合而非覆盖）。
+func TestRegistryWaterfallChained(t *testing.T) {
+	reg := NewRegistry(nil)
+	reg.Register(HookSearchQuery, func(ctx context.Context, ev Event) (Result, error) {
+		kw, _ := ev.Payload.(string)
+		return Result{OK: true, Modify: kw + "-a"}, nil
+	})
+	reg.Register(HookSearchQuery, func(ctx context.Context, ev Event) (Result, error) {
+		kw, _ := ev.Payload.(string)
+		if kw != "原始-a" {
+			return Result{}, errors.New("下游应收到上游改写结果，实际：" + kw)
+		}
+		return Result{OK: true, Modify: kw + "-b"}, nil
+	})
+	res := reg.Dispatch(context.Background(), HookSearchQuery, Event{Payload: "原始"})
+	if !res.OK {
+		t.Fatalf("链式改写应放行，实际 %+v", res)
+	}
+	if res.Modify != "原始-a-b" {
+		t.Fatalf("最终 Modify 应为管道末端值「原始-a-b」，实际 %v", res.Modify)
+	}
+}
+
+// TestRegistryWaterfallRejectShortCircuit 拒绝短路：任一处理器拒绝即返回，
+// 后续处理器不执行（拦截语义与 serial 一致）。
+func TestRegistryWaterfallRejectShortCircuit(t *testing.T) {
+	var downstreamRan atomic.Bool
+	reg := NewRegistry(nil)
+	reg.Register(HookContentRender, func(ctx context.Context, ev Event) (Result, error) {
+		return Result{OK: false, Reason: "内容不合规"}, nil
+	})
+	reg.Register(HookContentRender, func(ctx context.Context, ev Event) (Result, error) {
+		downstreamRan.Store(true)
+		return Result{OK: true}, nil
+	})
+	res := reg.Dispatch(context.Background(), HookContentRender, Event{Payload: "正文"})
+	if res.OK || res.Reason != "内容不合规" {
+		t.Fatalf("拒绝应短路返回，实际 %+v", res)
+	}
+	if downstreamRan.Load() {
+		t.Fatal("拒绝后下游处理器不应执行")
+	}
+}
+
+// TestRegistryWaterfallNoModifyNil 全程无改写（或无处理器）时 Modify 为 nil
+// （对齐旧扁平模型——调用点类型断言自然跳过）。
+func TestRegistryWaterfallNoModifyNil(t *testing.T) {
+	reg := NewRegistry(nil)
+	reg.Register(HookSearchQuery, func(ctx context.Context, ev Event) (Result, error) {
+		return Result{OK: true}, nil // 仅观察不修改
+	})
+	res := reg.Dispatch(context.Background(), HookSearchQuery, Event{Payload: "关键词"})
+	if !res.OK || res.Modify != nil {
+		t.Fatalf("无改写应返回 Modify=nil，实际 %+v", res)
+	}
+	// 无处理器同样 Modify=nil
+	res = reg.Dispatch(context.Background(), HookAIBeforeGenerate, Event{Payload: map[string]any{"input": "x"}})
+	if !res.OK || res.Modify != nil {
+		t.Fatalf("无处理器应返回 Modify=nil，实际 %+v", res)
+	}
+}
+
+// TestHookModeTable 分发模式目录：11 个钩子的模式标注与同步性派生正确。
+func TestHookModeTable(t *testing.T) {
+	cases := map[string]struct {
+		mode DispatchMode
+		sync bool
+	}{
+		HookPostBeforePublish: {ModeSerial, true},
+		HookPostAfterPublish:  {ModeEmit, false},
+		HookCommentBeforeSave: {ModeSerial, true},
+		HookCommentAfterSave:  {ModeEmit, false},
+		HookSearchQuery:       {ModeWaterfall, true},
+		HookNotificationSend:  {ModeEmit, false},
+		HookAdminPage:         {ModeSerial, true},
+		HookContentRender:     {ModeWaterfall, true},
+		HookAPIMiddleware:     {ModeSerial, true},
+		HookAIBeforeGenerate:  {ModeWaterfall, true},
+		HookAIAfterGenerate:   {ModeEmit, false},
+	}
+	for hook, want := range cases {
+		mode, ok := HookMode(hook)
+		if !ok || mode != want.mode {
+			t.Fatalf("钩子 %s 分发模式应为 %s，实际 %s（ok=%v）", hook, want.mode, mode, ok)
+		}
+		if IsSyncHook(hook) != want.sync {
+			t.Fatalf("钩子 %s 同步性应为 %v", hook, want.sync)
+		}
+	}
+}

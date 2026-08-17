@@ -4,6 +4,7 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 
 	"github.com/jackc/pgx/v5"
@@ -55,13 +56,16 @@ func (r *SettingRepo) Get(ctx context.Context, key string) (string, bool, error)
 	return unquoteJSONB(value), true, nil
 }
 
-// unquoteJSONB 去除 JSONB 值的包裹引号（seed 数据为 "月言" 形式）。
+// unquoteJSONB 解出 JSONB 值的真实字符串。
+// 说明：pgx 读 jsonb 得到的是 JSON 序列化形式——多行值（如 PEM 公钥）内部的
+// 换行是字面 "\n" 两字符，仅去首尾引号会让下游（pem.Decode 等）解析失败；
+// 故用 json.Unmarshal 完整解码，非合法 JSON 字符串时原样返回（兼容历史纯文本行）。
 func unquoteJSONB(raw []byte) string {
-	value := string(raw)
-	if len(value) >= 2 && value[0] == '"' && value[len(value)-1] == '"' {
-		value = value[1 : len(value)-1]
+	var decoded string
+	if err := json.Unmarshal(raw, &decoded); err == nil {
+		return decoded
 	}
-	return value
+	return string(raw)
 }
 
 // SetMany 批量保存设置（值以 JSON 字符串写入）。

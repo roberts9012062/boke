@@ -190,6 +190,34 @@ type PostSitemapRow struct {
 	CoverURL  string    // 封面图（图片 sitemap）
 }
 
+// PagesForSitemap 全部已发布自定义页面（sitemap 生成：slug/更新时间）。
+func (r *SeoRepo) PagesForSitemap(ctx context.Context) ([]PageSitemapRow, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT slug, updated_at FROM custom_pages
+		WHERE status = 'published'
+		ORDER BY updated_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]PageSitemapRow, 0)
+	for rows.Next() {
+		var row PageSitemapRow
+		if err := rows.Scan(&row.Slug, &row.UpdatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, row)
+	}
+	return items, rows.Err()
+}
+
+// PageSitemapRow sitemap 自定义页面行。
+type PageSitemapRow struct {
+	Slug      string    // 路由标识（前台 /pages/{slug}）
+	UpdatedAt time.Time // 更新时间（lastmod）
+}
+
 // SaveHealthCheck 写入帖子健康度（覆盖同帖）。
 func (r *SeoRepo) SaveHealthCheck(ctx context.Context, h SeoHealthCheck) error {
 	_, err := r.pool.Exec(ctx, `

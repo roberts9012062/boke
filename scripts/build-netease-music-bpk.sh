@@ -21,13 +21,13 @@ mkdir -p "$BUILD_DIR"
 echo "[步骤 1/2] 编译插件二进制（当前平台）..." | tee -a "$LOG_FILE"
 GOOS="$(go env GOOS)"
 GOARCH="$(go env GOARCH)"
-go build -o "$BUILD_DIR/plugin.bin" ./cmd/netease-music-plugin 2>&1 | tee -a "$LOG_FILE"
+go build -o "$BUILD_DIR/plugin.bin" -C marketplace-repo ./netease-music 2>&1 | tee -a "$LOG_FILE"
 
 echo "[步骤 2/2] 打包 .bpk（免费插件 + 前端扩展）..." | tee -a "$LOG_FILE"
 go run ./cmd/bp pack \
-  -plugin "cmd/netease-music-plugin/yueyan-plugin.json" \
+  -plugin "marketplace-repo/netease-music/yueyan-plugin.json" \
   -bin "$BUILD_DIR/plugin.bin" \
-  -frontend "cmd/netease-music-plugin/frontend" \
+  -frontend "marketplace-repo/netease-music/frontend" \
   -os "$GOOS" -arch "$GOARCH" \
   -version 0.1.0 \
   -out "dist" 2>&1 | tee -a "$LOG_FILE"

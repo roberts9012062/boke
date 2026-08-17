@@ -6,22 +6,22 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"os"
 
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-plugin"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 
 	"github.com/roberts9012062/boke/pkg/plugin-sdk"
+	"github.com/roberts9012062/boke/pkg/plugin-sdk/handshake"
 	"github.com/roberts9012062/boke/pkg/plugin-sdk/proto"
 )
 
-// Handshake 插件握手配置（主进程 internal/plugin 引用同一份，修改需两侧同步）。
-var Handshake = plugin.HandshakeConfig{
-	ProtocolVersion:  3,                       // 协议版本（升级不兼容时协商）
-	MagicCookieKey:   "YUEYAN_PLUGIN_COOKIE",  // 防误启动（校验子进程环境变量）
-	MagicCookieValue: "yueyan-blog-plugin-v1", // 主进程启动子进程时注入
-}
+// Handshake 握手配置别名（D1 解耦：常量已下沉 handshake 包单一事实源；
+// 保留导出兼容既有引用此变量的插件源码，新代码请直接引用 handshake.Handshake）。
+var Handshake = handshake.Handshake
 
 // coreGRPCPlugin go-plugin gRPC 插件封装（插件侧：注册 gRPC 服务；client 侧不支持）。
 type coreGRPCPlugin struct {
@@ -266,7 +266,15 @@ type apiServiceServer struct {
 }
 
 // Call 分发自定义 API 调用（404 表示未注册路由）。
-func (s *apiServiceServer) Call(ctx context.Context, req *proto.APICall) (*proto.APICallResult, error) {
+// P1 加固：从 gRPC metadata 解析宿主透传的调用者身份，注入 handler ctx
+// （插件侧经 sdk.CallerID/CallerRole/TrustedCaller 查询，做 per-endpoint 鉴权）。
+// panic 恢复：与钩子路径同策略——插件 API 单次 panic 不拖垮插件进程（转 500）。
+func (s *apiServiceServer) Call(ctx context.Context, req *proto.APICall) (resp *proto.APICallResult, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			resp = &proto.APICallResult{Status: 500, Error: fmt.Sprintf("插件 API panic：%v", r)}
+		}
+	}()
 	if s.mux == nil {
 		return &proto.APICallResult{Status: 404, Body: []byte(`{"error":"not_found"}`)}, nil
 	}
@@ -274,9 +282,25 @@ func (s *apiServiceServer) Call(ctx context.Context, req *proto.APICall) (*proto
 	if handler == nil {
 		return &proto.APICallResult{Status: 404, Body: []byte(`{"error":"not_found"}`)}, nil
 	}
-	status, body, err := handler(ctx, req.Method, req.Path, req.Body)
+	callerCtx := sdk.WithCallerIdentity(ctx, callerFromGRPC(ctx))
+	status, body, err := handler(callerCtx, req.Method, req.Path, req.Body)
 	if err != nil {
 		return &proto.APICallResult{Status: 500, Error: err.Error()}, nil
 	}
 	return &proto.APICallResult{Status: int32(status), Body: body}, nil
+}
+
+// callerFromGRPC 从传入 metadata 解析调用者身份（无 metadata 返回零值=最小权限）。
+func callerFromGRPC(ctx context.Context) sdk.CallerIdentity {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return sdk.CallerIdentity{}
+	}
+	return sdk.CallerFromMetadata(func(key string) string {
+		values := md.Get(key)
+		if len(values) == 0 {
+			return ""
+		}
+		return values[0]
+	})
 }

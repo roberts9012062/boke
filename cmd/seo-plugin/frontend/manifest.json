@@ -1,5 +1,0 @@
-{
-  "extensionPoints": [
-    { "slot": "compose.seo", "entry": "seo-panel.js", "mode": "append" }
-  ]
-}

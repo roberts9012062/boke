@@ -3,18 +3,24 @@
 //
 // 用法：
 //   go run ./cmd/bp pack \
-//     -plugin yueyan-plugin.json \   # 插件清单（仓库根目录；读取 id/name/description/author/sdk）
+//     -plugin yueyan-plugin.json \   # 插件清单（仓库根目录；读取 id/name/description/author/sdk/capabilities）
 //     -bin plugin.bin \              # 插件二进制（按平台构建产物）
 //     -os windows -arch amd64 \      # 目标平台（GOOS/GOARCH 小写）
 //     -version 0.1.0 \               # 版本（缺省取清单 version）
+//     -key market-private.pem \      # 市场根私钥（P1 加固：正式分发必须签名；缺省不签名）
 //     -out dist/                     # 输出目录（缺省当前目录）
 //   # 输出：dist/{id}-{version}-{os}-{arch}.bpk
 //
-// 包结构：manifest.json + plugin.bin + [pubkey.pem] + [frontend/] + checksums.json
+//   go run ./cmd/bp keygen -out market   # 生成市场根密钥对：market-private.pem / market-public.pem
+//   # 公钥（可多个拼接）写入主站设置 plugin_pkg_pubkeys 后，主站强制验签
+//
+// 包结构：manifest.json + plugin.bin + [pubkey.pem] + [frontend/] + [signature.sig] + checksums.json
 // 说明：与 docs/plugin-dev-guide.md 第 10 章 yueyan-bp 工具对齐；发布流程见开发手册。
 package main
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -27,18 +33,20 @@ import (
 
 // pluginManifest 插件仓库根目录清单（yueyan-plugin.json，作者侧；仅打包所需字段）。
 type pluginManifest struct {
-	ID          string `json:"id"`                    // 插件 ID
-	Name        string `json:"name"`                  // 名称
-	Version     string `json:"version"`               // 版本
-	Description string `json:"description"`           // 描述
-	SDK         string `json:"sdk"`                   // 兼容 SDK 范围
-	Author      struct {
+	ID           string   `json:"id"`                     // 插件 ID
+	Name         string   `json:"name"`                   // 名称
+	Version      string   `json:"version"`                // 版本
+	Description  string   `json:"description"`            // 描述
+	SDK          string   `json:"sdk"`                    // 兼容 SDK 范围
+	Capabilities []string `json:"capabilities,omitempty"` // 能力声明（P0 加固：写入包内 manifest，上传通道校验 + 运行时门控取交集）
+	Author       struct {
 		Name string `json:"name"` // 作者名
 	} `json:"author"`
 }
 
-// pack 打包子命令（单平台 .bpk；-pubkey 付费插件公钥入包，M3.5；-frontend 前端扩展资产入包，M3.6）。
-func pack(pluginPath string, binPath string, pubkeyPath string, frontendDir string, goos string, goarch string, version string, outDir string) error {
+// pack 打包子命令（单平台 .bpk；-pubkey 付费插件公钥入包，M3.5；-frontend 前端扩展资产入包，M3.6；
+// -key 市场根私钥签名，P1 加固——正式分发的包必须签名，主站配置信任公钥后强制验签）。
+func pack(pluginPath string, binPath string, pubkeyPath string, frontendDir string, goos string, goarch string, version string, keyPath string, outDir string) error {
 	// 读取插件清单（id/name/version/author/description/sdk）
 	raw, err := os.ReadFile(pluginPath)
 	if err != nil {
@@ -81,11 +89,32 @@ func pack(pluginPath string, binPath string, pubkeyPath string, frontendDir stri
 		}
 	}
 
-	// 打包
-	content, err := bpkg.Pack(bpkg.Manifest{
+	// 市场根私钥（可选：签名正式分发包）
+	var signer ed25519.PrivateKey
+	if keyPath != "" {
+		raw, err := os.ReadFile(keyPath)
+		if err != nil {
+			return fmt.Errorf("读取签名私钥失败：%w", err)
+		}
+		signer, err = bpkg.ParsePrivateKeyPEM(string(raw))
+		if err != nil {
+			return fmt.Errorf("签名私钥无效：%w", err)
+		}
+	}
+
+	// 打包（capabilities 随包清单写入——P0 加固：上传通道按声明校验未知能力；
+	// 有私钥则签名——signature.sig 对 checksums 签名，等价签名整个包）
+	manifest := bpkg.Manifest{
 		ID: pm.ID, Name: pm.Name, Version: version,
 		Author: pm.Author.Name, Description: pm.Description, SDK: pm.SDK,
-	}, files)
+		Capabilities: pm.Capabilities,
+	}
+	var content []byte
+	if signer != nil {
+		content, err = bpkg.PackSigned(manifest, files, signer)
+	} else {
+		content, err = bpkg.Pack(manifest, files)
+	}
 	if err != nil {
 		return err
 	}
@@ -105,7 +134,37 @@ func pack(pluginPath string, binPath string, pubkeyPath string, frontendDir stri
 	if frontendDir != "" {
 		extra += " + 前端扩展"
 	}
+	if signer != nil {
+		extra += " + 已签名"
+	}
 	fmt.Printf("[成功] 打包完成：%s（%d 字节，%s）\n", outPath, len(content), extra)
+	return nil
+}
+
+// keygen 生成市场根密钥对（Ed25519）：输出 {prefix}-private.pem（妥善保管，签名用）
+// 与 {prefix}-public.pem（配置到主站设置 plugin_pkg_pubkeys，可多把拼接实现轮换）。
+func keygen(outPrefix string) error {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return fmt.Errorf("生成密钥对失败：%w", err)
+	}
+	privPEM, err := bpkg.EncodePrivateKeyPEM(priv)
+	if err != nil {
+		return err
+	}
+	pubPEM, err := bpkg.EncodePublicKeyPEM(pub)
+	if err != nil {
+		return err
+	}
+	privPath := outPrefix + "-private.pem"
+	pubPath := outPrefix + "-public.pem"
+	if err := os.WriteFile(privPath, []byte(privPEM), 0o600); err != nil {
+		return fmt.Errorf("写入私钥失败：%w", err)
+	}
+	if err := os.WriteFile(pubPath, []byte(pubPEM), 0o644); err != nil {
+		return fmt.Errorf("写入公钥失败：%w", err)
+	}
+	fmt.Printf("[成功] 市场根密钥对已生成：\n  私钥（签名用，妥善保管）：%s\n  公钥（配置到主站设置 plugin_pkg_pubkeys）：%s\n", privPath, pubPath)
 	return nil
 }
 
@@ -134,8 +193,20 @@ func collectDir(files map[string][]byte, dir string, prefix string) error {
 }
 
 func main() {
-	// 子命令剥离（flag 包遇首个非 flag 参数即停止解析，需先取出 pack）
+	// 子命令分发（flag 包遇首个非 flag 参数即停止解析，需先取出子命令）
 	args := os.Args[1:]
+	if len(args) > 0 && args[0] == "keygen" {
+		fs := flag.NewFlagSet("keygen", flag.ExitOnError)
+		prefix := fs.String("out-prefix", "market", "输出前缀（生成 {前缀}-private/public.pem）")
+		if err := fs.Parse(args[1:]); err != nil {
+			os.Exit(1)
+		}
+		if err := keygen(*prefix); err != nil {
+			fmt.Printf("[失败] %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if len(args) > 0 && args[0] == "pack" {
 		args = args[1:]
 	}
@@ -147,11 +218,12 @@ func main() {
 	goos := fs.String("os", runtime.GOOS, "目标平台 OS（linux/darwin/windows）")
 	goarch := fs.String("arch", runtime.GOARCH, "目标平台架构（amd64/arm64）")
 	version := fs.String("version", "", "版本号（缺省取清单 version）")
+	keyPath := fs.String("key", "", "市场根私钥 PEM 路径（P1 加固：正式分发签名用）")
 	outDir := fs.String("out", ".", "输出目录")
 	if err := fs.Parse(args); err != nil {
 		os.Exit(1)
 	}
-	if err := pack(*pluginPath, *binPath, *pubkeyPath, *frontendDir, *goos, *goarch, *version, *outDir); err != nil {
+	if err := pack(*pluginPath, *binPath, *pubkeyPath, *frontendDir, *goos, *goarch, *version, *keyPath, *outDir); err != nil {
 		fmt.Printf("[失败] %v\n", err)
 		os.Exit(1)
 	}

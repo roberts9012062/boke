@@ -5,6 +5,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/roberts9012062/boke/internal/repository"
 )
@@ -16,12 +17,23 @@ const (
 	defaultDefaultTheme    = "cool-moon"
 )
 
+// NavLinkDTO 头部导航项（settings.nav_links JSON 数组的元素，支持两级）。
+// URL 约定：以 / 开头为站内路径，http(s):// 开头为外部链接（new_tab 控制新窗口打开）；
+// 一级项 URL 可为空（纯分组，hover 展开二级下拉，不可点击）；二级项 URL 必填。
+type NavLinkDTO struct {
+	Label    string        `json:"label"`             // 显示文案（≤30 字符）
+	URL      string        `json:"url"`               // 跳转地址（站内路径或外链；一级纯分组可空）
+	NewTab   bool          `json:"new_tab"`           // 外链是否新窗口打开
+	Children []NavLinkDTO  `json:"children,omitempty"` // 二级菜单（最多两级，二级不可再嵌套）
+}
+
 // SiteMetaDTO 站点元信息（GET /api/v1/meta 响应）。
 type SiteMetaDTO struct {
-	SiteName        string `json:"site_name"`        // 站点名称
-	SiteDescription string `json:"site_description"` // 站点描述
-	DefaultTheme    string `json:"default_theme"`    // 默认主题（冷月/薄雾）
-	MaintenanceMode string `json:"maintenance_mode"` // 维护开关（on/off，M2 前端拦截用）
+	SiteName        string       `json:"site_name"`        // 站点名称
+	SiteDescription string       `json:"site_description"` // 站点描述
+	DefaultTheme    string       `json:"default_theme"`    // 默认主题（冷月/薄雾）
+	MaintenanceMode string       `json:"maintenance_mode"` // 维护开关（on/off，M2 前端拦截用）
+	Nav             []NavLinkDTO `json:"nav"`              // 头部导航项（空=前端回退默认导航）
 }
 
 // SiteService 站点信息服务（连接器类，仅依赖 settings 仓库）。
@@ -50,7 +62,21 @@ func (s *SiteService) Meta(ctx context.Context) SiteMetaDTO {
 		SiteDescription: valueOr(all, "site_description", defaultSiteDescription),
 		DefaultTheme:    valueOr(all, "theme", defaultDefaultTheme),
 		MaintenanceMode: maintenanceValue(all),
+		Nav:             ParseNavLinks(all["nav_links"]),
 	}
+}
+
+// ParseNavLinks 解析导航配置（settings.nav_links JSON 数组文本）。
+// 解析失败或未配置时返回 nil（前台回退默认导航「首页/话题」，保证头部始终可用）。
+func ParseNavLinks(raw string) []NavLinkDTO {
+	if raw == "" {
+		return nil
+	}
+	var links []NavLinkDTO
+	if err := json.Unmarshal([]byte(raw), &links); err != nil {
+		return nil
+	}
+	return links
 }
 
 // maintenanceValue 维护开关值（on/off，缺失默认 off）。

@@ -2,7 +2,10 @@
 // 帖子模块数据模型：Post 实体 + 发帖/列表/详情 DTO（与前端 src/types 手工同步）。
 package model
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // 帖子内容类型（设计稿四形态：文字/图片/音频/视频）。
 const (
@@ -140,6 +143,7 @@ type PostSummary struct {
 	Media        []MediaDTO `json:"media"`        // 媒体预览（图片封面/音频）
 	GalleryStyle string     `json:"gallery_style"` // 图片展示风格（图片帖）
 	Music        *MusicEmbedDTO `json:"music,omitempty"` // 音乐嵌入（正文内嵌 QQ/网易云，列表渲染迷你播放器）
+	Bilibili     json.RawMessage `json:"bilibili,omitempty"` // B站视频块参数（data-props JSON，列表经插件内容块渲染播放器）
 	LikeCount    int64     `json:"like_count"`    // 点赞数
 	CommentCount int64     `json:"comment_count"` // 评论数
 	ViewCount    int64     `json:"view_count"`    // 浏览量

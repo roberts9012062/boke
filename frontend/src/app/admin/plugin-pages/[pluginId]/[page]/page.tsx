@@ -12,12 +12,13 @@ import { useEffect, useRef, useState } from "react";
 import { apiInstalledPlugins } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { fetchManifest, loadModule, type PluginUser } from "@/plugins/loader";
-import { registry } from "@/plugins/registry";
+import { makePluginApi, registry, type PluginApiClient } from "@/plugins/registry";
+import { mountSandbox } from "@/plugins/sandbox";
 
 // PluginPageCtx 插件页面注册上下文（registerPage 入参）。
 export interface PluginPageCtx {
   container: HTMLElement; // 页面容器（插件渲染目标）
-  api: { get<T>(path: string): Promise<T>; post<T>(path: string, body?: unknown): Promise<T> };
+  api: PluginApiClient; // 受限 API 客户端（registry 共享实现，E2 去重）
   user: PluginUser | null; // 脱敏用户信息
   params: { pluginId: string; page: string }; // 路由参数
 }
@@ -25,39 +26,6 @@ export interface PluginPageCtx {
 // PluginPageModule 页面模块（默认导出 registerPage）。
 interface PluginPageModule {
   default: (ctx: PluginPageCtx) => (() => void) | void;
-}
-
-// 受限 API 客户端（与 registry 同款；页面插件调用自身代理 API，带主站凭证）。
-function authHeader(): Record<string, string> {
-  try {
-    const raw = localStorage.getItem("yueyan-tokens");
-    if (!raw) {
-      return {};
-    }
-    const tokens = JSON.parse(raw) as { access_token?: string };
-    return tokens.access_token ? { Authorization: `Bearer ${tokens.access_token}` } : {};
-  } catch {
-    return {};
-  }
-}
-
-function makePluginApi(pluginId: string) {
-  return {
-    async get<T>(path: string): Promise<T> {
-      const res = await fetch(`/api/v1/plugins/${pluginId}${path}`, {
-        headers: { "Content-Type": "application/json", ...authHeader() },
-      });
-      return (await res.json()) as T;
-    },
-    async post<T>(path: string, body?: unknown): Promise<T> {
-      const res = await fetch(`/api/v1/plugins/${pluginId}${path}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeader() },
-        body: JSON.stringify(body ?? {}),
-      });
-      return (await res.json()) as T;
-    },
-  };
 }
 
 // PluginPage 插件独立页面壳。
@@ -92,11 +60,19 @@ export default function PluginPage() {
           return;
         }
         setPluginName(inst.name);
-        // 查找页面声明并加载模块
+        // 查找页面声明并按 sandbox 标志分发（E1：沙箱模式 iframe 强隔离，缺省同源 ESM）
         const manifest = await fetchManifest(pluginId);
         const pageDecl = manifest.pages?.find((p) => p.route === page);
         if (!pageDecl) {
           setError(`插件「${inst.name}」未声明页面 ${page}`);
+          return;
+        }
+        if (pageDecl.sandbox) {
+          // 沙箱模式：entry 为 HTML 页面，经 iframe 加载（无同源权限；通信走 postMessage）
+          if (cancelled) {
+            return;
+          }
+          cleanup = mountSandbox(pluginId, container, pageDecl.entry, pluginUser);
           return;
         }
         const mod = (await loadModule(pluginId, pageDecl.entry)) as unknown as PluginPageModule;

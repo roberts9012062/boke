@@ -2,6 +2,7 @@
 // 插件扩展点注册表（M3.6）：按插件挂载/卸载前端扩展（docs/architecture.md 6.6）。
 // 职责：加载扩展点声明 → 动态加载模块 → register(ctx) 挂载 → 记录清理函数。
 import { fetchManifest, loadModule, clearPlugin, type PluginUser } from "./loader";
+import { clearBlockRegistry } from "./block-registry";
 
 // authHeader 受限 API 客户端凭证头（插件自定义 API，带主站访问令牌；路径如 "/ping"）。
 // 凭证：从 localStorage 读取访问令牌（与 auth.tsx 同键；插件 API 属 authed 组）。
@@ -19,7 +20,15 @@ export function authHeader(): Record<string, string> {
   }
 }
 
-function makePluginApi(pluginId: string) {
+// PluginApiClient 插件受限 API 客户端（get/post 打到 /api/v1/plugins/{id}，带主站凭证）。
+export interface PluginApiClient {
+  get<T>(path: string): Promise<T>;
+  post<T>(path: string, body?: unknown): Promise<T>;
+}
+
+// makePluginApi 构造插件受限 API 客户端（E2 去重：槽位挂载与独立页面壳共用；
+// 路径前缀锁定到对应插件，插件无法访问其他后端接口）。
+export function makePluginApi(pluginId: string): PluginApiClient {
   return {
     async get<T>(path: string): Promise<T> {
       const res = await fetch(`/api/v1/plugins/${pluginId}${path}`, {
@@ -84,6 +93,7 @@ class PluginRegistry {
     }
     this.mounted = remaining;
     clearPlugin(pluginId);
+    clearBlockRegistry(); // B4：块注册表含该插件声明，一并失效重收集
   }
 }
 

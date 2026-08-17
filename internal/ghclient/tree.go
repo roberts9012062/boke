@@ -33,15 +33,13 @@ func (c *Client) FetchTree(ctx context.Context, owner string, repo string) ([]st
 	if err := validateRepo(owner, repo); err != nil {
 		return nil, err
 	}
-	reqURL := fmt.Sprintf("%s/repos/%s/%s/git/trees/HEAD?recursive=1", c.base(), owner, repo)
+	reqURL := c.wrapURL(fmt.Sprintf("%s/repos/%s/%s/git/trees/HEAD?recursive=1", c.base(), owner, repo))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
-	if token := c.getToken(); token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
+	c.setAuth(req)
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("拉取插件源文件树失败：%w", err)

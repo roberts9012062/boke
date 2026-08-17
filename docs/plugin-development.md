@@ -1,8 +1,8 @@
 # 月言博客 · 插件开发手册
 
 > 面向第三方插件作者：如何开发、打包、发布插件到月言博客平台。
-> 适用版本：核心 ≥0.1.0（M3 插件系统全量：进程外化 + 能力授权 + 数据服务 + 设置 + 许可证 + 流式钩子 + 独立页面 + 支付渠道）
-> 配套：`docs/architecture.md` 第 6 章（架构设计）；`discuss/插件能力授权-验收报告.md`（M3.8）；`discuss/插件后置七项-验收报告.md`（M3.9）
+> 适用版本：核心 ≥0.1.0（M3 插件系统全量：进程外化 + 能力授权 + 数据服务 + 设置 + 许可证 + 流式钩子 + 独立页面 + 支付渠道；B 路线：分发模式 + waterfall + seam + 配置分层 + 内容块）
+> 配套：**[插件系统参考手册](plugin-reference/index.md)**（按主题分页的架构/目录/契约参考：核心概念、钩子目录、能力服务接缝、前端扩展、能力与安全、打包分发）；`docs/architecture.md` 第 6 章（架构设计）；`discuss/插件能力授权-验收报告.md`（M3.8）；`discuss/插件后置七项-验收报告.md`（M3.9）
 
 ---
 
@@ -85,6 +85,11 @@ func main() { server.Serve(&MyPlugin{}) }
 
 **市场清单**（插件源 GitHub 仓库，**文件夹结构**：每个插件一个文件夹，文件夹名 = 插件 ID，内含 `plugin.json` + `README.md`）：
 
+**源码归属（2026-08 重组约定）**：全部插件源码（Go 后端 + frontend/ 前端资产 + yueyan-plugin.json）
+存放在插件库仓库的 `{插件ID}/` 文件夹内（本地工作副本为主仓 `marketplace-repo/{插件ID}/`，独立 go module：
+`github.com/roberts9012062/yueyan-plugins`，经 `replace` 引用主仓 plugin-sdk）——**主程序仓库不再存放插件源码**。
+构建/打包/发布统一走 `scripts/` 脚本（源码路径已指向插件库）。
+
 ```
 yueyan-plugins/                  # 插件源仓库（默认 roberts9012062/yueyan-plugins）
 ├── market.json                  # 可选：商城名称/描述（{name, description}）
@@ -131,23 +136,29 @@ yueyan-plugins/                  # 插件源仓库（默认 roberts9012062/yueya
 
 ## 5. 钩子契约（与主进程的扩展/替换点）
 
-钩子是插件影响博客行为的主要通道。**同步钩子**可拦截（拒绝）或改写；**异步钩子**事后通知（不阻塞）。
+钩子是插件影响博客行为的主要通道。每个钩子有固定的**分发模式**（对齐事件目录约定）：
 
-| 钩子 | 同步 | 触发时机 | Payload | 用途 |
+- **`serial`（串行拦截）**：多个插件按优先级顺序执行，任一返回 `OK=false` 即短路阻断核心流程；
+- **`waterfall`（链式改写）**：改写型钩子——**下游插件收到上游插件改写后的载荷**，各插件的 `Modify` 沿管道链式组合（如两个插件都改写正文，后者基于前者的结果继续改，不再互相覆盖）；任一拒绝同样短路；
+- **`emit`（异步通知）**：事后通知，不阻塞调用方，经流式通道推送。
+
+| 钩子 | 模式 | 触发时机 | Payload | 用途 |
 |------|------|---------|---------|------|
-| `post.before_publish` | ✅ | 发布前 | 帖子对象 | **拦截**（OK=false 阻断发布） |
-| `post.after_publish` | ❌ | 发布后 | 帖子对象 | 通知/统计 |
-| `comment.before_save` | ✅ | 评论保存前 | 评论内容字符串 | **拦截**（反垃圾） |
-| `comment.after_save` | ❌ | 评论保存后 | 评论对象 | 通知/统计 |
-| `search.query` | ✅ | 搜索时 | 关键词字符串 | **改写**（Modify 回写关键词） |
-| `notification.send` | ❌ | 通知发送后 | 通知对象 | 通知增强（如推送到外部） |
-| `admin.page` | ✅ | 后台仪表盘 | 仪表盘数据 | 后台增强 |
-| `content.render` | ✅ | 帖子详情返回 | `{post_id, content}` | **改写正文**（Modify 回写 content） |
-| `api.middleware` | ✅ | 写请求（POST/PUT/DELETE） | `{method, path, user_id}` | **拦截**（OK=false → 403） |
-| `ai.before_generate` | ✅ | AI 生成前 | `{task, input, model}` | **改写输入**（Modify 回写 input） |
-| `ai.after_generate` | ❌ | AI 生成后 | `{task, result}` | 通知/统计 |
+| `post.before_publish` | serial | 发布前 | 帖子对象 | **拦截**（OK=false 阻断发布） |
+| `post.after_publish` | emit | 发布后 | 帖子对象 | 通知/统计 |
+| `comment.before_save` | serial | 评论保存前 | 评论内容字符串 | **拦截**（反垃圾） |
+| `comment.after_save` | emit | 评论保存后 | 评论对象 | 通知/统计 |
+| `search.query` | waterfall | 搜索时 | 关键词字符串 | **链式改写**（Modify 回写关键词） |
+| `notification.send` | emit | 通知发送后 | 通知对象 | 通知增强（如推送到外部） |
+| `admin.page` | serial | 后台仪表盘 | 仪表盘数据 | 后台增强 |
+| `content.render` | waterfall | 帖子详情返回 | `{post_id, content}` | **链式改写正文**（Modify 回写 content） |
+| `api.middleware` | serial | 写请求（POST/PUT/DELETE） | `{method, path, user_id}` | **拦截**（OK=false → 403） |
+| `ai.before_generate` | waterfall | AI 生成前 | `{task, input, model}` | **链式改写输入**（Modify 回写 input） |
+| `ai.after_generate` | emit | AI 生成后 | `{task, result}` | 通知/统计 |
 
-> **异步钩子传输**：异步钩子（❌）经 **流式通道**（`HookService.Stream`）推送——主进程建立长期连接持续发送；断连自动回退 Execute（进程重启后重建通道）。插件侧无需感知通道差异（`Hooks()` 声明即可）。
+> **waterfall 多插件改写**：插件 A 在正文头部插入目录（`Modify` 回写），插件 B 收到的 Payload 已含目录，继续美化代码块——两者叠加生效；仅一个插件订阅时行为与旧版完全一致。
+>
+> **异步钩子传输**：emit 钩子经 **流式通道**（`HookService.Stream`）推送——主进程建立长期连接持续发送；断连自动回退 Execute（进程重启后重建通道）。插件侧无需感知通道差异（`Hooks()` 声明即可）。
 
 **拦截示例**（同步钩子拒绝）：
 
@@ -239,6 +250,41 @@ export default function register(ctx) {
 ```
 页面模块默认导出 `registerPage(ctx)`（`ctx: { container, api, user, params }`），访问路径 `/admin/plugin-pages/{插件ID}/{route}`（后台权限守卫 + 插件 running 校验）。完整示例见第 18 章。
 
+**前台公开页面**（`pages[].scope: "site"`，site.page 能力）——插件声明自己的前台页面，访客可访问：
+```json
+{ "pages": [
+    { "route": "dashboard", "entry": "page.js" },
+    { "route": "radio", "entry": "radio-page.html", "sandbox": true, "scope": "site" }
+] }
+```
+- 访问路径 `/plugins/{插件ID}/{route}`（前台布局，无需登录；`scope` 缺省为 `admin`，存量插件不受影响）；
+- 页面契约与后台页面一致（`registerPage(ctx)`；`sandbox: true` 走 iframe 强隔离，第三方页面推荐）；
+- **数据边界**：访客（未登录）调用受限插件 API（`/api/plugins/{id}/**`）会得到 401——公开页面所需
+  数据请走宿主公开端点（参考音乐插件的播放地址公开代理），或在页面内引导登录后使用；
+- 声明 `scope: "site"` 页面的插件需在 `yueyan-plugin.json` 的 `capabilities` 中声明 `site.page`；
+- 直链防护：宿主经公开接口校验插件 running 且已声明该 site 路由，未启用显示占位提示。
+
+**前台导航项**（`manifest.siteNav`，与 site.page 配套）——插件向前台头部导航注册入口：
+```json
+{ "siteNav": [ { "label": "电台", "path": "/plugins/netease-music/radio" } ] }
+```
+- 导航项自动追加在前台桌面端头部导航（管理员在后台「头部导航」页配置的项）之后；
+- 约束：`path` 仅允许站内路径（`/` 开头，`//` 与外链协议拒绝）、`label` ≤30 字符、每插件 ≤5 项；
+- 生命周期随插件：停用/卸载后导航项自动消失（前台 30 秒缓存窗口内）；后台「头部导航」页
+  以只读形式展示插件注册的导航项（不可在此编辑）。
+
+**内容块**（`manifest.blocks`，B4 keyed renderer）——插件向正文注册自定义嵌入块：
+```json
+{ "blocks": [ { "type": "vote", "entry": "vote-block.js" } ] }
+```
+- 协议：帖子正文（html 格式）中的 `<div data-plugin-block="vote" data-props='{"id": 123}'></div>`
+  节点由宿主按 `type` 查注册表分发到插件 `entry` 渲染（`register(ctx)` 契约与槽位一致，
+  `ctx.slot` 为 `block:{type}`、`ctx.props` 为 `data-props` 解析结果）；
+- 块标记可由插件自身经 `content.render` 钩子（waterfall 链式改写）注入正文，形成
+  「后端改写注入 → 前端注册表渲染」的完整闭环；也可由作者在富文本中手写；
+- 提供方插件未启用/未安装时，块渲染为占位提示（不影响正文其余部分）；
+- `data-*` 属性经 DOMPurify 默认放行，块内交互走受限插件 API 客户端。
+
 **安全**：渲染环境为 iframe 沙箱（CSP 严格，无 unsafe-eval）+ 短期 token（1 小时，插件可直调自身代理 API）；槽位/页面 API 客户端自动携带登录凭证。
 
 ---
@@ -256,8 +302,12 @@ Settings: []sdk.SettingField{
 }
 ```
 
-- 保存后**即时生效**（主进程推送 `SetConfig`）；重启/升级后保持（激活时自动下发）
-- 插件侧读取：`cfg := sdk.Config(ctx); cfg["greeting"]`
+- **生效配置 = 默认值层 ⊕ 实例配置层**（B3 分层叠加）：未保存的设置项自动回退
+  `Default`——`sdk.Config(ctx)` 读到的即生效值，插件**无需自行处理默认值**；
+  显式保存空串视为用户清空（不回退默认）
+- 保存后**即时生效**（主进程推送合并后的生效配置）；重启/升级后保持（激活时自动下发）
+- 插件侧读取：`cfg := sdk.Config(ctx); cfg["greeting"]`（schema 声明的 key 恒存在，
+  无默认未设置时为空串）
 - 主进程按 schema 过滤：**未声明的键会被丢弃**（防注入）
 
 ---
@@ -274,6 +324,7 @@ Settings: []sdk.SettingField{
 | `settings` | 基础 | 设置项（默认可用） |
 | `data.read` | **扩展** | **只读数据服务**——声明后才在激活时获得数据通道（运行时门控） |
 | `admin.page` | 扩展 | 后台独立页面（M3.9：manifest `pages` 声明 + 壳路由） |
+| `site.page` | 扩展 | 前台公开页面（manifest `pages` 声明 `scope: "site"` + 壳路由 `/plugins/{id}/{route}`，访客可访问；配套 `siteNav` 可注册前台导航项） |
 | `ai` | 扩展 | AI 能力（M3.9：ai.before/after_generate 钩子） |
 
 - 声明**未知能力** → 安装被拒绝（提示支持列表）
@@ -401,7 +452,7 @@ go run ./cmd/bp pack \
 
 ## 17. 完整示例（综合演示）
 
-见 `cmd/demo-plugin/main.go`（官方演示插件，覆盖全部能力）：
+见 `marketplace-repo/demo-plugin/main.go`（官方演示插件，覆盖全部能力）：
 - **钩子**：11 个钩子点订阅 6 个（post.before/after_publish、comment.after_save、search.query、content.render、api.middleware、ai.after_generate）
 - **自定义 API**：`/ping`、`/pro-status`（许可证）、`/settings`（配置）、`/data-demo`（数据服务）
 - **设置项**：greeting/show_badge/theme（3 字段）
@@ -464,7 +515,102 @@ POST /api/v1/admin/plugin-orders/{orderId}/pay  # → 服务端签发 license.jw
 
 ---
 
-## 19. 剩余规划（未开放）
+## 19. 音乐源扩展（E7 可 pluggable 契约 + B2 capability seam）
+
+宿主提供通用音乐桥接端点，音乐源完全由插件实现——新增音乐源**无需改宿主代码**。
+B2 起音乐源经 **music capability seam**（服务接缝）解析：宿主消费方依赖
+`plugin.MusicSource` 接口（`internal/plugin/seam_music.go`）而非具体插件——查找经
+服务注册表（`ServiceRegistry`），未命中时按清单发现并懒注册，插件停用时自动清理
+（注册可逆）。对插件作者完全透明（仍只需实现契约端点）。
+
+### 19.0 capability seam 目录（三角色）
+
+seam 是「可替换能力」的正式抽象，每个 seam 按三角色设计与审查（对齐 dsh
+capability-seams 思想）：
+
+| seam 键 | 服务定义 | 提供方 | 消费方 | 状态 |
+|---------|---------|--------|--------|------|
+| `music.{provider}` | `plugin.MusicSource`（`seam_music.go`） | 音乐插件适配器（`NewMusicSourceAdapter`，懒注册） | `PluginService.MusicSource` → 音乐桥接 handler | **已落地** |
+| `ai.*` | 预留（AI 生成供应商接缝） | — | — | 预留（出现第二个 Provider 时落地） |
+| `search.*` | 预留（搜索后端接缝） | — | — | 预留（同上） |
+
+**新增 seam 检查单**（三件套一起设计才算完整接缝）：
+
+1. **服务定义**：`internal/plugin/seam_{name}.go` 声明接口 + 键构造函数；
+2. **提供方**：内置实现或插件适配器注册进 `ServiceRegistry`（`Register`，注册即副作用可逆）；
+3. **消费方**：`internal/service/plugin_seam.go` 加查找门面方法，业务 handler 只依赖接口。
+
+> 注意：seam 是「宿主消费的可替换能力」，不是插件间通信通道——插件间协作仍走钩子
+> （waterfall 链式改写天然支持多插件组合）。
+
+### 19.1 声明与发现
+
+- 插件市场清单（`marketplace-repo/{插件}/plugin.json`）声明 `music_provider` 字段
+  （provider 名，全局唯一小写，如 `"qq"`、`"netease"`）；
+- 宿主按「清单 `music_provider` 声明 + 插件已安装且 running」动态发现
+  provider → 插件 ID 映射，构造适配器注册进服务注册表；清单不可用时回退宿主静态
+  兜底表（官方源兜底）。首次桥接请求后注册表直达，插件停用时统一清理。
+
+### 19.2 插件契约端点（必选/可选）
+
+| 端点 | 方法 | 入参 | 返回 | 说明 |
+|------|------|------|------|------|
+| `/music/url` | POST | `{"src": "<源特定标识>"}` | `{"url": "<播放地址>"}` 或 `{"error": "..."}` | 必选。src 语义由源定义（qq=songmid、netease=歌曲 id） |
+| `/music/bgm` | GET | — | `{"enabled": bool, "playlist_tid": "...", "songs": [...]}` | 可选。首页背景音乐聚合（配置 + 歌曲列表一次返回） |
+
+说明：桥接调用携带**系统调用者身份**（`sdk.CallerIsSystem(ctx) == true`）；
+播放地址端点对访客公开（匿名可播），管理类端点仍应校验 `sdk.TrustedCaller(ctx)`。
+
+### 19.3 宿主公开端点
+
+- `GET /api/v1/music/:provider/url?src=xxx` —— 播放地址（公开）；
+- `GET /api/v1/music/:provider/bgm` —— 背景音乐（公开；插件未实现契约时返回空配置）。
+
+### 19.4 参考实现
+
+`marketplace-repo/qq-music/main.go`（`/music/url` + `/music/bgm`）与
+`marketplace-repo/netease-music/main.go`（`/music/url`）。前端帖内嵌入解析
+（`music-embed.ts`）属宿主产品形态，按源定制，不随插件分发。
+
+## 20. 前端沙箱模式（E1 强隔离页面）
+
+第三方插件后台页面可声明 iframe 沙箱（与宿主页面不同文档，无同源权限），
+适合不完全信任的插件作者接入。
+
+### 20.1 声明
+
+插件前端 `manifest.json` 的 `pages[].sandbox: true`（缺省 false，走同源 ESM 模式）：
+
+```json
+{
+  "pages": [
+    { "route": "panel", "entry": "panel.html", "sandbox": true }
+  ]
+}
+```
+
+`sandbox: true` 时 `entry` 为 **HTML 页面**（相对 frontend/ 的路径），经
+`/plugin-assets/{id}/frontend/panel.html` 由 iframe 加载。
+
+### 20.2 宿主 ↔ 沙箱通信（postMessage）
+
+iframe 页面引入宿主共享 SDK（`<script type="module" src="/plugin-sdk/shared.js">`），
+用 `createSandboxApi()` 获得受限 API 客户端：
+
+```html
+<script type="module">
+  import { createSandboxApi } from "/plugin-sdk/shared.js";
+  const api = await createSandboxApi(); // 就绪后与宿主握手完成
+  const status = await api.get("/status"); // 插件自身代理 API（自动带短期 token）
+</script>
+```
+
+- 协议：`init`（宿主 → 页面：用户信息 + 1 小时短期 token）、`api` / `api-result`
+  （页面 ↔ 宿主：请求往返）；
+- 安全：宿主校验 `event.origin` 同源 + pluginId 匹配；短期 token 过期后页面需提示
+  管理员刷新（宿主页面刷新即重发）。
+
+## 21. 剩余规划（未开放）
 
 | 规划项 | 说明 |
 |--------|------|

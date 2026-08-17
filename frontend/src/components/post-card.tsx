@@ -11,6 +11,7 @@ import { useState } from "react";
 import { AudioPlayer } from "@/components/audio-player";
 import { GALLERY_STYLES } from "@/components/image-gallery";
 import { MusicRefPlayer } from "@/components/music-ref-player";
+import { PluginBlock } from "@/components/plugin-block";
 import { SharePanel } from "@/components/share-panel";
 import { Avatar } from "@/components/ui/avatar";
 import { useAppearance } from "@/lib/appearance";
@@ -107,6 +108,13 @@ export function PostCard({ post }: { post: PostSummary }) {
       {post.content_type === "audio" && post.media.length > 0 && (
         <div className="mt-3">
           <AudioPlayer src={post.media[0].url} duration={0} autoplay={settings.autoplayMedia} />
+        </div>
+      )}
+
+      {/* B站视频嵌入（bilibili-video 插件：列表直接渲染插件播放器块） */}
+      {post.bilibili && (
+        <div className="mt-3">
+          <PluginBlock type="bilibili" props={post.bilibili} />
         </div>
       )}
 

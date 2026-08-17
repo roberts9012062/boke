@@ -27,14 +27,14 @@ echo "[步骤 1/2] 编译 demo 插件二进制（当前平台）..." | tee -a "$
 GOOS="$(go env GOOS)"
 GOARCH="$(go env GOARCH)"
 BIN_NAME="plugin.bin"
-go build -o "$BUILD_DIR/$BIN_NAME" ./cmd/demo-plugin 2>&1 | tee -a "$LOG_FILE"
+go build -o "$BUILD_DIR/$BIN_NAME" -C marketplace-repo ./demo-plugin 2>&1 | tee -a "$LOG_FILE"
 
 echo "[步骤 2/2] 打包 .bpk（cmd/bp pack，含许可证公钥 + 前端扩展）..." | tee -a "$LOG_FILE"
 go run ./cmd/bp pack \
-  -plugin "cmd/demo-plugin/yueyan-plugin.json" \
+  -plugin "marketplace-repo/demo-plugin/yueyan-plugin.json" \
   -bin "$BUILD_DIR/$BIN_NAME" \
   -pubkey "data/demo-keys/public.pem" \
-  -frontend "cmd/demo-plugin/frontend" \
+  -frontend "marketplace-repo/demo-plugin/frontend" \
   -os "$GOOS" -arch "$GOARCH" \
   -version 0.2.0 \
   -out "dist" 2>&1 | tee -a "$LOG_FILE"

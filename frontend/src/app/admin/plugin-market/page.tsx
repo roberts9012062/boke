@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import { PluginCard } from "@/components/admin/plugin-market/plugin-card";
 import { PluginDetailModal } from "@/components/admin/plugin-market/plugin-detail-modal";
 import { PluginInstallModal } from "@/components/admin/plugin-market/plugin-install-modal";
+import { ProxySettings } from "@/components/admin/plugin-market/proxy-settings";
 import { CATEGORIES, CATEGORY_LABEL } from "@/components/admin/plugin-market/labels";
 import {
   apiAdminSaveSettings,
@@ -219,6 +220,9 @@ export default function PluginMarketPage() {
           </span>
         )}
       </div>
+
+      {/* 加速代理（国内网络直连 GitHub 失败时选择；保存后重新拉取商城） */}
+      <ProxySettings onApplied={() => load(source)} />
 
       {/* 搜索 + 一级分类 Tab（设计稿：全部/免费/付费/已安装） */}
       <div className="mt-4 flex flex-wrap items-center gap-3">

@@ -11,7 +11,7 @@ import Link from "@tiptap/extension-link";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 
-import { apiUploadMedia, apiResolveQQMusic, authHeaders, ApiError } from "@/lib/api";
+import { apiUploadMedia, apiResolveQQMusic, apiPluginExtensions, authHeaders, ApiError } from "@/lib/api";
 import { htmlToText } from "@/lib/rich-text";
 import { parseMusicEmbed, qqPlayerURL } from "@/lib/music-embed";
 import { parseVideoEmbed } from "@/lib/video-embed";
@@ -19,6 +19,17 @@ import { Modal } from "@/components/ui/modal";
 
 import { VideoEmbed } from "./video-embed";
 import { MusicEmbed } from "./music-embed";
+import { BilibiliEmbed } from "./bilibili-embed";
+import { BilibiliPicker } from "./bilibili-picker";
+
+// isBilibiliInput 判断输入是否为 B 站地址（网页链接 / b23.tv 短链 / 纯 BV 号；纯函数）。
+function isBilibiliInput(input: string): boolean {
+  const u = input.trim();
+  if (u === "") {
+    return false;
+  }
+  return /bilibili\.com|b23\.tv/i.test(u) || /^BV[0-9A-Za-z]{10}$/.test(u);
+}
 
 // sanitizeUrl 仅允许 http/https 链接（防 javascript: 等危险协议；纯函数）。
 function sanitizeUrl(url: string): string {
@@ -98,6 +109,19 @@ export function RichTextEditor({ value, onChange, placeholder, maxLength }: Rich
   const [linkUrl, setLinkUrl] = useState("");
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
+  // B站视频插件是否 running（running 时 B 站地址走高清解析弹窗）
+  const [bilibiliReady, setBilibiliReady] = useState(false);
+
+  // 检测 B站视频插件可用性（公开扩展清单；失败静默回退通用 iframe 流程）
+  useEffect(() => {
+    apiPluginExtensions()
+      .then((r) => {
+        setBilibiliReady(r.items.some((it) => it.plugin_id === "bilibili-video"));
+      })
+      .catch(() => {
+        setBilibiliReady(false);
+      });
+  }, []);
 
   const editor = useEditor({
     extensions: [
@@ -106,6 +130,7 @@ export function RichTextEditor({ value, onChange, placeholder, maxLength }: Rich
       Link.configure({ openOnClick: true, autolink: true }),
       VideoEmbed,
       MusicEmbed,
+      BilibiliEmbed,
     ],
     content: value || "",
     editorProps: {
@@ -570,10 +595,24 @@ export function RichTextEditor({ value, onChange, placeholder, maxLength }: Rich
         </div>
       </Modal>
 
-      {/* 视频内嵌弹窗 */}
-      <Modal open={videoOpen} title="插入视频" onClose={() => { setVideoOpen(false); setVideoError(""); }} maxWidth="max-w-[420px]">
+      {/* 视频内嵌弹窗（B站地址且插件 running 时切换为高清解析弹窗） */}
+      <Modal open={videoOpen} title="插入视频" onClose={() => { setVideoOpen(false); setVideoError(""); }} maxWidth="max-w-[460px]">
+        {bilibiliReady && isBilibiliInput(videoUrl) ? (
+          <BilibiliPicker
+            defaultUrl={videoUrl}
+            onClose={() => { setVideoOpen(false); setVideoUrl(""); setVideoError(""); }}
+            onInsert={(attrs) => {
+              editor?.chain().focus().insertContent({ type: "bilibiliEmbed", attrs }).run();
+              setVideoOpen(false);
+              setVideoUrl("");
+              setVideoError("");
+            }}
+          />
+        ) : (
         <div className="space-y-3">
-          <p className="text-xs text-ink-3">粘贴视频链接，支持 bilibili / YouTube / 腾讯视频 / Vimeo，将内嵌播放器</p>
+          <p className="text-xs text-ink-3">
+            {bilibiliReady ? "粘贴视频链接（B站地址将进入高清解析；也支持 YouTube / 腾讯视频 / Vimeo）" : "粘贴视频链接，支持 bilibili / YouTube / 腾讯视频 / Vimeo，将内嵌播放器"}
+          </p>
           <input
             autoFocus
             value={videoUrl}
@@ -587,6 +626,7 @@ export function RichTextEditor({ value, onChange, placeholder, maxLength }: Rich
             <button type="button" onClick={confirmVideo} className="rounded-full bg-accent px-5 py-1.5 text-sm font-medium text-on-accent hover:opacity-90">插入</button>
           </div>
         </div>
+        )}
       </Modal>
 
       {/* 音乐内嵌弹窗 */}

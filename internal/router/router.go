@@ -14,6 +14,7 @@ import (
 	"github.com/roberts9012062/boke/internal/config"
 	"github.com/roberts9012062/boke/internal/handler"
 	"github.com/roberts9012062/boke/internal/middleware"
+	"github.com/roberts9012062/boke/internal/pluginshared"
 	"github.com/roberts9012062/boke/pkg/resp"
 )
 
@@ -22,6 +23,7 @@ type Handlers struct {
 	Auth     *handler.AuthHandler     // 认证控制器
 	User     *handler.UserHandler     // 用户控制器
 	Post     *handler.PostHandler     // 帖子控制器
+	Page     *handler.PageHandler     // 自定义页面控制器（自定义页面 + 导航自定义）
 	Media    *handler.MediaHandler    // 媒体控制器
 	Comment  *handler.CommentHandler  // 评论控制器
 	Reaction *handler.ReactionHandler // 互动控制器（点赞/收藏/匿名身份）
@@ -39,6 +41,7 @@ type Handlers struct {
 	Backup   *handler.BackupHandler   // 备份导出控制器（M4-报表）
 	Role     *handler.RoleHandler     // 角色权限控制器（M5）
 	Music    *handler.MusicHandler    // 音乐解析控制器（M7：QQ songmid→songid）
+	Video    *handler.VideoHandler    // B站视频桥接控制器（bilibili-video 插件游客通道）
 }
 
 // Register 注册全部路由并返回 Gin 引擎。
@@ -64,6 +67,8 @@ func Register(cfg config.Config, logger *zap.Logger, handlers Handlers, jwtMgr *
 	// 插件前端资源静态服务（M3.6：/plugin-assets/{id}/frontend/*，公开——页面渲染时无需登录；
 	// 资源安装时已 checksums 全量校验；独立前缀避免与 /api/v1/plugins/:id 通配冲突）
 	engine.GET("/plugin-assets/:id/*filepath", handlers.Plugin.Asset)
+	// 插件前端共享 SDK（E2 去重：escapeHtml/试播控制器/页面骨架，同源 ESM 公开分发）
+	engine.GET("/plugin-sdk/shared.js", pluginshared.SharedJS)
 	// SEO 公开端点（M4）：sitemap.xml / robots.txt
 	engine.GET("/sitemap.xml", handlers.Seo.Sitemap)
 	engine.GET("/robots.txt", handlers.Seo.Robots)
@@ -143,11 +148,24 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager, e
 
 	// ---------- 音乐解析（M7：QQ 音乐 songmid→songid，发帖内嵌播放器用） ----------
 	authed.GET("/music/qq-resolve", handlers.Music.ResolveQQ)
+	// 通用音乐源桥接（E7 可插拔：provider 由清单 music_provider 声明动态发现；公开）
+	api.GET("/music/:provider/url", handlers.Music.ProviderURL)
+	api.GET("/music/:provider/bgm", handlers.Music.ProviderBGM)
 	// 网易云播放地址公开代理（M7 插件：访客无需登录即可播放，挂公开组）
 	api.GET("/music/netease-url", handlers.Music.NeteaseURL)
 	// QQ 音乐播放地址公开代理（M8 插件：访客无需登录即可播放，挂公开组）
 	api.GET("/music/qq-url", handlers.Music.QqURL)
 	api.GET("/music/qq-bgm", handlers.Music.QqBGM) // 首页背景音乐（公开：开关+歌单歌曲）
+
+	// ---------- B站视频公开桥接（bilibili-video 插件：游客播放/扫码通道） ----------
+	// 插件代理 API 需登录，而帖内视频要求匿名可播——公开组 + System 身份直达插件
+	api.POST("/video/bilibili/resolve", handlers.Video.Resolve)             // 地址解析（清晰度档位）
+	api.POST("/video/bilibili/url", handlers.Video.URL)                     // 播放地址（guest_token 优先）
+	api.POST("/video/bilibili/qr-init", handlers.Video.QrInit)              // 游客扫码初始化
+	api.POST("/video/bilibili/guest-qr-check", handlers.Video.GuestQrCheck) // 游客扫码轮询（签发 guest_token）
+	api.POST("/video/bilibili/guest-status", handlers.Video.GuestStatus)    // 游客 token 有效性
+	api.GET("/video/bilibili/stream", handlers.Video.Stream)               // 视频流代理（同源加载 + Range 透传）
+	api.GET("/video/bilibili/image", handlers.Video.Image)                 // 图床代理（封面/头像防盗链）
 
 	// ---------- 评论模块（M1.4） ----------
 	// 评论接口开放（登录/匿名均可）：挂可选鉴权识别登录用户身份；
@@ -193,8 +211,11 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager, e
 		authed.PUT("/me/avatar", handlers.Social.UpdateAvatar)     // 更新头像（M1.7）
 		authed.GET("/me/favorites", handlers.Social.Favorites)     // 我的收藏
 
-		// ---------- 站点元信息（M1.7：改从 settings 表实时读取） ----------
-		api.GET("/meta", handlers.Site.GetMeta)
+	// ---------- 站点元信息（M1.7：改从 settings 表实时读取） ----------
+	api.GET("/meta", handlers.Site.GetMeta)
+
+	// ---------- 自定义页面（公开：仅已发布页面，草稿视同不存在） ----------
+	api.GET("/pages/:slug", handlers.Page.GetBySlug)
 
 		// ---------- 私信模块（M2） ----------
 		authed.GET("/conversations", handlers.Message.ListConversations)          // 会话列表（filter=all|unread）
@@ -242,13 +263,20 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager, e
 		media.GET("", handlers.Admin.ListMedia)
 		media.GET("/stats", handlers.Admin.MediaStats)
 		media.DELETE("/:id", handlers.Admin.DeleteMedia)
-		// 标签分类域（M2.9）
-		tags := adminGroup.Group("/tags", perm(casbin.DomainTags))
-		tags.GET("", handlers.Admin.ListTags)
-		tags.GET("/stats", handlers.Admin.TagStats)
-		tags.PUT("/:id", handlers.Admin.RenameTag)
-		tags.POST("/:id/merge", handlers.Admin.MergeTag)
-		tags.DELETE("/:id", handlers.Admin.DeleteTag)
+	// 标签分类域（M2.9）
+	tags := adminGroup.Group("/tags", perm(casbin.DomainTags))
+	tags.GET("", handlers.Admin.ListTags)
+	tags.GET("/stats", handlers.Admin.TagStats)
+	tags.PUT("/:id", handlers.Admin.RenameTag)
+	tags.POST("/:id/merge", handlers.Admin.MergeTag)
+	tags.DELETE("/:id", handlers.Admin.DeleteTag)
+	// 自定义页面域（后台创建独立页面 + 头部导航自定义数据源）
+	pages := adminGroup.Group("/pages", perm(casbin.DomainPages))
+	pages.GET("", handlers.Page.AdminList)
+	pages.GET("/:id", handlers.Page.AdminGet)     // 编辑回显（含正文）
+	pages.POST("", handlers.Page.AdminCreate)     // 创建
+	pages.PUT("/:id", handlers.Page.AdminUpdate)  // 更新
+	pages.DELETE("/:id", handlers.Page.AdminDelete) // 删除
 		// 站点设置域
 		settings := adminGroup.Group("/settings", perm(casbin.DomainSettings))
 		settings.GET("", handlers.Admin.GetSettings)

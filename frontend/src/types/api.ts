@@ -11,6 +11,15 @@ export interface ApiResponse<T> {
   request_id: string; // 请求 ID（贯穿日志）
 }
 
+// 头部导航项（settings.nav_links JSON 数组元素；头部导航自定义，支持两级）
+// 与后端 dto 同步。
+export interface SiteNavLink {
+  label: string; // 显示文案
+  url: string; // 跳转地址（/ 开头站内路径，http(s):// 开头外链；一级纯分组可为空）
+  new_tab: boolean; // 外链是否新窗口打开
+  children?: SiteNavLink[]; // 二级菜单（hover 下拉展开；二级不可再嵌套）
+}
+
 // 站点元信息（GET /api/v1/meta）
 // 与后端 dto 同步。
 export interface SiteMeta {
@@ -18,6 +27,7 @@ export interface SiteMeta {
   site_description: string; // 站点描述
   default_theme: ThemeName; // 服务端默认主题
   maintenance_mode: "on" | "off"; // 维护开关（M2：前端拦截判定）
+  nav: SiteNavLink[] | null; // 头部导航项（null/空 = 前端回退默认导航）
 }
 
 // 分页数据结构（架构文档 11.4）
@@ -132,6 +142,7 @@ export interface PostSummary {
   media: MediaDTO[]; // 媒体预览
   gallery_style: string; // 图片展示风格（grid/carousel/flip/stack/masonry/polaroid；空=网格）
   music?: MusicEmbedDTO | null; // 音乐嵌入（正文内嵌 QQ/网易云，列表渲染迷你播放器，M7）
+  bilibili?: Record<string, unknown> | null; // B站视频块参数（列表经插件内容块渲染播放器）
   like_count: number; // 点赞数
   comment_count: number; // 评论数
   view_count: number; // 浏览量

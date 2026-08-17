@@ -7,12 +7,15 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/roberts9012062/boke/internal/ai"
@@ -41,13 +44,22 @@ type OAuthService struct {
 	fallbackToken string                 // .env 静态 token（断开后回退）
 	settings      *repository.SettingRepo // settings 读写
 	gh            *ghclient.Client       // GitHub 客户端（回调后更新 token）
+	stateMu       sync.Mutex             // state 存储互斥（P2 加固：防 CSRF）
+	pendingStates map[string]time.Time   // 已发放 state → 过期时间（10 分钟内一次性消费）
 }
+
+// oauthStateTTL state 有效期（发放后 10 分钟内必须回调，一次性消费）。
+const oauthStateTTL = 10 * time.Minute
 
 // NewOAuthService 创建 OAuth 服务。
 // 参数：clientID/secret OAuth App 凭证（空=未启用）；keySecret 加密种子；
 //      fallbackToken .env 静态 token（断开后回退，可空）；gh 客户端（SetToken 更新）。
 func NewOAuthService(clientID string, clientSecret string, keySecret string, fallbackToken string, settings *repository.SettingRepo, gh *ghclient.Client) *OAuthService {
-	return &OAuthService{clientID: clientID, clientSecret: clientSecret, keySecret: keySecret, fallbackToken: fallbackToken, settings: settings, gh: gh}
+	return &OAuthService{
+		clientID: clientID, clientSecret: clientSecret, keySecret: keySecret,
+		fallbackToken: fallbackToken, settings: settings, gh: gh,
+		pendingStates: make(map[string]time.Time),
+	}
 }
 
 // FallbackToken .env 静态 token（断开 OAuth 后回退）。
@@ -62,26 +74,67 @@ func (s *OAuthService) Enabled() bool {
 
 // AuthorizeURL 生成 GitHub 授权跳转 URL（scope：read:user + 公开仓库读取）。
 // 说明：公开仓库拉取/下载无需额外 scope；仅需用户身份（连接状态展示）。
+// P2 加固：生成随机 state（10 分钟一次性消费）——回调校验防 CSRF 换绑攻击者 token。
 func (s *OAuthService) AuthorizeURL() (string, error) {
 	if !s.Enabled() {
 		return "", fmt.Errorf("GitHub OAuth 未配置（缺少 GITHUB_OAUTH_CLIENT_ID/SECRET）")
 	}
 	params := url.Values{
-		"client_id":    {s.clientID},
-		"scope":        {"read:user"},
+		"client_id":     {s.clientID},
+		"scope":         {"read:user"},
 		"response_type": {"code"},
+		"state":         {s.issueState()},
 	}
 	return "https://github.com/login/oauth/authorize?" + params.Encode(), nil
 }
 
-// Callback OAuth 回调：code 换 access_token → 查询用户名 → 加密存 settings + 更新 ghclient。
+// issueState 发放一次性 state（随机 128bit hex；登记入内存表并顺手清理过期项）。
+// 说明：内存表适用单实例部署；多实例部署需换 Redis 存储（TODO 注记）。
+func (s *OAuthService) issueState() string {
+	buf := make([]byte, 16)
+	_, _ = rand.Read(buf)
+	state := hex.EncodeToString(buf)
+	now := time.Now()
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	for k, exp := range s.pendingStates {
+		if now.After(exp) {
+			delete(s.pendingStates, k)
+		}
+	}
+	s.pendingStates[state] = now.Add(oauthStateTTL)
+	return state
+}
+
+// consumeState 消费并校验 state（存在且未过期则删除并返回 true；一次性防重放）。
+func (s *OAuthService) consumeState(state string) bool {
+	if state == "" {
+		return false
+	}
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	exp, ok := s.pendingStates[state]
+	if !ok {
+		return false
+	}
+	delete(s.pendingStates, state)
+	return time.Now().Before(exp)
+}
+
+// Callback OAuth 回调：state 校验（防 CSRF）→ code 换 access_token → 查询用户名 →
+// 加密存 settings + 更新 ghclient。
 // 返回：连接状态（含用户名）。
-func (s *OAuthService) Callback(ctx context.Context, code string) (*OAuthStatusDTO, error) {
+func (s *OAuthService) Callback(ctx context.Context, code string, state string) (*OAuthStatusDTO, error) {
 	if !s.Enabled() {
 		return nil, fmt.Errorf("GitHub OAuth 未配置")
 	}
 	if code == "" {
 		return nil, fmt.Errorf("缺少授权码")
+	}
+	// P2 加固：state 必须匹配本站发放的未过期一次性值——
+	// 阻断「诱导管理员浏览器回放攻击者授权码」的 CSRF 换绑
+	if !s.consumeState(state) {
+		return nil, fmt.Errorf("授权状态校验失败（state 无效或已过期），请重新发起连接")
 	}
 	// 1. 换 token（GitHub OAuth access_token 端点）
 	form := url.Values{

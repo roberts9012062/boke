@@ -30,5 +30,5 @@ LOG_FILE="$LOG_DIR/build-seo-plugin-$(date +%Y%m%d-%H%M%S).log"
 
 echo "[构建] cmd/seo-plugin → $OUT_DIR/$BIN_NAME" | tee -a "$LOG_FILE"
 mkdir -p "$OUT_DIR"
-go build -o "$OUT_DIR/$BIN_NAME" ./cmd/seo-plugin 2>&1 | tee -a "$LOG_FILE"
+go build -o "$OUT_DIR/$BIN_NAME" -C marketplace-repo ./seo-optimizer 2>&1 | tee -a "$LOG_FILE"
 echo "[完成] SEO 插件二进制就绪：$OUT_DIR/$BIN_NAME" | tee -a "$LOG_FILE"

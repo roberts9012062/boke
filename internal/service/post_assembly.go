@@ -7,6 +7,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"html"
 	"regexp"
 	"strings"
@@ -38,6 +39,7 @@ func (s *PostService) assembleSummaries(ctx context.Context, posts []model.Post,
 			Visibility:   post.Visibility,
 			GalleryStyle: post.GalleryStyle,
 			Music:        extractMusicEmbed(post.Content),
+			Bilibili:     extractBilibiliEmbed(post.Content),
 			LikeCount:    post.LikeCount,
 			CommentCount: post.CommentCount,
 			ViewCount:    post.ViewCount,
@@ -264,4 +266,31 @@ func firstAttr(re *regexp.Regexp, s string) string {
 		return m[1]
 	}
 	return ""
+}
+
+// ---------- B站视频块提取（bilibili-video 插件，时间线列表渲染播放器） ----------
+
+// bilibiliBlockDivRe B站内容块开标签（data-plugin-block="bilibili"）。
+var bilibiliBlockDivRe = regexp.MustCompile(`(?s)<div[^>]*data-plugin-block="bilibili"[^>]*>`)
+
+// dataPropsRe 块参数属性（值内引号已被序列化为 &quot;，无裸引号）。
+var dataPropsRe = regexp.MustCompile(`data-props="([^"]*)"`)
+
+// extractBilibiliEmbed 从正文 HTML 提取首个 B站视频块的参数 JSON（纯函数）。
+// 序列化形态：<div data-plugin-block="bilibili" data-props="{&quot;bvid&quot;:...}"></div>
+// 返回 nil 表示正文无 B站块（props 非法 JSON 同样返回 nil，详情页按占位处理）。
+func extractBilibiliEmbed(content string) json.RawMessage {
+	loc := bilibiliBlockDivRe.FindStringIndex(content)
+	if loc == nil {
+		return nil
+	}
+	raw := firstAttr(dataPropsRe, content[loc[0]:loc[1]])
+	if raw == "" {
+		return nil
+	}
+	props := json.RawMessage(html.UnescapeString(raw))
+	if !json.Valid(props) {
+		return nil
+	}
+	return props
 }

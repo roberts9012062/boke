@@ -51,7 +51,7 @@ type Result struct {
 type Hook struct {
 	Name     string                              // 钩子名（对齐主进程钩子表，见 internal/plugin/hook.go）
 	Sync     bool                                // true=同步（可拦截/改写），false=异步（事后通知）
-	Priority int                                 // 执行优先级（小先执行，主进程注册表按注册顺序执行）
+	Priority int                                 // 执行优先级（小先执行；预留字段——进程外插件的优先级暂不透传宿主，proto HookInfo 契约扩展后生效）
 	Handler  func(ctx context.Context, ev Event) (Result, error) // 钩子处理器
 }
 

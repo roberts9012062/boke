@@ -79,6 +79,7 @@ export default function AdminSettings() {
       <h1 className="font-display text-xl font-semibold text-ink">站点设置</h1>
       {/* 分区标题（设计稿：站点与用户） */}
       <p className="mt-0.5 text-xs text-ink-3">站点与用户 · 保存后即时生效</p>
+      {/* 头部导航自定义已迁移为独立一级菜单「头部导航」（/admin/nav） */}
 
       <div className="mt-5 space-y-5 rounded-lg border border-line bg-elevated p-6">
         {/* 站点名称（设计稿：月言） */}

@@ -37,6 +37,9 @@ const EMPTY_FORM: AiProviderInput = {
 export function ProvidersTab() {
   const [items, setItems] = useState<AiProviderDTO[]>([]);
   const [loaded, setLoaded] = useState(false);
+  // 弹层开关与编辑对象必须分离：editing 恒为 null 表示「新增模式」，
+  // 若用 editing !== null 当打开条件，新增弹层将永远无法显示（历史 bug）
+  const [modalOpen, setModalOpen] = useState(false); // 新增/编辑弹层是否打开
   const [editing, setEditing] = useState<AiProviderDTO | null>(null); // 编辑对象（null=新增）
   const [form, setForm] = useState<AiProviderInput>(EMPTY_FORM);
   const [fetchableModels, setFetchableModels] = useState<string[]>([]); // 拉取到的候选模型清单
@@ -61,6 +64,7 @@ export function ProvidersTab() {
     setForm(EMPTY_FORM);
     setFetchableModels([]);
     setError("");
+    setModalOpen(true);
   };
 
   // 打开编辑弹层（回填表单；API Key 不回显，留空 = 不修改）
@@ -79,6 +83,7 @@ export function ProvidersTab() {
     // 已保存的模型作为初始候选（编辑时能看到已选；后续拉取会合并去重）
     setFetchableModels(p.models);
     setError("");
+    setModalOpen(true);
   };
 
   // fetchModels 拉取供应商模型清单（以表单当前 base_url + api_key 直连）
@@ -130,6 +135,7 @@ export function ProvidersTab() {
       }
       const r = await apiAiProviders();
       setItems(r.items);
+      setModalOpen(false);
       setEditing(null);
       setForm(EMPTY_FORM);
       setFetchableModels([]);
@@ -258,7 +264,7 @@ export function ProvidersTab() {
       )}
 
       {/* 新增/编辑弹层 */}
-      <Modal open={editing !== null} title={editing ? `编辑供应商 · ${editing.name}` : "新增供应商"} onClose={() => setEditing(null)} maxWidth="max-w-[480px]">
+      <Modal open={modalOpen} title={editing ? `编辑供应商 · ${editing.name}` : "新增供应商"} onClose={() => { setModalOpen(false); setEditing(null); }} maxWidth="max-w-[480px]">
         <div className="space-y-3">
           <label className="block">
             <span className="text-xs text-ink-3">名称（必填）</span>
@@ -374,7 +380,7 @@ export function ProvidersTab() {
           <div className="flex justify-end gap-2 pt-1">
             <button
               type="button"
-              onClick={() => setEditing(null)}
+              onClick={() => { setModalOpen(false); setEditing(null); }}
               className="rounded-full border border-line px-4 py-1.5 text-sm text-ink-2 hover:text-ink"
             >
               取消

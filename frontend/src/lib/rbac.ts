@@ -19,6 +19,7 @@ export const ROLE_LABEL: Record<Role, string> = {
 export const DOMAIN_LABEL: Record<string, string> = {
   dashboard: "仪表盘",
   posts: "内容管理",
+  pages: "自定义页面",
   comments: "评论管理",
   users: "用户管理",
   media: "媒体库",

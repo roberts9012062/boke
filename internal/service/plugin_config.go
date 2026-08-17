@@ -1,7 +1,9 @@
 // internal/service/plugin_config.go
-// 插件设置服务（M3.7 设置功能端到端）：
+// 插件设置服务（M3.7 设置功能端到端 + B3 配置分层叠加）：
 //   - schema 聚合：进程 Info 上报优先、市场清单兜底（旧插件兼容）
 //   - 配置存储：plugin_instances.config JSONB（表已预留，不再污染全局 settings 表）
+//   - 生效配置（B3）：schema Default 层 ⊕ 实例配置层——下发/回显/推送统一为合并结果，
+//     插件无需自行处理默认值（对齐 Cordis bundle 默认 → patch 叠加思想）
 //   - 配置下发：保存后 PushConfig 即时生效；进程重启由 manager Start 激活后自动下发
 package service
 
@@ -26,6 +28,7 @@ type PluginDetailDTO struct {
 }
 
 // PluginConfigProvider 插件配置查询回调（manager 启动激活时调用：查 DB config 下发）。
+// B3：下发**生效配置**（schema 默认值 ⊕ 实例配置），插件无需自行处理默认值。
 func (s *PluginService) PluginConfigProvider(ctx context.Context, pluginID string) (map[string]string, error) {
 	inst, err := s.plugs.FindByPluginID(ctx, pluginID)
 	if err != nil {
@@ -34,11 +37,7 @@ func (s *PluginService) PluginConfigProvider(ctx context.Context, pluginID strin
 		}
 		return nil, err
 	}
-	values, err := s.plugs.GetConfig(ctx, inst.ID)
-	if err != nil {
-		return nil, err
-	}
-	return values, nil
+	return s.effectiveConfig(ctx, inst)
 }
 
 // PluginIDByInstance 已存在（plugin_runner.go）。此处补充反向：
@@ -52,7 +51,54 @@ func (s *PluginService) InstanceIDByPluginID(ctx context.Context, pluginID strin
 	return inst.ID, nil
 }
 
-// Detail 插件详情（设置页数据源）：进程 Info 上报 schema 优先，市场清单兜底；附已存配置。
+// aggregateSchema 聚合插件设置 schema（进程 Info 上报优先，市场清单兜底）。
+// 抽取自 Detail（B3：SetConfig/effectiveConfig 复用，消除三处内联重复）。
+func (s *PluginService) aggregateSchema(ctx context.Context, pluginID string) []PluginSettingField {
+	// 进程上报优先（运行中拉 Info；失败/空静默走兜底）
+	if s.manager != nil {
+		if info, err := s.manager.PluginInfo(pluginID); err == nil && len(info.GetSettings()) > 0 {
+			return settingFieldsFromProto(info.GetSettings())
+		}
+	}
+	// 兜底：市场清单声明（旧插件无 Info 上报时仍可配置）
+	if manifest, err := s.fetchManifest(ctx, ""); err == nil {
+		for _, p := range manifest.Plugins {
+			if p.ID == pluginID {
+				return p.SettingsSchema
+			}
+		}
+	}
+	return nil
+}
+
+// MergeConfigDefaults 生效配置合并（B3 分层叠加，纯函数）：
+// schema Default 层 ⊕ 实例配置层——实例 key **存在即覆盖**（含显式空串，
+// 用户显式清空即空），不存在回退 Default；结果覆盖全部 schema key
+// （无默认无实例的 key 为空串——插件 Config() 读取契约稳定）。
+// 未在 schema 声明的 key 一律丢弃（防任意键注入，与 SetConfig 过滤语义一致）。
+func MergeConfigDefaults(schema []PluginSettingField, values map[string]string) map[string]string {
+	out := make(map[string]string, len(schema))
+	for _, f := range schema {
+		if v, ok := values[f.Key]; ok {
+			out[f.Key] = v
+		} else {
+			out[f.Key] = f.Default
+		}
+	}
+	return out
+}
+
+// effectiveConfig 计算插件生效配置（实例配置 + 默认值合并；读取侧统一出口）。
+func (s *PluginService) effectiveConfig(ctx context.Context, inst repository.PluginInstance) (map[string]string, error) {
+	values, err := s.plugs.GetConfig(ctx, inst.ID)
+	if err != nil {
+		return nil, err
+	}
+	schema := s.aggregateSchema(ctx, inst.PluginID)
+	return MergeConfigDefaults(schema, values), nil
+}
+
+// Detail 插件详情（设置页数据源）：聚合 schema + 生效配置（默认值合并后回显）。
 func (s *PluginService) Detail(ctx context.Context, instanceID int64) (*PluginDetailDTO, error) {
 	inst, err := s.plugs.FindByID(ctx, instanceID)
 	if err != nil {
@@ -61,57 +107,38 @@ func (s *PluginService) Detail(ctx context.Context, instanceID int64) (*PluginDe
 	dto := &PluginDetailDTO{
 		ID: inst.ID, PluginID: inst.PluginID, Name: inst.Name,
 		Version: inst.Version, State: inst.State,
+		SettingsSchema: s.aggregateSchema(ctx, inst.PluginID),
 	}
-	// schema：进程上报优先（运行中拉 Info；失败/空静默走兜底）
-	if s.manager != nil {
-		if info, err := s.manager.PluginInfo(inst.PluginID); err == nil && len(info.GetSettings()) > 0 {
-			dto.SettingsSchema = settingFieldsFromProto(info.GetSettings())
-		}
-	}
-	// 兜底：市场清单声明（旧插件无 Info 上报时仍可配置）
-	if len(dto.SettingsSchema) == 0 {
-		if manifest, err := s.fetchManifest(ctx, ""); err == nil {
-			for _, p := range manifest.Plugins {
-				if p.ID == inst.PluginID {
-					dto.SettingsSchema = p.SettingsSchema
-					break
-				}
-			}
-		}
-	}
-	// 已存配置（回显）
-	values, err := s.plugs.GetConfig(ctx, instanceID)
+	// 生效配置（回显 = 默认值 ⊕ 实例值；B3 前仅回显实例值）
+	config, err := s.effectiveConfig(ctx, inst)
 	if err != nil {
 		return nil, err
 	}
-	dto.Config = values
+	dto.Config = config
 	return dto, nil
 }
 
-// GetConfig 读取插件配置（设置页回显；不存在返回空 map）。
+// GetConfig 读取插件生效配置（设置页回显；不存在返回空 map）。
 func (s *PluginService) GetConfig(ctx context.Context, instanceID int64) (map[string]string, error) {
-	if _, err := s.plugs.FindByID(ctx, instanceID); err != nil {
+	inst, err := s.plugs.FindByID(ctx, instanceID)
+	if err != nil {
 		return nil, errs.ErrNotFound
 	}
-	values, err := s.plugs.GetConfig(ctx, instanceID)
-	if err != nil {
-		return nil, err
-	}
-	return values, nil
+	return s.effectiveConfig(ctx, inst)
 }
 
 // SetConfig 保存插件配置：按 schema 声明的 key 过滤（未声明键丢弃）→ 落库 config JSONB
-// → 进程运行则推送（即时生效）；进程未运行静默（重启时 Start 激活后自动下发）。
-// 返回：实际保存的过滤后配置。
+// → 进程运行则推送**生效配置**（默认值合并；即时生效）；进程未运行静默（重启时 Start 激活后自动下发）。
+// 返回：实际生效的配置（合并后）。
 func (s *PluginService) SetConfig(ctx context.Context, instanceID int64, values map[string]string) (map[string]string, error) {
-	// 聚合 schema（复用详情逻辑：进程 Info 优先、清单兜底）
-	detail, err := s.Detail(ctx, instanceID)
+	inst, err := s.plugs.FindByID(ctx, instanceID)
 	if err != nil {
-		return nil, err
+		return nil, errs.ErrNotFound
 	}
 	// 仅保留 schema 声明的 key（防止任意键注入配置表）
-	allowed := make(map[string]bool, len(detail.SettingsSchema))
-	for _, f := range detail.SettingsSchema {
+	schema := s.aggregateSchema(ctx, inst.PluginID)
+	allowed := make(map[string]bool, len(schema))
+	for _, f := range schema {
 		allowed[f.Key] = true
 	}
 	filtered := make(map[string]string, len(values))
@@ -124,11 +151,12 @@ func (s *PluginService) SetConfig(ctx context.Context, instanceID int64, values 
 	if err := s.plugs.SetConfig(ctx, instanceID, filtered); err != nil {
 		return nil, err
 	}
-	// 运行中推送（失败不阻断——已落库，重启后 Start 激活时生效）
+	// 生效配置（默认值合并；运行中推送失败不阻断——已落库，重启后生效）
+	effective := MergeConfigDefaults(schema, filtered)
 	if s.manager != nil {
-		_ = s.manager.PushConfig(detail.PluginID, filtered)
+		_ = s.manager.PushConfig(inst.PluginID, effective)
 	}
-	return filtered, nil
+	return effective, nil
 }
 
 // settingFieldsFromProto proto 设置项 → service 设置项（契约字段对齐转换）。

@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
+	"github.com/roberts9012062/boke/internal/ai"
 	"github.com/roberts9012062/boke/internal/service"
 	"github.com/roberts9012062/boke/pkg/errs"
 	"github.com/roberts9012062/boke/pkg/resp"
@@ -245,18 +246,29 @@ func (h *AiHandler) ReviewComments(c *gin.Context) {
 
 // ---------- 统一推理接口（通用入口，插件/未来功能直调） ----------
 
-// Generate 通用非流式生成（POST /api/v1/admin/ai/generate，body: {model, prompt, content}）。
+// Generate 通用非流式生成（POST /api/v1/admin/ai/generate）。
+// 请求体：{model, prompt, content} 单轮（旧调用方不变）；
+// 或 {model, messages: [{role, content}], max_tokens} 多轮（自定义页面构建器等对话式调用方，
+// 携带 messages 时优先于 prompt/content）。
 func (h *AiHandler) Generate(c *gin.Context) {
 	var req struct {
-		Model   string `json:"model"`   // 模型名
-		Prompt  string `json:"prompt"`  // 系统提示词
-		Content string `json:"content"` // 用户输入
+		Model     string       `json:"model"`     // 模型名
+		Prompt    string       `json:"prompt"`    // 系统提示词（单轮形态）
+		Content   string       `json:"content"`   // 用户输入（单轮形态）
+		Messages  []ai.Message `json:"messages"`  // 多轮对话（可选，携带时优先）
+		MaxTokens int          `json:"max_tokens"` // 输出上限（可选，默认 300，上限 16000）
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		resp.Fail(c, 400, errs.ErrBadRequest)
 		return
 	}
-	text, err := h.ai.Generate(c.Request.Context(), req.Model, req.Prompt, req.Content)
+	var text string
+	var err error
+	if len(req.Messages) > 0 {
+		text, err = h.ai.GenerateChat(c.Request.Context(), req.Model, req.Messages, req.MaxTokens)
+	} else {
+		text, err = h.ai.Generate(c.Request.Context(), req.Model, req.Prompt, req.Content)
+	}
 	if err != nil {
 		h.logger.Error("AI 通用生成失败", zap.Error(err))
 		resp.FailFrom(c, err)
@@ -266,18 +278,27 @@ func (h *AiHandler) Generate(c *gin.Context) {
 }
 
 // GenerateStream 通用流式生成（POST /api/v1/admin/ai/generate/stream，SSE）。
+// 请求体与 Generate 一致（单轮 {model,prompt,content} 或多轮 {model,messages,max_tokens}）。
 // 事件格式：data: {"text":"增量"} 直至 data: [DONE]。
 func (h *AiHandler) GenerateStream(c *gin.Context) {
 	var req struct {
-		Model   string `json:"model"`   // 模型名
-		Prompt  string `json:"prompt"`  // 系统提示词
-		Content string `json:"content"` // 用户输入
+		Model     string       `json:"model"`     // 模型名
+		Prompt    string       `json:"prompt"`    // 系统提示词（单轮形态）
+		Content   string       `json:"content"`   // 用户输入（单轮形态）
+		Messages  []ai.Message `json:"messages"`  // 多轮对话（可选，携带时优先）
+		MaxTokens int          `json:"max_tokens"` // 输出上限（可选，默认 1024，上限 16000）
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		resp.Fail(c, 400, errs.ErrBadRequest)
 		return
 	}
-	stream, err := h.ai.GenerateStream(c.Request.Context(), req.Model, req.Prompt, req.Content)
+	var stream ai.ChatStream
+	var err error
+	if len(req.Messages) > 0 {
+		stream, err = h.ai.GenerateChatStream(c.Request.Context(), req.Model, req.Messages, req.MaxTokens)
+	} else {
+		stream, err = h.ai.GenerateStream(c.Request.Context(), req.Model, req.Prompt, req.Content)
+	}
 	if err != nil {
 		h.logger.Error("AI 流式生成失败", zap.Error(err))
 		resp.FailFrom(c, err)

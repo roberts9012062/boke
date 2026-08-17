@@ -55,6 +55,7 @@ type PluginInfo struct {
 	Requires     []string `json:"requires"`     // 依赖插件 ID（需已安装，M3.2）
 	Conflicts    []string `json:"conflicts"`    // 冲突插件 ID（不可同时安装，M3.2）
 	Platforms    []string `json:"platforms,omitempty"` // 支持平台（linux/darwin/windows，M3.4）
+	MusicProvider string   `json:"music_provider,omitempty"` // 音乐源声明（E7：provider 名如 qq/netease；宿主 /music/:provider/* 桥接动态发现）
 	Assets       *PluginAssets `json:"assets,omitempty"` // Release 资产声明（M3.4）
 	Nav          *PluginNav `json:"nav,omitempty"` // 侧栏入口声明（安装启用后注册，前端扩展点）
 	SettingsSchema []PluginSettingField `json:"settings_schema,omitempty"` // 设置项 schema（schema 驱动设置页）
@@ -124,6 +125,20 @@ func (s *PluginService) pluginSource(ctx context.Context) string {
 	return defaultPluginSource
 }
 
+// pluginProxy 读取 GitHub 加速代理（settings.plugin_proxy，空 = 直连）。
+// 面向国内网络：api.github.com DNS 不可达时，管理员在商城页选择代理地址加速拉取。
+func (s *PluginService) pluginProxy(ctx context.Context) string {
+	if v, ok, err := s.settings.Get(ctx, "plugin_proxy"); err == nil && ok {
+		return strings.TrimSpace(v)
+	}
+	return ""
+}
+
+// applyGHProxy 把代理设置应用到 GitHub 客户端（每次网络访问前刷新，切换代理即时生效无需重启）。
+func (s *PluginService) applyGHProxy(ctx context.Context) {
+	s.gh.SetProxy(s.pluginProxy(ctx))
+}
+
 // splitSource 解析插件源为 owner/repo（纯函数）。
 func splitSource(source string) (string, string, error) {
 	parts := strings.SplitN(strings.TrimSpace(source), "/", 2)
@@ -139,6 +154,7 @@ func (s *PluginService) fetchManifest(ctx context.Context, source string) (*Plug
 		source = s.pluginSource(ctx)
 	}
 	source = strings.TrimSpace(source)
+	s.applyGHProxy(ctx) // 刷新代理设置（切换代理后重试即时生效）
 
 	// 缓存命中（同源 + 未过期）
 	s.cache.mu.Lock()
@@ -171,6 +187,14 @@ func (s *PluginService) fetchManifest(ctx context.Context, source string) (*Plug
 func (s *PluginService) buildManifest(ctx context.Context, owner string, repo string) (*PluginManifest, error) {
 	paths, err := s.gh.FetchTree(ctx, owner, repo)
 	if err != nil {
+		// DNS 解析失败/连接不通时按代理状态给引导（国内网络直连 GitHub 常见 + 公共代理单点故障）
+		if strings.Contains(err.Error(), "no such host") || strings.Contains(err.Error(), "dial tcp") {
+			hint := "当前网络无法直连 GitHub，请在商城页选择加速代理地址后重试"
+			if s.pluginProxy(ctx) != "" {
+				hint = "当前代理地址不可达，请在商城页切换其他代理后重试"
+			}
+			return nil, errs.New(errs.CodeUpstream, err.Error()+"。"+hint)
+		}
 		return nil, errs.New(errs.CodeUpstream, err.Error())
 	}
 	folders := pluginFolders(paths)
@@ -328,4 +352,32 @@ func (s *PluginService) Readme(ctx context.Context, source string, pluginID stri
 	s.readme.items[key] = readmeEntry{content: content, fetched: time.Now()}
 	s.readme.mu.Unlock()
 	return content, nil
+}
+
+// MusicProviderPlugin 按音乐源 provider 名发现运行中插件（E7 可插拔桥接）。
+// 查询市场清单 music_provider 声明 → 校验已安装且 running → 返回插件 ID；
+// 未声明/未安装/未运行/清单拉取失败返回空串（调用方回退静态注册表）。
+func (s *PluginService) MusicProviderPlugin(ctx context.Context, provider string) (string, error) {
+	if provider == "" {
+		return "", nil
+	}
+	manifest, err := s.fetchManifest(ctx, "")
+	if err != nil {
+		return "", err
+	}
+	var pluginID string
+	for i := range manifest.Plugins {
+		if manifest.Plugins[i].MusicProvider == provider {
+			pluginID = manifest.Plugins[i].ID
+			break
+		}
+	}
+	if pluginID == "" {
+		return "", nil
+	}
+	inst, err := s.plugs.FindByPluginID(ctx, pluginID)
+	if err != nil || inst.State != PluginRunning {
+		return "", nil
+	}
+	return pluginID, nil
 }
