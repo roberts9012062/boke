@@ -88,9 +88,10 @@ func (s *PluginService) installFromRelease(ctx context.Context, info *PluginInfo
 	if err := s.gh.DownloadAsset(ctx, asset.URL, tmpPath, maxBPKSize); err != nil {
 		return errs.New(errs.CodePluginDownload, err.Error())
 	}
-	// 第一重校验：清单声明 SHA-256（有声明才比对；包内 checksums 为第二重）
-	if info.Assets != nil && info.Assets.SHA256 != "" {
-		if !strings.EqualFold(fileSHA256(tmpPath), info.Assets.SHA256) {
+	// 第一重校验：清单声明 SHA-256（有声明才比对；包内 checksums 为第二重）。
+	// 多平台分发时按平台专属哈希优先（各平台包内容不同），回退单值声明兼容旧清单。
+	if expectHash := info.Assets.HashForPlatform(runtime.GOOS, runtime.GOARCH); expectHash != "" {
+		if !strings.EqualFold(fileSHA256(tmpPath), expectHash) {
 			return errs.New(errs.CodePluginVerify, "插件包校验失败（SHA-256 与清单声明不符）")
 		}
 	}

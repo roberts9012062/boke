@@ -77,7 +77,23 @@ type PluginNav struct {
 // PluginAssets 插件 Release 资产声明（M3.4：.bpk 下载安装匹配）。
 type PluginAssets struct {
 	Pattern string `json:"pattern"` // 资产名模式（如 {id}-{version}-{os}-{arch}.bpk）
-	SHA256  string `json:"sha256"`  // 包 SHA-256（清单声明，可选；下载后实算比对）
+	SHA256  string `json:"sha256"`  // 包 SHA-256（单值声明，可选；下载后实算比对）
+	// SHA256ByPlatform 按平台声明的包哈希（键为 "{os}-{arch}"，如 linux-arm64）。
+	// 多平台分发时各平台包内容不同、哈希不同——优先按平台匹配，无匹配回退 SHA256 单值。
+	SHA256ByPlatform map[string]string `json:"sha256_by_platform,omitempty"`
+}
+
+// HashForPlatform 取目标平台应校验的包哈希（平台专属优先，回退单值声明；均无返回空串=跳过校验）。
+func (a *PluginAssets) HashForPlatform(goos string, goarch string) string {
+	if a == nil {
+		return ""
+	}
+	if a.SHA256ByPlatform != nil {
+		if h, ok := a.SHA256ByPlatform[goos+"-"+goarch]; ok {
+			return h
+		}
+	}
+	return a.SHA256
 }
 
 // PluginSettingField 插件设置项（schema 驱动通用设置页）。
