@@ -1,0 +1,40 @@
+# .dockerignore
+# Docker 构建上下文裁剪：排除与镜像产物无关的目录，加速构建并避免敏感内容进镜像。
+# 注意：gitignore 规则不带行内注释（历史教训），注释一律独立成行。
+
+# 版本库与本地环境
+.git
+.gitignore
+.zcode
+.mcp.json
+.wrangler
+
+# 依赖与构建产物（镜像内重新构建）
+frontend/node_modules
+frontend/.next
+dist
+bin
+*.exe
+
+# 本地运行数据与日志（compose 挂载卷，不进镜像）
+data
+logs
+.pids
+
+# 大文件与本地工作目录
+UI设计
+boke.pen
+export.zip
+browser-extension
+marketplace-repo
+dsh-reverse-security
+research
+reverse-skill
+gui-test-screenshots
+screenshots
+discuss
+
+# 密钥与环境配置（镜像运行时由 compose 注入）
+.env
+ssh-config.toml
+data/image-worker-credentials.txt

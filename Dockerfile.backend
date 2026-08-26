@@ -1,0 +1,35 @@
+# Dockerfile.backend
+# 后端服务镜像：多阶段构建（golang 编译 → alpine 运行）。
+#
+# 说明：
+#   - schema/seed/迁移 SQL 已 go:embed 进二进制，运行镜像无需携带 db/ 目录
+#   - CGO_ENABLED=0 静态编译，运行镜像仅补 ca-certificates（外呼 HTTPS）与 tzdata
+#   - 工作目录 /app：data/（媒体/安装锁/setup.env）与 logs/ 由 compose 挂载卷持久化
+
+# ---------- 构建阶段 ----------
+FROM golang:1.25-alpine AS build
+
+WORKDIR /src
+
+# 依赖层（go.mod/go.sum 单独复制，充分利用构建缓存）
+COPY go.mod go.sum ./
+RUN go mod download
+
+# 源码与编译（-trimpath 去除本机路径）
+COPY . .
+RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o /out/server ./cmd/server
+
+# ---------- 运行阶段 ----------
+FROM alpine:3.20
+
+RUN apk add --no-cache ca-certificates tzdata
+
+WORKDIR /app
+COPY --from=build /out/server /app/server
+
+# 媒体上传与插件子进程需要；安装向导写入 data/install.lock、data/setup.env
+RUN mkdir -p /app/data /app/logs
+
+EXPOSE 8080
+
+ENTRYPOINT ["/app/server"]

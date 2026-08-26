@@ -1,0 +1,91 @@
+# docker-compose.yml
+# 月言博客平台容器编排：PostgreSQL + Redis + 后端（Gin）+ 前端（Next.js）。
+#
+# 首次部署流程（Docker 模式安装向导）：
+#   1. docker compose up -d --build
+#   2. 浏览器访问 http://<服务器IP>:3000 → 自动跳转 /setup 安装向导
+#   3. 数据库已由本编排自动绑定（SETUP_MODE=docker），向导中只需设置
+#      管理员用户名/密码 → 开始安装
+#   4. 安装完成后后端容器自动重启进入正常运行模式
+#
+# 数据持久化：
+#   - pgdata   命名卷：PostgreSQL 数据
+#   - ./data   绑定挂载：媒体上传、安装锁、setup.env（重装删 data/install.lock）
+#   - ./logs   绑定挂载：前后端运行日志
+
+services:
+  # ---------- PostgreSQL 数据库 ----------
+  postgres:
+    image: postgres:16-alpine
+    container_name: boke-postgres
+    environment:
+      POSTGRES_USER: boke
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-boke-change-me}
+      POSTGRES_DB: boke
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U boke -d boke"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  # ---------- Redis 缓存（限流/黑名单，不可用自动降级） ----------
+  redis:
+    image: redis:7-alpine
+    container_name: boke-redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  # ---------- 后端服务 ----------
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: boke-backend
+    environment:
+      # Docker 模式：安装向导跳过数据库填写，直接使用下列注入配置
+      SETUP_MODE: docker
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: boke
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-boke-change-me}
+      POSTGRES_DB: boke
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      DATA_DIR: data
+    volumes:
+      - ./data:/app/data
+      - ./logs/backend:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ---------- 前端服务 ----------
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        # rewrites 构建期固化：容器网络内经服务名访问后端
+        BACKEND_URL: http://backend:8080
+    container_name: boke-frontend
+    environment:
+      # middleware 运行时查询安装状态用（与构建参数同值）
+      BACKEND_URL: http://backend:8080
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  pgdata:

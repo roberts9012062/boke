@@ -10,27 +10,34 @@
 //   - M5 富文本：frame-src 放开视频平台白名单（内嵌 bilibili/YouTube/腾讯/Vimeo 播放器）。
 import type { NextConfig } from "next";
 
+// 后端服务地址：开发默认 localhost:8080；容器/生产环境经 BACKEND_URL 注入
+// （Docker 编排中为 http://backend:8080，rewrites 与 middleware 共用）。
+const BACKEND_URL: string = process.env.BACKEND_URL ?? "http://localhost:8080";
+
 const nextConfig: NextConfig = {
-  // 开发代理：/api、/media、/plugin-assets 与 /plugin-sdk → 后端 Gin 服务
+  // 容器部署：standalone 产物（.next/standalone 含精简 node_modules + server.js），
+  // 本地 dev 不受影响
+  output: "standalone",
+  // 代理：/api、/media、/plugin-assets 与 /plugin-sdk → 后端 Gin 服务
   async rewrites() {
     return [
       {
         source: "/api/:path*",
-        destination: "http://localhost:8080/api/:path*",
+        destination: `${BACKEND_URL}/api/:path*`,
       },
       {
         source: "/media/:path*",
-        destination: "http://localhost:8080/media/:path*",
+        destination: `${BACKEND_URL}/media/:path*`,
       },
       {
         source: "/plugin-assets/:path*",
-        destination: "http://localhost:8080/plugin-assets/:path*",
+        destination: `${BACKEND_URL}/plugin-assets/:path*`,
       },
       {
         // 插件前端共享 SDK（E2）：插件 ESM 模块以绝对路径 import /plugin-sdk/shared.js，
         // 模块图按同源 URL 解析——dev 下必须代理到 Gin（与生产同域反代行为一致）
         source: "/plugin-sdk/:path*",
-        destination: "http://localhost:8080/plugin-sdk/:path*",
+        destination: `${BACKEND_URL}/plugin-sdk/:path*`,
       },
     ];
   },

@@ -67,6 +67,11 @@ func Register(cfg config.Config, logger *zap.Logger, handlers Handlers, jwtMgr *
 	engine.GET("/healthz", func(c *gin.Context) {
 		resp.OK(c, gin.H{"status": "ok"})
 	})
+	// 安装状态查询（正常模式恒 installed=true）：前端 middleware 探测全站引导用；
+	// 未安装时由安装模式服务（internal/server/setup_mode.go）提供同名路由与完整向导接口
+	engine.GET("/api/setup/status", func(c *gin.Context) {
+		resp.OK(c, gin.H{"installed": true, "mode": "manual", "version": "1"})
+	})
 	// 媒体静态服务：/media/202608/xxx.jpg（data/media 目录）
 	engine.StaticFS("/media", http.Dir(cfg.DataDir+"/media"))
 	// 插件前端资源静态服务（M3.6：/plugin-assets/{id}/frontend/*，公开——页面渲染时无需登录；
