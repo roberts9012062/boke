@@ -23,9 +23,9 @@ type OpenAPIKey struct {
 
 // CatalogParam 开放接口的参数说明（后台展示与 AI 手册生成用）。
 type CatalogParam struct {
-	Name        string `json:"name"`        // 参数名（query 或路径参数）
-	Type        string `json:"type"`        // 类型：string / integer
-	Location    string `json:"location"`    // 位置：query / path
+	Name        string `json:"name"`        // 参数名（query / path / body 字段）
+	Type        string `json:"type"`        // 类型：string / integer / array / object
+	Location    string `json:"location"`    // 位置：query / path / body
 	Required    bool   `json:"required"`    // 是否必填
 	Description string `json:"description"` // 参数说明
 }
@@ -33,7 +33,7 @@ type CatalogParam struct {
 // CatalogEntry 开放接口目录项（一个可被授权给 Key 的接口）。
 type CatalogEntry struct {
 	Endpoint    string         `json:"endpoint"`    // 接口标识（唯一，Key 绑定用）
-	Method      string         `json:"method"`      // HTTP 方法（当前全部 GET）
+	Method      string         `json:"method"`      // HTTP 方法（GET / POST）
 	Path        string         `json:"path"`        // 开放网关路径（/api/v1/open/...，含路由参数）
 	Name        string         `json:"name"`        // 接口名称（中文）
 	Description string         `json:"description"` // 功能描述
@@ -150,6 +150,26 @@ func OpenAPICatalog() []CatalogEntry {
 			Name:        "站点信息",
 			Description: "站点元信息（站名、描述、备案号、社交链接等）",
 			Params:      []CatalogParam{},
+		},
+		{
+			Endpoint:    "ai.models",
+			Method:      "GET",
+			Path:        "/api/v1/open/ai/models",
+			Name:        "AI 模型列表",
+			Description: "站点已配置的可用 AI 模型清单（启用的供应商及其模型；API Key 不回显），对话前先拉取选择模型",
+			Params:      []CatalogParam{},
+		},
+		{
+			Endpoint:    "ai.chat",
+			Method:      "POST",
+			Path:        "/api/v1/open/ai/chat",
+			Name:        "AI 对话",
+			Description: "调用站点配置的 AI 模型对话（OpenAI 兼容消息格式；模型取自 ai.models 列表；用量计入站点 AI 统计）",
+			Params: []CatalogParam{
+				{Name: "model", Type: "string", Location: "body", Required: true, Description: "模型名（取自 AI 模型列表接口）"},
+				{Name: "messages", Type: "array", Location: "body", Required: true, Description: "对话消息数组：[{role: system|user|assistant, content: 文本}]，按顺序携带上下文"},
+				{Name: "max_tokens", Type: "integer", Location: "body", Required: false, Description: "最大输出 token（默认 300，上限 16000）"},
+			},
 		},
 	}
 }

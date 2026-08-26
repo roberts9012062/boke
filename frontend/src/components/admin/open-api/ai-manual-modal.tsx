@@ -75,14 +75,19 @@ function buildManual(baseUrl: string, apiKey: OpenAPIKey, catalog: CatalogEntry[
         );
       }
     }
-    // 调用示例（query 参数展开为对象；路径参数用占位值）
+    // 调用示例（query/body 参数展开为对象；路径参数用占位值）
     const pathParams = entry.params.filter((p) => p.location === "path");
-    const queryParams = entry.params.filter((p) => p.location === "query");
+    const argParams = entry.params.filter((p) => p.location === "query" || p.location === "body");
     const callPath = pathParams.reduce((acc, p) => acc.replace(`:${p.name}`, `1`), entry.path).replace("/api/v1/open", "");
-    const args = queryParams.length > 0
-      ? `, { ${queryParams.map((p) => `${p.name}: ${p.type === "integer" ? "1" : `"值"`}`).join(", ")} }`
+    const placeholder = (p: { type: string; name: string }): string => {
+      if (p.type === "integer") return "1";
+      if (p.type === "array") return '[{ role: "user", content: "你好" }]';
+      return `"值"`;
+    };
+    const args = argParams.length > 0
+      ? `, { ${argParams.map((p) => `${p.name}: ${placeholder(p)}`).join(", ")} }`
       : "";
-    lines.push("- 调用示例：`callOpenApi(\"" + callPath + "\"" + args + ")`");
+    lines.push(`- 调用示例（${entry.method}）：\`callOpenApi("${callPath}"${args})\``);
     lines.push("");
   }
 

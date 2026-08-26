@@ -304,7 +304,7 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 		TTS:        handler.NewTTSHandler(pluginSvc),
 		Stats:      handler.NewStatsHandler(pluginSvc),
 		Page:       handler.NewPageHandler(pageSvc, logger),
-		OpenAPI:     handler.NewOpenAPIHandler(openAPISvc, logger),
+		OpenAPI:     handler.NewOpenAPIHandler(openAPISvc, aiSvc, logger),
 		OpenAPIKeys: openAPIKeyRepo,
 	}
 	return handlers, jwtMgr, enforcer, cleanup, nil

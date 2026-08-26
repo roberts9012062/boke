@@ -53,7 +53,7 @@ export function EndpointCatalog({
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-sm font-medium text-ink">{entry.name}</span>
-                    {/* 方法徽标（当前全部 GET） */}
+                    {/* 方法徽标（GET / POST） */}
                     <span className="rounded bg-accent-soft px-1.5 py-0.5 text-[10px] font-medium text-glow">
                       {entry.method}
                     </span>

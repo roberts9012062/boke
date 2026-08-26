@@ -8,8 +8,8 @@ import { get, post, del } from "./api";
 // CatalogParam 开放接口的参数说明。
 export interface CatalogParam {
   name: string; // 参数名
-  type: "string" | "integer"; // 类型
-  location: "query" | "path"; // 位置
+  type: "string" | "integer" | "array" | "object"; // 类型
+  location: "query" | "path" | "body"; // 位置
   required: boolean; // 是否必填
   description: string; // 参数说明
 }
@@ -17,7 +17,7 @@ export interface CatalogParam {
 // CatalogEntry 开放接口目录项（后台多选展示与 AI 手册生成的数据源）。
 export interface CatalogEntry {
   endpoint: string; // 接口标识（Key 绑定用，如 posts.list）
-  method: string; // HTTP 方法（GET）
+  method: string; // HTTP 方法（GET / POST）
   path: string; // 开放网关路径（/api/v1/open/...，含路由参数）
   name: string; // 接口名称（中文）
   description: string; // 功能描述

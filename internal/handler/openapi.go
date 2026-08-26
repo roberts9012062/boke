@@ -18,12 +18,13 @@ import (
 // OpenAPIHandler 接口开放控制器（连接器类）。
 type OpenAPIHandler struct {
 	openapi *service.OpenAPIService // 接口开放业务
+	ai      *service.AiService      // AI 业务（开放网关 ai.models / ai.chat 复用统一对话链路）
 	logger  *zap.Logger             // 错误日志（5xx 留痕）
 }
 
 // NewOpenAPIHandler 创建接口开放控制器。
-func NewOpenAPIHandler(openapi *service.OpenAPIService, logger *zap.Logger) *OpenAPIHandler {
-	return &OpenAPIHandler{openapi: openapi, logger: logger}
+func NewOpenAPIHandler(openapi *service.OpenAPIService, ai *service.AiService, logger *zap.Logger) *OpenAPIHandler {
+	return &OpenAPIHandler{openapi: openapi, ai: ai, logger: logger}
 }
 
 // failWithLog 失败响应：内部错误（6001）记录日志（含请求路径），其余直接返回。
