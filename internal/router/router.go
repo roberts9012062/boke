@@ -47,6 +47,7 @@ type Handlers struct {
 	Stats    *handler.StatsHandler    // 统计桥接控制器（stats-pro 插件访客上报通道）
 	OpenAPI     *handler.OpenAPIHandler       // 接口开放控制器（目录与凭证管理）
 	OpenAPIKeys *repository.OpenAPIKeyRepo   // 开放网关鉴权依赖（ApiKeyAuth 中间件查询凭证用）
+	Update    *handler.UpdateHandler   // 站点更新控制器（版本检查/触发/进度）
 }
 
 // Register 注册全部路由并返回 Gin 引擎。
@@ -243,6 +244,7 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager, e
 	// 变更约束：增删路由须同步 model.OpenAPICatalog() 目录数据。
 	openGroup := api.Group("/open")
 	openGroup.Use(middleware.ApiKeyAuth(handlers.OpenAPIKeys))
+	openGroup.GET("/me", handlers.OpenAPI.Me)                          // 我的资料（me.profile，凭 Key 返回绑定用户）
 	openGroup.GET("/posts", handlers.Post.List)                        // 帖子列表（posts.list）
 	openGroup.GET("/posts/:id", handlers.Post.Get)                     // 帖子详情（posts.detail）
 	openGroup.GET("/posts/:id/comments", handlers.Comment.List)        // 帖子评论（posts.comments）
@@ -271,6 +273,12 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager, e
 		adminGroup.Use(middleware.RequireAuth(jwtMgr))
 		// perm 域权限中间件工厂（enforcer 由 server 注入）
 		perm := func(domain string) gin.HandlerFunc { return middleware.RequirePermission(enforcer, domain) }
+
+		// 站点更新（设置域：版本检查/触发更新/进度轮询，后台左下角更新徽标）
+		upd := adminGroup.Group("/update", perm(casbin.DomainSettings))
+		upd.GET("/check", handlers.Update.Check)
+		upd.POST("/start", handlers.Update.Start)
+		upd.GET("/status", handlers.Update.Status)
 
 		// 仪表盘域
 		dash := adminGroup.Group("", perm(casbin.DomainDashboard))

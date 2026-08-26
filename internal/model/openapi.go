@@ -14,6 +14,7 @@ type OpenAPIKey struct {
 	Name       string     `json:"name"`        // 备注名（可选）
 	Key        string     `json:"key"`         // API Key（oa_ 前缀明文，后台可见便于复制）
 	Endpoints  []string   `json:"endpoints"`   // 已授权接口标识数组（与目录 CatalogEntry.Endpoint 对应）
+	UserID     int64      `json:"user_id"`     // 绑定用户 ID（0=未绑定；/open/me 资料来源）
 	ExpiresAt  *time.Time `json:"expires_at"`  // 过期时间（NULL=永久有效）
 	LastUsedAt *time.Time `json:"last_used_at"` // 最近调用时间（NULL=从未调用）
 	CreatedAt  time.Time  `json:"created_at"`  // 创建时间
@@ -44,6 +45,14 @@ type CatalogEntry struct {
 // 变更约束：增删接口须同步 ① router.go /open 组路由 ② 此目录 ③ 前端无需改动（读目录渲染）。
 func OpenAPICatalog() []CatalogEntry {
 	return []CatalogEntry{
+		{
+			Endpoint:    "me.profile",
+			Method:      "GET",
+			Path:        "/api/v1/open/me",
+			Name:        "我的资料",
+			Description: "凭 Key 返回其绑定用户的公开资料（昵称、头像、简介、帖子/获赞计数）；浏览器插件等外部应用用它展示当前站点登录身份",
+			Params:      []CatalogParam{},
+		},
 		{
 			Endpoint:    "posts.list",
 			Method:      "GET",

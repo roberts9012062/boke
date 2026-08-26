@@ -263,6 +263,7 @@ type ReleaseAsset struct {
 // LatestRelease 最新 Release 信息。
 type LatestRelease struct {
 	TagName string         `json:"tag_name"` // 版本 tag（如 v0.1.0）
+	Body    string         `json:"body"`     // Release 说明（更新日志，站点更新弹窗展示用）
 	Assets  []ReleaseAsset `json:"assets"`   // 资产列表
 }
 

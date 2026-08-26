@@ -21,6 +21,9 @@ import (
 // X-Api-Key 请求头常量（外部应用调用开放接口的凭证头）。
 const apiKeyHeader = "X-Api-Key"
 
+// gin context 键：当前凭证绑定的用户 ID（0=未绑定，/open/me 等身份类接口使用）。
+const apiKeyUserIDKey = "apikey_user_id"
+
 // catalogRouteIndex 目录「Method + 路由模板 → 接口标识」索引（进程内单次构建）。
 var catalogRouteIndex = model.CatalogIndex()
 
@@ -79,6 +82,19 @@ func ApiKeyAuth(keys *repository.OpenAPIKeyRepo) gin.HandlerFunc {
 			_ = keys.TouchLastUsed(ctx, record.ID)
 		}()
 
+		// ---------- 注入凭证身份（供 /open/me 等凭 Key 取用户的接口读取） ----------
+		c.Set(apiKeyUserIDKey, record.UserID)
+
 		c.Next()
 	}
+}
+
+// GetAPIKeyUserID 从上下文读取当前凭证绑定的用户 ID（ApiKeyAuth 放行后使用；0=未绑定）。
+func GetAPIKeyUserID(c *gin.Context) int64 {
+	if v, ok := c.Get(apiKeyUserIDKey); ok {
+		if id, ok := v.(int64); ok {
+			return id
+		}
+	}
+	return 0
 }

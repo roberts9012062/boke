@@ -21,27 +21,27 @@ func NewOpenAPIKeyRepo(pool *pgxpool.Pool) *OpenAPIKeyRepo {
 	return &OpenAPIKeyRepo{pool: pool}
 }
 
-// openAPIKeyColumns 凭证查询列清单（顺序与 scanOpenAPIKey 严格一致）。
-const openAPIKeyColumns = `id, name, key, endpoints, expires_at, last_used_at, created_at`
+// openAPIKeyColumns 凭证查询列清单（顺序与 scanOpenAPIKey 严格一致；user_id 为空时归一为 0=未绑定）。
+const openAPIKeyColumns = `id, name, key, endpoints, COALESCE(user_id, 0), expires_at, last_used_at, created_at`
 
 // scanOpenAPIKey 将查询行扫描为 OpenAPIKey 实体（endpoints 为 TEXT[] 直接扫描）。
 func scanOpenAPIKey(row interface{ Scan(dest ...any) error }) (model.OpenAPIKey, error) {
 	var k model.OpenAPIKey
-	err := row.Scan(&k.ID, &k.Name, &k.Key, &k.Endpoints, &k.ExpiresAt, &k.LastUsedAt, &k.CreatedAt)
+	err := row.Scan(&k.ID, &k.Name, &k.Key, &k.Endpoints, &k.UserID, &k.ExpiresAt, &k.LastUsedAt, &k.CreatedAt)
 	if err != nil {
 		return model.OpenAPIKey{}, wrapNotFound(err)
 	}
 	return k, nil
 }
 
-// Create 创建凭证（返回新 ID）。
+// Create 创建凭证（返回新 ID；UserID 为 0 表示未绑定用户，落库为 NULL）。
 func (r *OpenAPIKeyRepo) Create(ctx context.Context, k model.OpenAPIKey) (int64, error) {
 	var id int64
 	err := r.pool.QueryRow(ctx, `
-		INSERT INTO open_api_keys (name, key, endpoints, expires_at)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO open_api_keys (name, key, endpoints, user_id, expires_at)
+		VALUES ($1, $2, $3, NULLIF($4, 0), $5)
 		RETURNING id`,
-		k.Name, k.Key, k.Endpoints, k.ExpiresAt,
+		k.Name, k.Key, k.Endpoints, k.UserID, k.ExpiresAt,
 	).Scan(&id)
 	return id, err
 }

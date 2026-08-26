@@ -19,12 +19,13 @@ import (
 type OpenAPIHandler struct {
 	openapi *service.OpenAPIService // 接口开放业务
 	ai      *service.AiService      // AI 业务（开放网关 ai.models / ai.chat 复用统一对话链路）
+	auth    *service.AuthService    // 认证业务（/open/me 凭 Key 返回绑定用户资料）
 	logger  *zap.Logger             // 错误日志（5xx 留痕）
 }
 
 // NewOpenAPIHandler 创建接口开放控制器。
-func NewOpenAPIHandler(openapi *service.OpenAPIService, ai *service.AiService, logger *zap.Logger) *OpenAPIHandler {
-	return &OpenAPIHandler{openapi: openapi, ai: ai, logger: logger}
+func NewOpenAPIHandler(openapi *service.OpenAPIService, ai *service.AiService, auth *service.AuthService, logger *zap.Logger) *OpenAPIHandler {
+	return &OpenAPIHandler{openapi: openapi, ai: ai, auth: auth, logger: logger}
 }
 
 // failWithLog 失败响应：内部错误（6001）记录日志（含请求路径），其余直接返回。
@@ -57,13 +58,14 @@ func (h *OpenAPIHandler) ListKeys(c *gin.Context) {
 
 // CreateKey 处理生成凭证（POST /api/v1/admin/open-api/keys）。
 // 请求体：name 备注名 / endpoints 勾选的接口标识 / expire_days 过期天数（空=永久）。
+// 附加行为：Key 自动绑定当前操作管理员（JWT 身份），供 /open/me 返回资料。
 func (h *OpenAPIHandler) CreateKey(c *gin.Context) {
 	var req model.CreateOpenAPIKeyReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		resp.Fail(c, 400, errs.ErrBadRequest)
 		return
 	}
-	record, err := h.openapi.CreateKey(c.Request.Context(), req)
+	record, err := h.openapi.CreateKey(c.Request.Context(), req, middleware.GetUserID(c))
 	if err != nil {
 		h.failWithLog(c, err)
 		return

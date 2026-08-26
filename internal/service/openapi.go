@@ -42,9 +42,10 @@ func generateAPIKey() (string, error) {
 	return openAPIKeyPrefix + hex.EncodeToString(buf), nil
 }
 
-// CreateKey 生成凭证（endpoints 须在目录内且 ≥1；expire_days 正整数或空=永久）。
+// CreateKey 生成凭证（endpoints 须在目录内且 ≥1；expire_days 正整数或空=永久；
+// ownerUserID 为生成者用户 ID，作为 Key 的绑定归属供 /open/me 返回资料，0=不绑定）。
 // 返回：创建后的完整凭证（含明文 Key）。
-func (s *OpenAPIService) CreateKey(ctx context.Context, req model.CreateOpenAPIKeyReq) (*model.OpenAPIKey, error) {
+func (s *OpenAPIService) CreateKey(ctx context.Context, req model.CreateOpenAPIKeyReq, ownerUserID int64) (*model.OpenAPIKey, error) {
 	// ---------- 参数校验 ----------
 	name := strings.TrimSpace(req.Name)
 	if utf8.RuneCountInString(name) > openAPIKeyNameMaxLen {
@@ -86,6 +87,7 @@ func (s *OpenAPIService) CreateKey(ctx context.Context, req model.CreateOpenAPIK
 		Name:      name,
 		Key:       key,
 		Endpoints: endpoints,
+		UserID:    ownerUserID,
 		ExpiresAt: expiresAt,
 	}
 	id, err := s.keys.Create(ctx, record)

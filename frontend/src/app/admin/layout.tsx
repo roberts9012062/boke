@@ -10,6 +10,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { NavIcon } from "@/components/admin/nav-icons";
+import { UpdateBadge } from "@/components/admin/update-badge";
 import PluginSlot from "@/components/plugin-slot";
 import { apiInstalledPlugins } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -208,6 +209,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </div>
           <NavList items={MODERATION_ITEMS} pathname={pathname} />
         </nav>
+
+        {/* 站点版本与更新（左下角：新版本绿色徽标 + GitHub 源码链接） */}
+        <UpdateBadge />
 
         {/* 返回站点（设计稿：返回站点） */}
         <Link
