@@ -69,3 +69,27 @@ func (s *PluginService) discoverMusicPluginID(ctx context.Context, provider stri
 	}
 	return musicFallbackProviders[provider], nil // 静态兜底（未命中为空串）
 }
+
+// mediaStorageProviderID media.storage seam 的固定提供方插件（图床类插件；
+// 单实例键无需 provider 发现——运行即接管，停用即回退本地存储）。
+const mediaStorageProviderID = "image-cdn"
+
+// MediaStorageSeam 返回媒体存储 seam 查找闭包（PostService 上传链路注入——
+// 构造时闭包捕获 s，调用时才查注册表/实例状态，规避装配顺序耦合）。
+// 语义：图床插件 running 且已注册（或此刻懒注册成功）→ 返回适配器与 true；
+// 未安装/未运行 → false（调用方走本地磁盘存储）。
+func (s *PluginService) MediaStorageSeam() func() (plugin.MediaStorage, bool) {
+	return func() (plugin.MediaStorage, bool) {
+		key := plugin.MediaStorageKey()
+		if st, ok := plugin.LookupService[plugin.MediaStorage](s.seamRegistry(), key); ok {
+			return st, true
+		}
+		inst, err := s.plugs.FindByPluginID(context.Background(), mediaStorageProviderID)
+		if err != nil || inst.State != PluginRunning {
+			return nil, false
+		}
+		adapter := plugin.NewMediaStorageAdapter(mediaStorageProviderID, s.CallAPI, seamSystemCaller)
+		s.seamRegistry().Register(key, mediaStorageProviderID, adapter)
+		return adapter, true
+	}
+}

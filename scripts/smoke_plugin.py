@@ -180,6 +180,7 @@ def build_bpk_version(version, out_path):
                         "-frontend", "marketplace-repo/demo-plugin/frontend",
                         "-os", "windows", "-arch", "amd64",
                         "-version", version,
+                        "-key", "data/keys/market-private.pem",
                         "-out", "dist"],
                        cwd=ROOT, capture_output=True, timeout=180)
     return r.returncode == 0 and os.path.exists(out_path)

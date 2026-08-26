@@ -25,6 +25,7 @@ const ICON_PATHS: Record<string, string> = {
   ai: '<path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4"/><path d="M8 12a4 4 0 0 1 8 0"/><path d="M12 12l2.5 4.5h-5z"/>',
   report: '<path d="M4 20V10M10 20V4M16 20v-8M22 20H2"/>',
   backup: '<path d="M12 3v12M8 11l4 4 4-4"/><path d="M4 17v3h16v-3"/>',
+  apikey: '<circle cx="8" cy="14" r="4"/><path d="M11 11L20 2M17 5l2.5 2.5M14.5 7.5L17 10"/>',
   docs: '<path d="M4 5a2 2 0 0 1 2-2h5v18H6a2 2 0 0 1-2-2z"/><path d="M11 3h5a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-5"/><path d="M7 7h1.5M7 10h1.5M14 7h1.5M14 10h1.5"/>',
 };
 

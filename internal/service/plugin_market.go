@@ -24,11 +24,17 @@ import (
 // 默认插件源（独立插件仓库 yueyan-plugins，文件夹结构）。
 const defaultPluginSource = "roberts9012062/yueyan-plugins"
 
-// 清单缓存时长（5 分钟，避免每次拉取 GitHub）。
-const manifestCacheTTL = 5 * time.Minute
+// 清单缓存时长（15 分钟——市场清单低频变化；GitHub 匿名额度仅 60 次/时，
+// 每次刷新全量构建要打 10 次上下 API，缓存过短会快速烧尽额度触发 403）。
+const manifestCacheTTL = 15 * time.Minute
 
 // 商城文件大小上限（plugin.json / market.json / README.md 均为小文件）。
 const marketFileLimit = 512 * 1024
+
+// 逐文件拉取的连续失败上限（达到即判定系统性故障中止构建）。
+// 背景（2026-08-19 线上问题）：网络抖动/限流时逐个拉取从某处起连续失败，旧逻辑
+// 逐个跳过产出「缺插件」的不完整清单并被缓存固化，导致已装插件侧栏入口整批消失直到重启。
+const manifestConsecutiveFailLimit = 3
 
 // ---------- 清单模型（插件仓库文件夹结构） ----------
 
@@ -171,6 +177,15 @@ func (s *PluginService) fetchManifest(ctx context.Context, source string) (*Plug
 	}
 	manifest, err := s.buildManifest(ctx, owner, repo)
 	if err != nil {
+		// 失效降级：同源旧缓存兜底（哪怕已过期）——限流/网络故障时商城保持可用，
+		// 清单结构低频变化，过期数据远好于整页报错；无缓存才透传错误。
+		s.cache.mu.Lock()
+		stale, cachedSource := s.cache.manifest, s.cache.source
+		s.cache.mu.Unlock()
+		if cachedSource == source && stale != nil {
+			fmt.Fprintf(os.Stderr, "[plugin-market] 清单拉取失败，降级使用旧缓存：%v\n", err)
+			return stale, nil
+		}
 		return nil, err
 	}
 
@@ -187,6 +202,11 @@ func (s *PluginService) fetchManifest(ctx context.Context, source string) (*Plug
 func (s *PluginService) buildManifest(ctx context.Context, owner string, repo string) (*PluginManifest, error) {
 	paths, err := s.gh.FetchTree(ctx, owner, repo)
 	if err != nil {
+		// GitHub 匿名额度用尽（未认证 60 次/时，按出口 IP 计）：给可操作引导
+		// ——认证后 5000 次/时，是根治途径（市场设置 OAuth 连接或 .env 配置）。
+		if strings.Contains(strings.ToLower(err.Error()), "rate limit") {
+			return nil, errs.New(errs.CodeUpstream, "GitHub 匿名请求额度已用尽（未认证限 60 次/小时）。请在后台「插件市场设置」连接 GitHub 账号，或在服务端 .env 配置 GITHUB_TOKEN 后重启")
+		}
 		// DNS 解析失败/连接不通时按代理状态给引导（国内网络直连 GitHub 常见 + 公共代理单点故障）
 		if strings.Contains(err.Error(), "no such host") || strings.Contains(err.Error(), "dial tcp") {
 			hint := "当前网络无法直连 GitHub，请在商城页选择加速代理地址后重试"
@@ -202,14 +222,26 @@ func (s *PluginService) buildManifest(ctx context.Context, owner string, repo st
 		return nil, errs.New(errs.CodeUpstream,
 			"插件源仓库需按文件夹结构组织：每个插件一个文件夹，内含 plugin.json（元数据）与 README.md（介绍）")
 	}
-	// 逐个文件夹拉取解析；单个损坏跳过（留痕），不拖垮整个商城
+	// 逐个文件夹拉取解析；单个损坏跳过（留痕），不拖垮整个商城。
+	// 例外：限流错误必须中止构建——否则会产出「缺插件」的不完整清单并被缓存固化。
 	plugins := make([]PluginInfo, 0, len(folders))
+	consecutiveFails := 0 // 连续失败计数（成功清零；单点损坏跳过，连续失败判系统性故障）
 	for _, folder := range folders {
 		raw, err := s.gh.FetchFile(ctx, owner, repo, folder+"/plugin.json", marketFileLimit)
 		if err != nil {
+			if strings.Contains(strings.ToLower(err.Error()), "rate limit") {
+				return nil, errs.New(errs.CodeUpstream, "GitHub 匿名请求额度已用尽（未认证限 60 次/小时）。请在后台「插件市场设置」连接 GitHub 账号，或在服务端 .env 配置 GITHUB_TOKEN 后重启")
+			}
+			// 连续失败达上限：判定系统性故障（网络中断/持续限流），中止构建——
+			// 避免产出「缺插件」的不完整清单被缓存固化（fetchManifest 过期降级会延续到重启）
+			consecutiveFails++
+			if consecutiveFails >= manifestConsecutiveFailLimit {
+				return nil, errs.New(errs.CodeUpstream, "清单文件连续拉取失败（疑似网络故障或被限流），已中止构建，请稍后重试："+err.Error())
+			}
 			fmt.Fprintf(os.Stderr, "[plugin-market] 跳过插件（plugin.json 拉取失败，%s）：%v\n", folder, err)
 			continue
 		}
+		consecutiveFails = 0
 		var info PluginInfo
 		if err := json.Unmarshal(raw, &info); err != nil || info.ID == "" {
 			fmt.Fprintf(os.Stderr, "[plugin-market] 跳过插件（plugin.json 解析失败或缺少 id，%s）：%v\n", folder, err)

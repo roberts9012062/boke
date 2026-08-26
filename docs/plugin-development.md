@@ -8,12 +8,12 @@
 
 ## 1. 架构与设计原则
 
-插件是**独立进程**（go-plugin + gRPC），与博客主进程隔离运行：
+插件是**独立进程**（自研进程桥：标准库 net/rpc + gob + 回环 TCP），与博客主进程隔离运行：
 
 ```
 ┌───────────────────────── 博客主进程 ─────────────────────────┐
 │  HTTP API / 业务服务 / 数据库 / 钩子调度器                     │
-│         ▲  gRPC（契约 plugin.proto）        ▲ 只读数据（GRPCBroker）│
+│         ▲  Core net/rpc（契约 contract）   ▲ 只读数据（Data 回连）  │
 └─────────┼──────────────────────────────────┼──────────────────┘
     插件子进程（plugin.exe）◄─────────────────┘
     插件作者代码：Info/Hooks/RegisterAPI/OnActivate/...
@@ -24,7 +24,7 @@
 | 原则 | 说明 |
 |------|------|
 | **进程隔离** | 插件崩溃/卡死不影响主进程（熔断 + 超时 + 退避重启） |
-| **契约通信** | 插件只能经 gRPC 契约与主进程交互，不共享内存 |
+| **契约通信** | 插件只能经契约（gob 序列化 net/rpc）与主进程交互，不共享内存 |
 | **不直连数据库** | 插件**禁止**访问数据库——数据查询走只读数据服务（`data.read`），数据变更走钩子/主进程 API |
 | **最小权限** | 能力声明制（capabilities）：插件声明要什么，主进程只给什么 |
 | **单向数据流** | 主进程 → 插件：钩子事件/配置/许可证；插件 → 主进程：钩子响应/自定义 API/数据查询 |
@@ -345,13 +345,78 @@ if svc == nil {
 user, err := svc.GetUser(ctx, 123)        // 脱敏用户：ID/昵称/头像/角色/简介
 post, err := svc.GetPost(ctx, 456)        // 脱敏帖子：ID/标题/状态/作者昵称
 settings, err := svc.GetSettings(ctx)     // 站点公开设置（白名单键）
+openKeys, err := svc.GetOpenAPIKeys(ctx)  // 开放接口 API Key 清单（含明文 Key，见下文联动场景）
 ```
 
 **安全边界**：
 - **只读**：无任何写接口（数据变更走钩子/主进程 API）
 - **脱敏**：不含邮箱/手机/密码/正文全文/私信
-- **白名单**：设置仅返回 `site_name`/`site_description`/`site_keywords`/`site_logo`/`site_icp`/`site_announcement`（密钥类永不暴露）
+- **白名单**：设置仅返回 `site_name`/`site_description`/`site_keywords`/`site_logo`/`site_icp`/`site_announcement`（密钥类永不暴露；`GetOpenAPIKeys` 是唯一的显式例外，见下文）
 - 查询不存在/失败返回空占位（不暴露内部细节）
+
+### 10.1 与浏览器插件联动：读取 API Key 远传验证
+
+**场景**：站点插件作为桥梁，与配套的**浏览器插件**（Chrome Extension 等）联动——浏览器插件需要调用本站开放接口（`/api/v1/open/*`，凭 `X-Api-Key` 请求头鉴权，后台「接口开放」页面管理 Key 与授权范围）。站点插件经数据服务读取 Key，远传给浏览器插件，即可在浏览器侧验证和使用重要接口。
+
+`GetOpenAPIKeys` 返回 `[]DataOpenAPIKey`：
+
+| 字段 | 说明 |
+|------|------|
+| `ID` / `Name` | 凭证 ID 与备注名 |
+| `Key` | API Key 明文（`oa_` 前缀，67 字符） |
+| `Endpoints` | 已授权接口标识（如 `posts.list`，对应后台接口目录） |
+| `ExpiresAt` | 过期时间（RFC3339；**空串 = 永久有效**） |
+| `LastUsedAt` | 最近调用时间（空串 = 从未使用） |
+| `CreatedAt` | 创建时间 |
+
+完整示例——站点插件自定义 API 把「可用的 Key + 开放接口基础路径」下发给浏览器插件：
+
+```go
+// 浏览器插件经站点前台的插件 API 通道拉取配置（宿主代理 /api/v1/plugins/{id}/api/*）
+api.Handle("GET", "/browser-extension/config", func(ctx context.Context, method string, path string, body []byte) (int, []byte, error) {
+    svc := sdk.Data(ctx)
+    if svc == nil {
+        return 200, []byte(`{"error":"未授权数据服务（需声明 data.read 能力）"}`), nil
+    }
+    keys, err := svc.GetOpenAPIKeys(ctx)
+    if err != nil {
+        return 500, []byte(fmt.Sprintf(`{"error":%q}`, err.Error())), nil
+    }
+    // 过滤出未过期的 Key（ExpiresAt 空串 = 永久；浏览器插件据此判断可用性）
+    type keyPayload struct {
+        Key       string   `json:"key"`
+        Endpoints []string `json:"endpoints"`
+        ExpiresAt string   `json:"expires_at"`
+    }
+    usable := make([]keyPayload, 0, len(keys))
+    for _, k := range keys {
+        if k.ExpiresAt != "" {
+            if t, err := time.Parse(time.RFC3339, k.ExpiresAt); err == nil && t.Before(time.Now()) {
+                continue // 已过期：跳过
+            }
+        }
+        usable = append(usable, keyPayload{Key: k.Key, Endpoints: k.Endpoints, ExpiresAt: k.ExpiresAt})
+    }
+    raw, _ := json.Marshal(map[string]any{"open_api_base": "/api/v1/open", "keys": usable})
+    return 200, raw, nil
+})
+```
+
+浏览器插件拿到 `Key` 后按 AI 开发手册的方式调用：
+
+```js
+// 浏览器插件（MV3，host_permissions 已声明站点地址）
+const res = await fetch(`${siteOrigin}/api/v1/open/posts?page=1`, {
+  headers: { "X-Api-Key": key },
+});
+const body = await res.json(); // {code, message, data, request_id}，code=0 成功
+```
+
+**安全注意事项**：
+- **明文 Key 例外说明**：数据服务整体脱敏，但 `GetOpenAPIKeys` 按联动需求显式返回明文 Key——信任依据是插件由管理员手动安装且必须声明 `data.read` 能力（清单与二进制一致才下发数据通道），与后台「接口开放」页面显示明文 Key 同级信任
+- **按需下发**：只把必要 Key 传给浏览器插件（按 `Endpoints` 过滤），不要全量转发
+- **泄露处置**：Key 疑似泄露时，在后台删除该 Key 并重新生成即可（旧 Key 立即失效）
+- **过期语义**：`ExpiresAt` 空串 = 永久；非空时浏览器插件侧应校验剩余有效期
 
 ---
 

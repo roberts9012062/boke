@@ -34,8 +34,9 @@ func (s *PostService) assembleSummaries(ctx context.Context, posts []model.Post,
 		summary := model.PostSummary{
 			ID:           post.ID,
 			Title:        post.Title,
-			Summary:      summaryPreviewText(post.Content),
+			Summary:      summaryPreviewText(post.Content, post.PostKind),
 			ContentType:  post.ContentType,
+			PostKind:     post.PostKind,
 			Visibility:   post.Visibility,
 			GalleryStyle: post.GalleryStyle,
 			Music:        extractMusicEmbed(post.Content),
@@ -164,6 +165,7 @@ func (s *PostService) GetAdminDetail(ctx context.Context, postID int64) (*model.
 		Content:       post.Content,
 		ContentFormat: post.ContentFormat,
 		ContentType:   post.ContentType,
+		PostKind:      post.PostKind,
 		Status:        post.Status,
 		Visibility:    post.Visibility,
 		CoverURL:      post.CoverURL,
@@ -192,14 +194,19 @@ func (s *PostService) isMutual(ctx context.Context, viewerID int64, authorID int
 	return err == nil && followedBack
 }
 
-// summaryPreviewText 列表摘要：正文前 60 字符（剥 HTML + 剥 Markdown 标记 + 替换换行为空格，省略号结尾）。
+// summaryPreviewText 列表摘要（剥 HTML + 剥 Markdown 标记 + 替换换行为空格，省略号结尾）。
+// 长度按帖子形态：说说前 60 字符；文章前 200 字符（时间轴展示 200 字，内容过长可省略）。
 // 说明：必须走 plainText（先剥 HTML）——历史修复：只 stripMarkdown 时富文本帖子的
 //       <div>/<iframe> 等标签源码会泄漏进摘要（前端列表显示成一堆代码）。
-func summaryPreviewText(content string) string {
+func summaryPreviewText(content string, kind string) string {
 	flat := strings.Join(strings.Fields(plainText(content)), " ")
+	limit := summaryPreview
+	if kind == model.PostKindArticle {
+		limit = articlePreviewLen
+	}
 	runes := []rune(flat)
-	if len(runes) > summaryPreview {
-		return string(runes[:summaryPreview]) + "…"
+	if len(runes) > limit {
+		return string(runes[:limit]) + "…"
 	}
 	return flat
 }

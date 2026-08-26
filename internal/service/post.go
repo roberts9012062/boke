@@ -12,7 +12,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"mime/multipart"
+	"os"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -24,30 +26,34 @@ import (
 	"github.com/roberts9012062/boke/pkg/errs"
 )
 
-// 帖子正文与标签限制（需求 3.4）。
+// 帖子正文与标签限制（需求 3.4；文章形态放宽正文上限）。
 const (
-	maxContentLen  = 2000 // 正文上限（字）
-	maxTags        = 5    // 标签上限（个）
-	maxTagLen      = 20   // 单个标签上限（字符）
-	maxTitleLen    = 100  // 标题上限
-	summaryLen     = 100  // 摘要截断长度（字符）
-	summaryPreview = 60   // 列表摘要预览长度（字符）
+	maxContentLen       = 2000  // 说说正文上限（字）
+	maxArticleContentLen = 20000 // 文章正文上限（字）
+	maxTags             = 5     // 标签上限（个）
+	maxTagLen           = 20    // 单个标签上限（字符）
+	maxTitleLen         = 100   // 标题上限
+	summaryLen          = 100   // 摘要落库截断长度（字符）
+	summaryPreview      = 60    // 说说列表摘要预览长度（字符）
+	articlePreviewLen   = 200   // 文章列表摘要预览长度（字符；时间轴展示 200 字，过长省略）
 )
 
 // PostService 帖子服务（连接器类，聚合依赖）。
 type PostService struct {
-	posts      *repository.PostRepo     // 帖子数据访问
-	tags       *repository.TagRepo      // 标签数据访问
-	medias     *repository.MediaRepo    // 媒体数据访问
-	users      *repository.UserRepo     // 用户数据访问（作者信息）
-	store      *media.Store             // 媒体存储（本地磁盘）
-	moderation *ModerationService       // 内容治理（M2：敏感词拦截）
-	relations  *repository.RelationRepo // 用户关系（M2：仅关注者帖互关判断）
-	hooks      plugin.Dispatcher        // 插件钩子调度器（M3.2 扩展框架）
-	seo        *repository.SeoRepo      // SEO 元数据（M4.1 插件通道：发帖/编辑落库）
+	posts       *repository.PostRepo               // 帖子数据访问
+	tags        *repository.TagRepo                // 标签数据访问
+	medias      *repository.MediaRepo              // 媒体数据访问
+	users       *repository.UserRepo               // 用户数据访问（作者信息）
+	store       *media.Store                       // 媒体存储（本地磁盘）
+	moderation  *ModerationService                 // 内容治理（M2：敏感词拦截）
+	relations   *repository.RelationRepo           // 用户关系（M2：仅关注者帖互关判断）
+	hooks       plugin.Dispatcher                  // 插件钩子调度器（M3.2 扩展框架）
+	seo         *repository.SeoRepo                // SEO 元数据（M4.1 插件通道：发帖/编辑落库）
+	storageSeam func() (plugin.MediaStorage, bool) // 媒体存储 seam（图床插件接管上传；可空=始终本地）
 }
 
 // NewPostService 创建帖子服务。
+// 参数：storageSeam 媒体存储 seam 查找闭包（可空——图床插件运行时上传直达外部对象存储）。
 func NewPostService(
 	posts *repository.PostRepo,
 	tags *repository.TagRepo,
@@ -58,8 +64,9 @@ func NewPostService(
 	relations *repository.RelationRepo,
 	hooks plugin.Dispatcher,
 	seo *repository.SeoRepo,
+	storageSeam func() (plugin.MediaStorage, bool),
 ) *PostService {
-	return &PostService{posts: posts, tags: tags, medias: medias, users: users, store: store, moderation: moderation, relations: relations, hooks: hooks, seo: seo}
+	return &PostService{posts: posts, tags: tags, medias: medias, users: users, store: store, moderation: moderation, relations: relations, hooks: hooks, seo: seo, storageSeam: storageSeam}
 }
 
 // ---------- 发帖 / 草稿 ----------
@@ -99,6 +106,7 @@ func (s *PostService) Create(ctx context.Context, userID int64, req model.Create
 		Content:       req.Content,
 		ContentFormat: normalizeContentFormat(req.ContentFormat),
 		ContentType:   req.ContentType,
+		PostKind:      normalizePostKind(req.PostKind),
 		Status:        req.Status,
 		Visibility:    req.Visibility,
 		GalleryStyle:  req.GalleryStyle,
@@ -161,8 +169,8 @@ func (s *PostService) Update(ctx context.Context, userID int64, postID int64, re
 		post.Title = title
 	}
 	if req.Content != nil {
-		if utf8.RuneCountInString(plainText(*req.Content)) > maxContentLen {
-			return errs.New(errs.CodeBadRequest, "正文不能超过 2000 字")
+		if err := validateContentByKind(post.PostKind, *req.Content); err != nil {
+			return err
 		}
 		post.Content = *req.Content
 		post.Summary = buildSummary(*req.Content)
@@ -255,11 +263,13 @@ func (s *PostService) Delete(ctx context.Context, userID int64, postID int64) er
 
 // ---------- 时间线 / 草稿箱 ----------
 
-// ListTimeline 时间线分页（全部/图/音/影过滤，最新发布在前）。
-// 参数：contentType 类型过滤（空 = 全部）；page/pageSize 分页；viewerID 当前用户（私密帖过滤）。
-func (s *PostService) ListTimeline(ctx context.Context, contentType string, page int, pageSize int, viewerID int64) ([]model.PostSummary, int64, error) {
+// ListTimeline 时间线分页（全部/图/音/影 + 文章形态过滤，最新发布在前）。
+// 参数：contentType 类型过滤（空 = 全部）；kind 帖子形态过滤（空 = 全部形态）；
+// page/pageSize 分页；viewerID 当前用户（私密帖过滤）。
+func (s *PostService) ListTimeline(ctx context.Context, contentType string, kind string, page int, pageSize int, viewerID int64) ([]model.PostSummary, int64, error) {
 	posts, total, err := s.posts.List(ctx, repository.ListParams{
 		ContentType: contentType,
+		Kind:        kind,
 		Page:        page,
 		PageSize:    pageSize,
 	})
@@ -318,6 +328,7 @@ func (s *PostService) GetDetail(ctx context.Context, postID int64, viewerID int6
 			Title:        post.Title,
 			Summary:      post.Summary,
 			ContentType:  post.ContentType,
+			PostKind:     post.PostKind,
 			Visibility:   post.Visibility,
 			GalleryStyle: post.GalleryStyle,
 			LikeCount:    post.LikeCount,
@@ -372,12 +383,30 @@ func (s *PostService) GetDetail(ctx context.Context, postID int64, viewerID int6
 
 // ---------- 媒体上传 ----------
 
-// UploadMedia 媒体上传：本地磁盘保存 + media_assets 记录。
+// UploadMedia 媒体上传：存储保存 + media_assets 记录。
+// 存储优先级：图床插件 seam（media.storage，上传直达外部对象存储）→ 本地磁盘兜底；
+// 类型/大小校验两条路径同规则前置（上传白名单是安全边界，外部存储不豁免）。
 // 参数：userID 上传者；header 文件头；reader 文件内容。
 // 返回：上传结果（含访问地址）。
 func (s *PostService) UploadMedia(ctx context.Context, userID int64, header *multipart.FileHeader, reader multipart.File) (model.UploadResult, error) {
-	// 保存到本地磁盘（类型/大小校验在 store 内完成）
-	result, err := s.store.Save(header, reader)
+	var result media.StorageResult
+	var err error
+	if s.storageSeam != nil {
+		if storage, ok := s.storageSeam(); ok {
+			result, err = saveViaSeam(ctx, storage, header, reader)
+			if err != nil {
+				// seam 失败回退本地（图床不可达/未配对不阻断上传），留痕排查
+				fmt.Fprintf(os.Stderr, "[media] 图床上传失败，回退本地：%v\n", err)
+			}
+		}
+	}
+	if result.URL == "" {
+		// 本地磁盘保存（类型/大小校验在 store 内完成）
+		if seeker, ok := reader.(io.Seeker); ok {
+			_, _ = seeker.Seek(0, io.SeekStart) // seam 路径已读过内容：回卷供本地保存
+		}
+		result, err = s.store.Save(header, reader)
+	}
 	if err != nil {
 		if errors.Is(err, media.ErrUnsupportedType) {
 			return model.UploadResult{}, errs.New(errs.CodeBadRequest, "不支持的文件类型，请上传图片（jpg/png/gif/webp）、音频（mp3/m4a/wav）或视频（mp4/mov/webm）")
@@ -409,4 +438,25 @@ func (s *PostService) UploadMedia(ctx context.Context, userID int64, header *mul
 		MimeType:  result.MimeType,
 		SizeBytes: result.SizeBytes,
 	}, nil
+}
+
+// saveViaSeam 经图床插件保存：读全量内容 → 类型/大小前置校验 → seam 存储转发。
+// 仅图片类型走图床（Worker 契约白名单 jpg/png/gif/webp；音频/视频体积大仍走本地）；
+// 非图片返回零值结果（调用方按 URL 为空走本地分支），不视为错误。
+func saveViaSeam(ctx context.Context, storage plugin.MediaStorage, header *multipart.FileHeader, reader multipart.File) (media.StorageResult, error) {
+	mediaType, err := media.DetectType(header.Filename, header.Header.Get("Content-Type"))
+	if err != nil {
+		return media.StorageResult{}, err
+	}
+	if mediaType != media.TypeImage {
+		return media.StorageResult{}, nil
+	}
+	content, err := io.ReadAll(reader)
+	if err != nil {
+		return media.StorageResult{}, err
+	}
+	if int64(len(content)) > media.MaxSizeFor(mediaType) {
+		return media.StorageResult{}, media.ErrFileTooLarge
+	}
+	return storage.Save(ctx, header.Filename, header.Header.Get("Content-Type"), content)
 }

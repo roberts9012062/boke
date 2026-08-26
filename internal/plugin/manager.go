@@ -1,7 +1,7 @@
 // internal/plugin/manager.go
 // 插件进程管理器（M3.3 核心）：go-plugin 子进程生命周期管理。
 // 对齐 docs/architecture.md 6.4：
-//   - 启用：拉起子进程 → 握手（AutoMTLS gRPC）→ Info 校验 → Activate → 注册钩子适配器
+//   - 启用：拉起子进程 → 握手（进程桥：token 鉴权 TCP + net/rpc）→ Info 校验 → Activate → 注册钩子适配器
 //   - 崩溃自愈：退避重启 1s→2s→…60s 上限；连续 5 次熔断（crashed，事件回调落库）
 //   - 优雅退出：Deactivate（10s 超时）→ Kill；主进程退出时清理全部子进程
 //   - 故障隔离：钩子调用超时/失败由 Registry（2s + panic 恢复）兜底，业务零侵入
@@ -15,10 +15,9 @@ import (
 	"sync"
 	"time"
 
-	goplugin "github.com/hashicorp/go-plugin"
 	"go.uber.org/zap"
 
-	"github.com/roberts9012062/boke/pkg/plugin-sdk/proto"
+	"github.com/roberts9012062/boke/pkg/plugin-sdk/contract"
 )
 
 // 进程管理常量（对齐架构文档：退避 1s 起、60s 上限、连续 5 次熔断）。
@@ -27,10 +26,10 @@ const (
 	stateStarting       = "starting" // 启动中（E3：握手阶段已移出全局锁，占位防并发启动）
 	stateStopped        = "stopped"  // 已停止（主动）
 	stateCrashed        = "crashed"  // 熔断（连续崩溃达上限）
-	maxRestarts         = 5          // 连续崩溃熔断阈值
-	handshakeTimeout    = 15 * time.Second // 握手超时（go-plugin ClientConfig.Timeout）
-	deactivateTimeout   = 10 * time.Second // Deactivate 优雅停用超时
-	pluginLogDir        = "logs/plugins"   // 插件 stderr 日志目录
+	maxRestarts         = 5                 // 连续崩溃熔断阈值
+	handshakeTimeout    = 15 * time.Second  // 握手超时（子进程启动 → stdout 握手行的等待上限）
+	deactivateTimeout   = 10 * time.Second  // Deactivate 优雅停用超时
+	pluginLogDir        = "logs/plugins"    // 插件 stderr 日志目录
 )
 
 // backoffDuration 崩溃退避时长（第 n 次：2^(n-1) 秒，上限 60 秒）。
@@ -57,8 +56,8 @@ type ManagedPlugin struct {
 	pluginID  string        // 插件 ID
 	binPath   string        // 二进制路径
 	state     string        // running / stopped / crashed
-	client    *goplugin.Client // go-plugin 客户端（持有子进程）
-	rpc       *pluginClient // gRPC 三服务客户端
+	client    *childProc    // 子进程句柄（进程桥：进程 + 三条通道）
+	rpc       *pluginClient // Core net/rpc 服务客户端
 	logFile   *os.File      // 插件 stderr 日志文件（进程退出时关闭）
 }
 
@@ -122,10 +121,12 @@ func (m *PluginManager) Stop(pluginID string) error {
 
 	// 优雅停用（超时保护，失败不阻塞杀进程）
 	ctx, cancel := context.WithTimeout(context.Background(), deactivateTimeout)
-	if _, err := rpc.info.Deactivate(ctx, &proto.Empty{}); err != nil {
+	var status contract.Status
+	if err := rpc.callCore(ctx, "Deactivate", &contract.Empty{}, &status); err != nil {
 		_ = err // 停用失败不阻断（记录可后续优化）
 	}
 	cancel()
+	rpc.closeStream() // 关闭流式通道（Kill 前主动收尾，避免编码器写已死连接告警）
 	client.Kill()
 	if logFile != nil {
 		_ = logFile.Close()
@@ -216,8 +217,8 @@ func (m *PluginManager) registerAdapters(pluginID string, rpc *pluginClient) {
 	m.unregisterAdapters(pluginID)
 	ctx, cancel := context.WithTimeout(context.Background(), handshakeTimeout)
 	defer cancel()
-	info, err := rpc.info.Info(ctx, &proto.Empty{})
-	if err != nil {
+	var info contract.PluginInfo
+	if err := rpc.callCore(ctx, "Info", &contract.Empty{}, &info); err != nil {
 		return // 钩子声明拉取失败：进程已运行但钩子不生效（记录由调用方兜底）
 	}
 	for _, hookName := range info.Hooks {

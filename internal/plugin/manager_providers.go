@@ -7,12 +7,12 @@ package plugin
 import (
 	"context"
 
-	"github.com/roberts9012062/boke/pkg/plugin-sdk/proto"
+	"github.com/roberts9012062/boke/pkg/plugin-sdk/contract"
 )
 
 // LicenseProvider 许可证查询回调（M3.5：service 层实现，避免 plugin→repository 依赖）。
 // 返回：许可证信息（nil=无记录，demo 模式）；错误=查询失败（按 free 兜底）。
-type LicenseProvider func(ctx context.Context, pluginID string) (*proto.LicenseInfo, error)
+type LicenseProvider func(ctx context.Context, pluginID string) (*contract.LicenseInfo, error)
 
 // ConfigProvider 插件配置查询回调（M3.7 设置功能：service 层实现，避免 plugin→repository 依赖）。
 // 返回：配置键值对（仅 schema 声明的 key；nil/空=无配置）。

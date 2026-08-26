@@ -113,6 +113,9 @@ func (s *PluginService) ListInstalled(ctx context.Context) ([]InstalledPluginDTO
 			}
 		}
 	}
+	// 本地镜像兜底（2026-08-19 修复）：清单拉取失败/插件不在清单时 nav 补空——
+	// 运行中插件的侧栏入口不依赖远程网络（见 plugin_manifest_local.go）
+	fillNavFromLocalRepo(items)
 	// 进程上报聚合（M3.7：运行中插件 schema 以 Info RPC 优先——本地安装插件也可配置；
 	// 仅补空——列表已有清单 schema 的不覆盖）
 	if s.manager != nil {
@@ -120,8 +123,8 @@ func (s *PluginService) ListInstalled(ctx context.Context) ([]InstalledPluginDTO
 			if len(items[i].SettingsSchema) > 0 {
 				continue
 			}
-			if info, err := s.manager.PluginInfo(items[i].PluginID); err == nil && len(info.GetSettings()) > 0 {
-				items[i].SettingsSchema = settingFieldsFromProto(info.GetSettings())
+			if info, err := s.manager.PluginInfo(items[i].PluginID); err == nil && len(info.Settings) > 0 {
+				items[i].SettingsSchema = settingFieldsFromContract(info.Settings)
 			}
 		}
 	}
@@ -164,7 +167,7 @@ func (s *PluginService) Install(ctx context.Context, pluginID string) error {
 			return errs.New(errs.CodeConflict, "插件「"+info.Name+"」已安装")
 		}
 		// 重新安装：复用记录（恢复 installed + 更新版本/来源/能力登记），再尝试激活
-		if err := s.plugs.Reinstall(ctx, existing.ID, info.Version, info.RepoURL, info.Capabilities); err != nil {
+		if err := s.plugs.Reinstall(ctx, existing.ID, info.Name, info.Version, info.RepoURL, info.Capabilities); err != nil {
 			return fmt.Errorf("重新安装插件失败：%w", err)
 		}
 		s.activateInstalled(ctx, existing.ID, info.ID)

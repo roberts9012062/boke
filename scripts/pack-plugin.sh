@@ -40,7 +40,7 @@ BUILD_DIR="$PROJECT_ROOT/dist/$PLUGIN_DIR_NAME"
 mkdir -p "$BUILD_DIR"
 
 echo "[步骤 1/3] 编译插件二进制（$GOOS/$GOARCH）..." | tee -a "$LOG_FILE"
-go build -C marketplace-repo -o "$BUILD_DIR/plugin.bin" "./$PLUGIN_DIR_NAME" 2>&1 | tee -a "$LOG_FILE"
+go build -C marketplace-repo -ldflags "-s -w" -trimpath -o "$BUILD_DIR/plugin.bin" "./$PLUGIN_DIR_NAME" 2>&1 | tee -a "$LOG_FILE"
 
 # 打包参数组装（探测式：公钥/前端/签名密钥存在才附加）
 PACK_ARGS=(-plugin "$SRC_DIR/yueyan-plugin.json" -bin "$BUILD_DIR/plugin.bin" -os "$GOOS" -arch "$GOARCH" -out dist)

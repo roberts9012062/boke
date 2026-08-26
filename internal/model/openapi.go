@@ -1,0 +1,183 @@
+// internal/model/openapi.go
+// 接口开放模块数据模型：API Key 实体 + 开放接口目录（与前端 api-openapi.ts 手工同步）。
+// 说明：目录（catalog）是单一数据源——后台「接口开放」页面展示、/open 网关鉴权、
+//       AI 开发手册生成均基于同一份目录数据。
+package model
+
+import "time"
+
+// ---------- 实体 ----------
+
+// OpenAPIKey 开放接口调用凭证（open_api_keys 表结构）。
+type OpenAPIKey struct {
+	ID         int64      `json:"id"`          // 凭证 ID
+	Name       string     `json:"name"`        // 备注名（可选）
+	Key        string     `json:"key"`         // API Key（oa_ 前缀明文，后台可见便于复制）
+	Endpoints  []string   `json:"endpoints"`   // 已授权接口标识数组（与目录 CatalogEntry.Endpoint 对应）
+	ExpiresAt  *time.Time `json:"expires_at"`  // 过期时间（NULL=永久有效）
+	LastUsedAt *time.Time `json:"last_used_at"` // 最近调用时间（NULL=从未调用）
+	CreatedAt  time.Time  `json:"created_at"`  // 创建时间
+}
+
+// ---------- 目录（catalog） ----------
+
+// CatalogParam 开放接口的参数说明（后台展示与 AI 手册生成用）。
+type CatalogParam struct {
+	Name        string `json:"name"`        // 参数名（query 或路径参数）
+	Type        string `json:"type"`        // 类型：string / integer
+	Location    string `json:"location"`    // 位置：query / path
+	Required    bool   `json:"required"`    // 是否必填
+	Description string `json:"description"` // 参数说明
+}
+
+// CatalogEntry 开放接口目录项（一个可被授权给 Key 的接口）。
+type CatalogEntry struct {
+	Endpoint    string         `json:"endpoint"`    // 接口标识（唯一，Key 绑定用）
+	Method      string         `json:"method"`      // HTTP 方法（当前全部 GET）
+	Path        string         `json:"path"`        // 开放网关路径（/api/v1/open/...，含路由参数）
+	Name        string         `json:"name"`        // 接口名称（中文）
+	Description string         `json:"description"` // 功能描述
+	Params      []CatalogParam `json:"params"`      // 参数说明列表
+}
+
+// OpenAPICatalog 返回开放接口目录（纯函数；与 router.go 开放组的注册一一对应）。
+// 变更约束：增删接口须同步 ① router.go /open 组路由 ② 此目录 ③ 前端无需改动（读目录渲染）。
+func OpenAPICatalog() []CatalogEntry {
+	return []CatalogEntry{
+		{
+			Endpoint:    "posts.list",
+			Method:      "GET",
+			Path:        "/api/v1/open/posts",
+			Name:        "帖子列表",
+			Description: "时间线帖子分页（说说与文章混合，按发布时间倒序；匿名视角仅返回公开帖）",
+			Params: []CatalogParam{
+				{Name: "type", Type: "string", Location: "query", Required: false, Description: "媒体形态过滤：text/image/audio/video，空=全部"},
+				{Name: "kind", Type: "string", Location: "query", Required: false, Description: "帖子形态过滤：moment=说说 / article=文章，空=全部形态"},
+				{Name: "page", Type: "integer", Location: "query", Required: false, Description: "页码，从 1 起，默认 1"},
+				{Name: "page_size", Type: "integer", Location: "query", Required: false, Description: "每页条数，默认 20，上限 100"},
+			},
+		},
+		{
+			Endpoint:    "posts.detail",
+			Method:      "GET",
+			Path:        "/api/v1/open/posts/:id",
+			Name:        "帖子详情",
+			Description: "帖子完整内容（标题、正文、标签、图集、互动计数；说说摘要与文章全文）",
+			Params: []CatalogParam{
+				{Name: "id", Type: "integer", Location: "path", Required: true, Description: "帖子 ID"},
+			},
+		},
+		{
+			Endpoint:    "posts.comments",
+			Method:      "GET",
+			Path:        "/api/v1/open/posts/:id/comments",
+			Name:        "帖子评论",
+			Description: "指定帖子的评论列表（树形结构，含楼层与回复）",
+			Params: []CatalogParam{
+				{Name: "id", Type: "integer", Location: "path", Required: true, Description: "帖子 ID"},
+			},
+		},
+		{
+			Endpoint:    "topics.list",
+			Method:      "GET",
+			Path:        "/api/v1/open/topics",
+			Name:        "话题列表",
+			Description: "全部话题（含帖子计数与关注数）",
+			Params:      []CatalogParam{},
+		},
+		{
+			Endpoint:    "topics.posts",
+			Method:      "GET",
+			Path:        "/api/v1/open/topics/:name/posts",
+			Name:        "话题帖子",
+			Description: "指定话题下的帖子流（最新或热门排序，分页）",
+			Params: []CatalogParam{
+				{Name: "name", Type: "string", Location: "path", Required: true, Description: "话题名（不带 #）"},
+				{Name: "sort", Type: "string", Location: "query", Required: false, Description: "排序：latest=最新（默认）/ hot=热门"},
+				{Name: "page", Type: "integer", Location: "query", Required: false, Description: "页码，从 1 起，默认 1"},
+				{Name: "page_size", Type: "integer", Location: "query", Required: false, Description: "每页条数，默认 20"},
+			},
+		},
+		{
+			Endpoint:    "search",
+			Method:      "GET",
+			Path:        "/api/v1/open/search",
+			Name:        "搜索",
+			Description: "全文搜索（标题/正文/标签关键词匹配，分页）",
+			Params: []CatalogParam{
+				{Name: "q", Type: "string", Location: "query", Required: true, Description: "搜索关键词"},
+				{Name: "page", Type: "integer", Location: "query", Required: false, Description: "页码，从 1 起，默认 1"},
+				{Name: "page_size", Type: "integer", Location: "query", Required: false, Description: "每页条数，默认 20"},
+			},
+		},
+		{
+			Endpoint:    "users.profile",
+			Method:      "GET",
+			Path:        "/api/v1/open/users/:id",
+			Name:        "用户主页",
+			Description: "用户公开资料（昵称、头像、简介、帖子/获赞计数）",
+			Params: []CatalogParam{
+				{Name: "id", Type: "integer", Location: "path", Required: true, Description: "用户 ID"},
+			},
+		},
+		{
+			Endpoint:    "users.posts",
+			Method:      "GET",
+			Path:        "/api/v1/open/users/:id/posts",
+			Name:        "用户帖子",
+			Description: "指定用户发布的公开帖子流（分页，可按媒体形态过滤）",
+			Params: []CatalogParam{
+				{Name: "id", Type: "integer", Location: "path", Required: true, Description: "用户 ID"},
+				{Name: "type", Type: "string", Location: "query", Required: false, Description: "媒体形态过滤：text/image/audio/video，空=全部"},
+				{Name: "page", Type: "integer", Location: "query", Required: false, Description: "页码，从 1 起，默认 1"},
+				{Name: "page_size", Type: "integer", Location: "query", Required: false, Description: "每页条数，默认 20"},
+			},
+		},
+		{
+			Endpoint:    "pages.detail",
+			Method:      "GET",
+			Path:        "/api/v1/open/pages/:slug",
+			Name:        "自定义页面",
+			Description: "自定义页面内容（仅已发布页面，含标题与正文 HTML）",
+			Params: []CatalogParam{
+				{Name: "slug", Type: "string", Location: "path", Required: true, Description: "页面别名（slug）"},
+			},
+		},
+		{
+			Endpoint:    "site.meta",
+			Method:      "GET",
+			Path:        "/api/v1/open/meta",
+			Name:        "站点信息",
+			Description: "站点元信息（站名、描述、备案号、社交链接等）",
+			Params:      []CatalogParam{},
+		},
+	}
+}
+
+// CatalogIndex 返回「路由模板 → 接口标识」索引（网关中间件按 FullPath+Method 反查用；纯函数）。
+// key 格式："GET /api/v1/open/posts/:id"。
+func CatalogIndex() map[string]string {
+	index := make(map[string]string)
+	for _, entry := range OpenAPICatalog() {
+		index[entry.Method+" "+entry.Path] = entry.Endpoint
+	}
+	return index
+}
+
+// CatalogEndpoints 返回全部合法接口标识集合（创建 Key 时校验用；纯函数）。
+func CatalogEndpoints() map[string]bool {
+	set := make(map[string]bool)
+	for _, entry := range OpenAPICatalog() {
+		set[entry.Endpoint] = true
+	}
+	return set
+}
+
+// ---------- DTO ----------
+
+// CreateOpenAPIKeyReq 生成 Key 请求（后台「接口开放」页面）。
+type CreateOpenAPIKeyReq struct {
+	Name       string   `json:"name"`        // 备注名（可选，≤100 字符）
+	Endpoints  []string `json:"endpoints"`   // 勾选的接口标识（≥1，须在目录内）
+	ExpireDays *int     `json:"expire_days"` // 过期天数（正整数；nil/0=永久有效）
+}

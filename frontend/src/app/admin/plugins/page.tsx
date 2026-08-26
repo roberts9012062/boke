@@ -286,6 +286,15 @@ export default function AdminPlugins() {
                     {upgradingId === plugin.id ? "升级中…" : "升级"}
                   </button>
                 )}
+                {/* 设置入口（有设置项的插件：settings 能力由 schema 非空驱动；直达 /admin/plugins/{id}/settings） */}
+                {(plugin.settings_schema?.length ?? 0) > 0 && (
+                  <a
+                    href={`/admin/plugins/${plugin.plugin_id}/settings`}
+                    className="rounded-full border border-line px-4 py-1.5 text-ink-2 hover:text-ink"
+                  >
+                    设置
+                  </a>
+                )}
                 <button
                   type="button"
                   onClick={() => void toggleState(plugin)}

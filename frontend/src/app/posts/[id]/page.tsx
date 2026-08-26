@@ -29,7 +29,7 @@ import {
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { readGuest } from "@/lib/guest";
-import { timeAgo } from "@/lib/utils";
+import { formatDateTime, timeAgo } from "@/lib/utils";
 import type { PostDetail } from "@/types/api";
 
 // PostDetailPage 帖子详情页。
@@ -213,6 +213,20 @@ export default function PostDetailPage() {
 
         {post && (
           <>
+            {/* 文章头（文章形态：大标题 + 发布日期 + 阅读量；说说无此区块） */}
+            {post.post_kind === "article" && (
+              <header className="mb-6 border-b border-line pb-5">
+                <h1 className="font-display text-2xl font-bold leading-snug text-ink sm:text-3xl">
+                  {post.title}
+                </h1>
+                <p className="mt-3 text-xs text-ink-3">
+                  {post.published_at ? formatDateTime(post.published_at) : "草稿"}
+                  {" · 阅读 "}
+                  {post.view_count}
+                </p>
+              </header>
+            )}
+
             {/* 作者行（设计稿：林月 / 2 小时前 · 公开） */}
             <div className="flex items-center gap-3">
               <Link
@@ -249,13 +263,14 @@ export default function PostDetailPage() {
               )}
             </div>
 
-            {/* 完整正文（M5 富文本：html=消毒渲染，markdown=Markdown 渲染） */}
-            <div className="mt-5">
+            {/* 完整正文（M5 富文本：html=消毒渲染，markdown=Markdown 渲染；文章放大字号行距） */}
+            <div className={`mt-5 ${post.post_kind === "article" ? "text-[15px] leading-[1.9] sm:text-base" : ""}`}>
               <PostContent content={post.content} format={post.content_format} />
             </div>
 
-            {/* 图片：默认网格（点击开灯箱）；自定义风格按 ImageGallery 渲染 */}
-            {post.content_type === "image" && post.media.length > 0 && (
+            {/* 图片：默认网格（点击开灯箱）；自定义风格按 ImageGallery 渲染；
+                文章形态图片走图集（content_type 固定 text，也渲染） */}
+            {(post.content_type === "image" || post.post_kind === "article") && post.media.length > 0 && (
               <div className="mt-4">
                 {post.gallery_style ? (
                   <ImageGallery media={post.media} style={post.gallery_style as GalleryStyle} />

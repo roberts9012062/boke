@@ -44,17 +44,51 @@ func normalizeContentFormat(format string) string {
 	return "markdown"
 }
 
-// validatePostReq 校验发帖参数（类型/字数/标签/可见性）。
+// normalizePostKind 归一化帖子形态（空 → moment 说说；article 保留；纯函数）。
+// 说明：旧客户端不传时默认说说，兼容存量帖子。
+func normalizePostKind(kind string) string {
+	if kind == model.PostKindArticle {
+		return model.PostKindArticle
+	}
+	return model.PostKindMoment
+}
+
+// validateContentByKind 按帖子形态校验正文字数（纯函数）。
+// 说明：说说 ≤2000 字；文章放宽到 ≤20000 字（按纯文本计——HTML 标签不占字数）。
+func validateContentByKind(kind string, content string) error {
+	limit := maxContentLen
+	if kind == model.PostKindArticle {
+		limit = maxArticleContentLen
+	}
+	if utf8.RuneCountInString(plainText(content)) > limit {
+		return errs.New(errs.CodeBadRequest, fmt.Sprintf("正文不能超过 %d 字", limit))
+	}
+	return nil
+}
+
+// validatePostReq 校验发帖参数（形态/类型/字数/标签/可见性）。
 func validatePostReq(req model.CreatePostReq) error {
-	// 内容类型：文字/图片/音频/视频（视频 M2 已开放）
+	// 帖子形态：说说/文章（归一化后校验，article 有额外约束）
+	kind := normalizePostKind(req.PostKind)
+	// 内容类型：文字/图片/音频/视频（视频 M2 已开放）；文章固定 text（图片走图集/正文内嵌）
 	switch req.ContentType {
 	case model.PostTypeText, model.PostTypeImage, model.PostTypeAudio, model.PostTypeVideo:
 	default:
 		return errs.New(errs.CodeBadRequest, "帖子类型不正确")
 	}
-	// 正文 ≤2000 字（按纯文本计——HTML 标签/Markdown 标记不占字数）
-	if utf8.RuneCountInString(plainText(req.Content)) > maxContentLen {
-		return errs.New(errs.CodeBadRequest, "正文不能超过 2000 字")
+	if kind == model.PostKindArticle && req.ContentType != model.PostTypeText {
+		return errs.New(errs.CodeBadRequest, "文章类型不正确")
+	}
+	// 文章：标题必填（说说标题可选）；标题统一 ≤100 字
+	if kind == model.PostKindArticle && strings.TrimSpace(req.Title) == "" {
+		return errs.New(errs.CodeBadRequest, "文章标题不能为空")
+	}
+	if utf8.RuneCountInString(strings.TrimSpace(req.Title)) > maxTitleLen {
+		return errs.New(errs.CodeBadRequest, "标题过长")
+	}
+	// 正文按形态限长（说说 ≤2000 字 / 文章 ≤20000 字，按纯文本计）
+	if err := validateContentByKind(kind, req.Content); err != nil {
+		return err
 	}
 	// 标签 ≤5 个，每个 ≤20 字符
 	if len(req.Tags) > maxTags {
@@ -112,8 +146,9 @@ func (s *PostService) UpdateByAdmin(ctx context.Context, postID int64, req model
 	if utf8.RuneCountInString(req.Title) > maxTitleLen {
 		return errs.New(errs.CodeBadRequest, "标题过长")
 	}
-	if utf8.RuneCountInString(plainText(req.Content)) > maxContentLen {
-		return errs.New(errs.CodeBadRequest, "正文不能超过 2000 字")
+	// 正文按原帖形态限长（说说 ≤2000 字 / 文章 ≤20000 字；形态不可变，沿用创建时值）
+	if err := validateContentByKind(post.PostKind, req.Content); err != nil {
+		return err
 	}
 	if len(req.Tags) > maxTags {
 		return errs.New(errs.CodeBadRequest, "标签最多 5 个")

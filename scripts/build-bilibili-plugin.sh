@@ -23,7 +23,7 @@ LOG_FILE="$LOG_DIR/build-bilibili-plugin-$(date +%Y%m%d-%H%M%S).log"
 
 echo "[构建] cmd/bilibili-video-plugin → $OUT_DIR/$BIN_NAME" | tee -a "$LOG_FILE"
 mkdir -p "$OUT_DIR"
-go build -o "$OUT_DIR/$BIN_NAME" -C marketplace-repo ./bilibili-video 2>&1 | tee -a "$LOG_FILE"
+go build -C marketplace-repo -ldflags "-s -w" -trimpath -o "$OUT_DIR/$BIN_NAME" ./bilibili-video 2>&1 | tee -a "$LOG_FILE"
 
 echo "[同步] 清单 → $OUT_DIR/" | tee -a "$LOG_FILE"
 cp "$PROJECT_ROOT/marketplace-repo/bilibili-video/yueyan-plugin.json" "$OUT_DIR/yueyan-plugin.json" 2>&1 | tee -a "$LOG_FILE"

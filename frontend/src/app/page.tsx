@@ -1,11 +1,13 @@
 // src/app/page.tsx
 // 首页（时间线）：桌面三栏（用户卡片 / 时间线 / 热门话题）+ 移动单栏。
 // 设计依据：D/冷月/首页（1400）+ M/冷月/首页（390）。
-// M1.3：时间线接入真实数据（全部/图/音/影过滤 + 分页加载）。
+// M1.3：时间线接入真实数据（全部/文/图/音/影过滤 + 分页加载）。
+// 文章形态（post_kind=article）渲染 article-card（标题可点击进详情阅读）。
 "use client";
 
 import { useEffect, useRef, useState } from "react";
 
+import { ArticleCard } from "@/components/article-card";
 import { BgmWidget } from "@/components/bgm-widget";
 import { DesktopNav } from "@/components/desktop-nav";
 import { FeedTabs } from "@/components/feed-tabs";
@@ -17,7 +19,7 @@ import { PostCardSkeletonList } from "@/components/post-card-skeleton";
 import { UserCard } from "@/components/user-card";
 import { apiFollowingFeed, apiTimeline } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import type { PostSummary } from "@/types/api";
+import type { PageResult, PostSummary } from "@/types/api";
 
 // HomePage 首页：三栏布局 + 真实时间线数据 + 推荐/关注流切换（设计稿关注流）。
 export default function HomePage() {
@@ -27,20 +29,29 @@ export default function HomePage() {
   const [total, setTotal] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(true);
   const [feed, setFeed] = useState<string>("timeline"); // timeline=推荐 / following=关注
-  const [filter, setFilter] = useState<string>(""); // 空 = 全部；image/audio/video
+  const [filter, setFilter] = useState<string>(""); // 空 = 全部；article=文章形态 / image/audio/video=媒体形态
   const [page, setPage] = useState<number>(1);
   const [loadingMore, setLoadingMore] = useState<boolean>(false);
   const [feedError, setFeedError] = useState<string>("");
   // 同步加载守卫：scroll 事件快速连续触发时，state 守卫是异步的，需 ref 立即阻断并发重复请求
   const loadingMoreRef = useRef<boolean>(false);
 
+  // 拉取一页时间线（过滤条件解释：article → kind 参数，其余 → type 参数；纯读取函数）
+  const fetchPage = (pageNum: number): Promise<PageResult<PostSummary>> => {
+    if (feed === "following") {
+      return apiFollowingFeed(pageNum);
+    }
+    return apiTimeline(
+      filter === "article" ? { kind: "article", page: pageNum } : { type: filter, page: pageNum },
+    );
+  };
+
   // 加载时间线（feed/过滤条件变化时重置分页）
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setFeedError("");
-    const loader = feed === "following" ? apiFollowingFeed(1) : apiTimeline({ type: filter, page: 1 });
-    loader
+    fetchPage(1)
       .then((result) => {
         if (cancelled) return;
         setPosts(result.items);
@@ -72,10 +83,7 @@ export default function HomePage() {
     loadingMoreRef.current = true;
     setLoadingMore(true);
     try {
-      const result =
-        feed === "following"
-          ? await apiFollowingFeed(page + 1)
-          : await apiTimeline({ type: filter, page: page + 1 });
+      const result = await fetchPage(page + 1);
       setPosts((prev) => {
         // 按 id 去重（防御性：极端竞态下避免同一条重复出现，消除 key 冲突）
         const seen = new Set<number>(prev.map((p) => p.id));
@@ -143,7 +151,7 @@ export default function HomePage() {
               ))}
             </div>
           </div>
-          {/* 过滤 Tab：全部 / 图 / 音 / 影（选中即过滤） */}
+          {/* 过滤 Tab：全部 / 文 / 图 / 音 / 影（选中即过滤） */}
           <FeedTabs active={filter} onChange={setFilter} />
 
           {/* 关注流未登录提示 */}
@@ -163,7 +171,8 @@ export default function HomePage() {
             <div className="mt-4 post-card-list space-y-4">
               {posts.map((post) => (
                 <Reveal key={post.id}>
-                  <PostCard post={post} />
+                  {/* 按形态分发：文章（标题点击进详情阅读）/ 说说 */}
+                  {post.post_kind === "article" ? <ArticleCard post={post} /> : <PostCard post={post} />}
                 </Reveal>
               ))}
 

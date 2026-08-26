@@ -197,6 +197,19 @@ type DataAIModel struct {
 	Models []string `json:"models"` // 可用模型列表
 }
 
+// DataOpenAPIKey 开放接口 API Key（含明文 Key；json tag 供插件 API 直出）。
+// 场景：与浏览器插件联动——把 Key 远传给浏览器插件，凭 X-Api-Key 调用 /api/v1/open/*。
+// 时间为 RFC3339 字符串；空串 = 永久有效（ExpiresAt）/ 从未使用（LastUsedAt）。
+type DataOpenAPIKey struct {
+	ID         int64    `json:"id"`          // 凭证 ID
+	Name       string   `json:"name"`        // 备注名
+	Key        string   `json:"key"`         // API Key 明文（oa_ 前缀）
+	Endpoints  []string `json:"endpoints"`   // 已授权接口标识（对应开放接口目录）
+	ExpiresAt  string   `json:"expires_at"`  // 过期时间（RFC3339；空=永久有效）
+	LastUsedAt string   `json:"last_used_at"` // 最近调用时间（RFC3339；空=从未调用）
+	CreatedAt  string   `json:"created_at"`  // 创建时间（RFC3339）
+}
+
 // DataService 主进程只读数据服务（插件经 GRPCBroker 获取连接；数据均为脱敏公开信息）。
 type DataService interface {
 	// GetUser 查询用户脱敏信息。
@@ -209,6 +222,8 @@ type DataService interface {
 	GetAIModels(ctx context.Context) ([]DataAIModel, error)
 	// GenerateAI 调用主进程 AI 生成文本（按模型路由供应商；插件 AI 辅助）。
 	GenerateAI(ctx context.Context, model string, prompt string, content string) (string, error)
+	// GetOpenAPIKeys 查询开放接口 API Key 清单（含明文 Key；浏览器插件联动远传验证用）。
+	GetOpenAPIKeys(ctx context.Context) ([]DataOpenAPIKey, error)
 }
 
 // 数据服务客户端内存状态（server Activate 回调经 broker Dial 建立；未授权为 nil）。

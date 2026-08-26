@@ -21,9 +21,11 @@ export function authHeader(): Record<string, string> {
 }
 
 // PluginApiClient 插件受限 API 客户端（get/post 打到 /api/v1/plugins/{id}，带主站凭证）。
+// download 为宿主端点文件下载（完整站内路径，带主站凭证；供备份下载等流式场景）。
 export interface PluginApiClient {
   get<T>(path: string): Promise<T>;
   post<T>(path: string, body?: unknown): Promise<T>;
+  download(url: string, filename: string): Promise<void>;
 }
 
 // makePluginApi 构造插件受限 API 客户端（E2 去重：槽位挂载与独立页面壳共用；
@@ -43,6 +45,25 @@ export function makePluginApi(pluginId: string): PluginApiClient {
         body: JSON.stringify(body ?? {}),
       });
       return (await res.json()) as T;
+    },
+    // download 拉取宿主端点文件并触发浏览器下载（鉴权同 get/post；失败抛错）。
+    async download(url: string, filename: string): Promise<void> {
+      const res = await fetch(url, { headers: authHeader() });
+      if (!res.ok) {
+        throw new Error(`下载请求失败（HTTP ${res.status}）`);
+      }
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      try {
+        const anchor = document.createElement("a");
+        anchor.href = objectUrl;
+        anchor.download = filename;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+      } finally {
+        URL.revokeObjectURL(objectUrl);
+      }
     },
   };
 }

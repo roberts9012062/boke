@@ -210,12 +210,13 @@ export function apiDeactivateAccount(): Promise<void> {
 
 // ---------- 帖子方法（M1.3） ----------
 
-// 时间线列表（type 过滤：全部/图/音/影；分页）。
+// 时间线列表（type 过滤：全部/图/音/影；kind 过滤：moment=说说/article=文章；分页）。
 export function apiTimeline(
-  params: { type?: string; page?: number; page_size?: number } = {},
+  params: { type?: string; kind?: string; page?: number; page_size?: number } = {},
 ): Promise<PageResult<PostSummary>> {
   const query = new URLSearchParams();
   if (params.type) query.set("type", params.type);
+  if (params.kind) query.set("kind", params.kind);
   query.set("page", String(params.page ?? 1));
   query.set("page_size", String(params.page_size ?? 20));
   return get<PageResult<PostSummary>>(`/posts?${query.toString()}`);
@@ -1157,4 +1158,17 @@ export function apiAdminBans(params: { page?: number }): Promise<PageResult<BanR
   const query = new URLSearchParams();
   query.set("page", String(params.page ?? 1));
   return get<PageResult<BanRecordDTO>>(`/admin/bans?${query.toString()}`);
+}
+
+// apiPluginCall 插件代理 API 调用（登录态；POST /api/v1/plugins/{id}{path}）。
+// 供发帖页等宿主前端调用插件能力（如 CF图床图库列表）；插件未启用时由后端返回错误。
+// 说明：插件 API 响应为插件原始 JSON（无主站 code/data 包装），故裸 fetch 解析
+// 而不走 request（其 code!==0 判定会把无 code 响应误判为失败）。
+export async function apiPluginCall<T>(pluginId: string, path: string, body?: unknown): Promise<T> {
+  const res = await fetch(`/api/v1/plugins/${pluginId}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(body ?? {}),
+  });
+  return (await res.json()) as T;
 }

@@ -13,7 +13,7 @@ import (
 	"github.com/roberts9012062/boke/internal/plugin/license"
 	"github.com/roberts9012062/boke/internal/repository"
 	"github.com/roberts9012062/boke/pkg/errs"
-	"github.com/roberts9012062/boke/pkg/plugin-sdk/proto"
+	"github.com/roberts9012062/boke/pkg/plugin-sdk/contract"
 )
 
 // 宽限期（与 license 包一致：到期后 7 天）。
@@ -92,12 +92,12 @@ func (s *PluginService) LicenseStatus(ctx context.Context, pluginID string) (*Li
 
 // licenseInfo 进程激活时下发的许可信息（PluginManager.LicenseProvider 装配）。
 // 说明：无记录=demo（free）；降级时 features 清空（功能锁定）。
-func (s *PluginService) LicenseInfoProvider(ctx context.Context, pluginID string) (*proto.LicenseInfo, error) {
+func (s *PluginService) LicenseInfoProvider(ctx context.Context, pluginID string) (*contract.LicenseInfo, error) {
 	status, err := s.LicenseStatus(ctx, pluginID)
 	if err != nil {
 		return nil, err
 	}
-	info := &proto.LicenseInfo{Edition: status.Edition, Features: status.Features, Degraded: status.Degraded}
+	info := &contract.LicenseInfo{Edition: status.Edition, Features: status.Features, Degraded: status.Degraded}
 	if status.ExpiresAt != nil {
 		info.ExpiresAt = *status.ExpiresAt
 	}

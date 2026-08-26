@@ -29,7 +29,7 @@ LOG_FILE="$LOG_DIR/build-netease-music-plugin-$(date +%Y%m%d-%H%M%S).log"
 
 echo "[构建] cmd/netease-music-plugin → $OUT_DIR/$BIN_NAME" | tee -a "$LOG_FILE"
 mkdir -p "$OUT_DIR"
-go build -o "$OUT_DIR/$BIN_NAME" -C marketplace-repo ./netease-music 2>&1 | tee -a "$LOG_FILE"
+go build -C marketplace-repo -ldflags "-s -w" -trimpath -o "$OUT_DIR/$BIN_NAME" ./netease-music 2>&1 | tee -a "$LOG_FILE"
 
 echo "[同步] 前端资产 → $OUT_DIR/frontend/" | tee -a "$LOG_FILE"
 mkdir -p "$OUT_DIR/frontend"

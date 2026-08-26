@@ -104,6 +104,9 @@ export interface LoginReq {
 // 帖子内容类型（设计稿四形态；video M2 启用）
 export type PostContentType = "text" | "image" | "audio" | "video";
 
+// 帖子形态（与内容类型正交：形态决定篇幅与展示结构，内容类型决定媒体形态）
+export type PostKind = "moment" | "article";
+
 // 标签信息
 export interface TagDTO {
   name: string; // 标签名（含 # 前缀）
@@ -134,8 +137,9 @@ export interface MediaDTO {
 export interface PostSummary {
   id: number; // 帖子 ID
   title: string; // 标题
-  summary: string; // 摘要
-  content_type: PostContentType; // 类型
+  summary: string; // 摘要（说说 60 字 / 文章 200 字，内容过长省略）
+  content_type: PostContentType; // 类型（媒体形态）
+  post_kind: PostKind; // 帖子形态：moment=说说 / article=文章
   visibility: "public" | "followers" | "private"; // 可见性（followers=仅关注者 M2）
   author: AuthorDTO; // 作者
   tags: TagDTO[]; // 标签
@@ -178,6 +182,7 @@ export interface AdminPostDetail {
   content: string; // 正文（文字帖/图说/说明）
   content_format?: string; // 正文格式：markdown / html（空=markdown）
   content_type: PostContentType; // 内容类型
+  post_kind: PostKind; // 帖子形态：moment=说说 / article=文章
   status: string; // draft/published/taken_down
   visibility: "public" | "followers" | "private"; // 可见性
   cover_url: string; // 封面图（视频帖独立封面）
@@ -204,9 +209,10 @@ export interface PostDetail extends PostSummary {
 
 // 发帖/存草稿请求
 export interface CreatePostReq {
-  content_type: PostContentType; // 类型
-  title?: string; // 标题（可选）
-  content: string; // 正文（≤2000 字）
+  content_type: PostContentType; // 类型（媒体形态；文章固定 text，图片走图集/正文内嵌）
+  post_kind?: PostKind; // 帖子形态：moment=说说 / article=文章（空=moment；创建后不可变）
+  title?: string; // 标题（说说可选；文章必填 ≤100 字）
+  content: string; // 正文（说说 ≤2000 字 / 文章 ≤20000 字）
   content_format?: string; // 正文格式：markdown / html
   tags: string[]; // 标签
   media_ids: number[]; // 媒体 ID

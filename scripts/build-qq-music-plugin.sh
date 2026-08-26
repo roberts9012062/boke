@@ -23,7 +23,7 @@ LOG_FILE="$LOG_DIR/build-qq-music-plugin-$(date +%Y%m%d-%H%M%S).log"
 
 echo "[构建] cmd/qq-music-plugin → $OUT_DIR/$BIN_NAME" | tee -a "$LOG_FILE"
 mkdir -p "$OUT_DIR"
-go build -o "$OUT_DIR/$BIN_NAME" -C marketplace-repo ./qq-music 2>&1 | tee -a "$LOG_FILE"
+go build -C marketplace-repo -ldflags "-s -w" -trimpath -o "$OUT_DIR/$BIN_NAME" ./qq-music 2>&1 | tee -a "$LOG_FILE"
 
 echo "[同步] 前端资产 → $OUT_DIR/frontend/" | tee -a "$LOG_FILE"
 mkdir -p "$OUT_DIR/frontend"

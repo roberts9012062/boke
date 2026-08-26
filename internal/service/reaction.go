@@ -48,7 +48,7 @@ func (s *ReactionService) LikePost(ctx context.Context, postID int64, viewerID i
 			return 0, false, err
 		}
 		// 点赞通知（通知帖子作者，不给自己发）
-		s.notify.NotifyLike(ctx, viewerID, post.AuthorID, postID, summaryPreviewText(post.Content))
+		s.notify.NotifyLike(ctx, viewerID, post.AuthorID, postID, summaryPreviewText(post.Content, post.PostKind))
 	}
 	return post.LikeCount + boolToInt64(added), added, nil
 }

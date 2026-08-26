@@ -15,6 +15,7 @@ import (
 	"github.com/roberts9012062/boke/internal/handler"
 	"github.com/roberts9012062/boke/internal/middleware"
 	"github.com/roberts9012062/boke/internal/pluginshared"
+	"github.com/roberts9012062/boke/internal/repository"
 	"github.com/roberts9012062/boke/pkg/resp"
 )
 
@@ -42,6 +43,10 @@ type Handlers struct {
 	Role     *handler.RoleHandler     // 角色权限控制器（M5）
 	Music    *handler.MusicHandler    // 音乐解析控制器（M7：QQ songmid→songid）
 	Video    *handler.VideoHandler    // B站视频桥接控制器（bilibili-video 插件游客通道）
+	TTS      *handler.TTSHandler      // 朗读桥接控制器（tts-reader 插件游客通道）
+	Stats    *handler.StatsHandler    // 统计桥接控制器（stats-pro 插件访客上报通道）
+	OpenAPI     *handler.OpenAPIHandler       // 接口开放控制器（目录与凭证管理）
+	OpenAPIKeys *repository.OpenAPIKeyRepo   // 开放网关鉴权依赖（ApiKeyAuth 中间件查询凭证用）
 }
 
 // Register 注册全部路由并返回 Gin 引擎。
@@ -167,6 +172,16 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager, e
 	api.GET("/video/bilibili/stream", handlers.Video.Stream)               // 视频流代理（同源加载 + Range 透传）
 	api.GET("/video/bilibili/image", handlers.Video.Image)                 // 图床代理（封面/头像防盗链）
 
+	// ---------- TTS 朗读公开桥接（tts-reader 插件：访客朗读通道） ----------
+	// 插件代理 API 需登录，而朗读要求匿名可听——公开组 + System 身份直达插件；
+	// POST + JSON body（宿主代理丢弃 query，SDK 端点精确匹配，id 经 body 传递）
+	api.POST("/tts", handlers.TTS.Synthesize)       // 合成（{text, voice?, rate?}）→ {id}
+	api.POST("/tts/audio", handlers.TTS.Audio)      // 取音频（{id}）→ audio/mpeg 字节
+
+	// ---------- 站点统计公开桥接（stats-pro 插件：访客浏览上报） ----------
+	// 上报以 System 身份直达插件（访客无需登录）；查看统计走插件代理 API（登录态）
+	api.POST("/stats/hit", handlers.Stats.Hit) // 浏览上报（{post_id?, visitor_id?}）→ {counted}
+
 	// ---------- 评论模块（M1.4） ----------
 	// 评论接口开放（登录/匿名均可）：挂可选鉴权识别登录用户身份；
 	// 发表/回复挂 RequireNotRestricted（M5：受限访客 403，匿名按 visitor 放行）
@@ -216,6 +231,23 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager, e
 
 	// ---------- 自定义页面（公开：仅已发布页面，草稿视同不存在） ----------
 	api.GET("/pages/:slug", handlers.Page.GetBySlug)
+
+	// ---------- 开放接口网关（外部应用凭 X-Api-Key 调用；复用公开 handler，匿名视角） ----------
+	// 鉴权：组级 ApiKeyAuth 中间件按「Method + 路由模板」反查目录得到接口标识，
+	//       校验 Key 绑定的 endpoints 包含该标识后放行（未授权 403 / 无效或过期 401）。
+	// 变更约束：增删路由须同步 model.OpenAPICatalog() 目录数据。
+	openGroup := api.Group("/open")
+	openGroup.Use(middleware.ApiKeyAuth(handlers.OpenAPIKeys))
+	openGroup.GET("/posts", handlers.Post.List)                        // 帖子列表（posts.list）
+	openGroup.GET("/posts/:id", handlers.Post.Get)                     // 帖子详情（posts.detail）
+	openGroup.GET("/posts/:id/comments", handlers.Comment.List)        // 帖子评论（posts.comments）
+	openGroup.GET("/topics", handlers.Social.ListTopics)               // 话题列表（topics.list）
+	openGroup.GET("/topics/:name/posts", handlers.Social.ListTopicPosts) // 话题帖子（topics.posts）
+	openGroup.GET("/search", handlers.Social.Search)                   // 搜索（search）
+	openGroup.GET("/users/:id", handlers.User.GetUser)                 // 用户主页（users.profile）
+	openGroup.GET("/users/:id/posts", handlers.Social.UserPosts)       // 用户帖子（users.posts）
+	openGroup.GET("/pages/:slug", handlers.Page.GetBySlug)             // 自定义页面（pages.detail）
+	openGroup.GET("/meta", handlers.Site.GetMeta)                      // 站点信息（site.meta）
 
 		// ---------- 私信模块（M2） ----------
 		authed.GET("/conversations", handlers.Message.ListConversations)          // 会话列表（filter=all|unread）
@@ -276,7 +308,13 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager, e
 	pages.GET("/:id", handlers.Page.AdminGet)     // 编辑回显（含正文）
 	pages.POST("", handlers.Page.AdminCreate)     // 创建
 	pages.PUT("/:id", handlers.Page.AdminUpdate)  // 更新
-	pages.DELETE("/:id", handlers.Page.AdminDelete) // 删除
+		pages.DELETE("/:id", handlers.Page.AdminDelete) // 删除
+		// 接口开放域（外部 API Key 管理：目录 + 凭证增删查）
+		openAPI := adminGroup.Group("/open-api", perm(casbin.DomainOpenAPI))
+		openAPI.GET("/catalog", handlers.OpenAPI.Catalog)   // 开放接口目录（页面多选数据源）
+		openAPI.GET("/keys", handlers.OpenAPI.ListKeys)     // 凭证列表
+		openAPI.POST("/keys", handlers.OpenAPI.CreateKey)   // 生成凭证（多选接口 + 过期天数）
+		openAPI.DELETE("/keys/:id", handlers.OpenAPI.DeleteKey) // 删除凭证
 		// 站点设置域
 		settings := adminGroup.Group("/settings", perm(casbin.DomainSettings))
 		settings.GET("", handlers.Admin.GetSettings)
@@ -311,6 +349,7 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager, e
 		plugins.POST("/:id/upgrade", handlers.Plugin.Upgrade) // 一键升级（M3.6 后置）
 		plugins.GET("/:id/license", handlers.Plugin.LicenseStatus)    // 许可证状态（M3.5）
 		plugins.POST("/:id/license", handlers.Plugin.ActivateLicense) // 激活许可证（M3.5）
+		plugins.GET("/:id/backups/:file/download", handlers.Plugin.DownloadBackup) // 插件备份文件下载（流式直出）
 		// 插件设置（M3.7：详情/配置读写；Gin 静态段优先，与 /market、/:id/* 子路径不冲突）
 		plugins.GET("/:id", handlers.PluginConfig.Detail)             // 详情（设置页数据源）
 		plugins.GET("/:id/config", handlers.PluginConfig.GetConfig)   // 读取配置

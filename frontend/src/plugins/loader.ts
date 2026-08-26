@@ -18,9 +18,11 @@ export interface PluginCtx {
 }
 
 // PluginApi 受限 API 客户端（路径为插件自定义 API，如 "/ping"）。
+// download 为宿主端点文件下载（完整站内路径；供备份下载等流式场景）。
 export interface PluginApi {
   get<T>(path: string): Promise<T>;
   post<T>(path: string, body?: unknown): Promise<T>;
+  download(url: string, filename: string): Promise<void>;
 }
 
 // PluginUser 用户信息（脱敏）。

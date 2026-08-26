@@ -2,7 +2,7 @@
 // 插件启动流程（从 manager.go 拆出，行数硬性指标）。
 // E3 并发改造：启动拆为三阶段——
 //   阶段 1（锁内，微秒级）：幂等/熔断检查 + starting 占位（防并发启动）；
-//   阶段 2（锁外，最长 15s）：二进制校验 → 握手 → Info → Activate → 流通道 → 配置下发；
+//   阶段 2（锁外，最长 15s）：二进制校验 → 拉起握手 → Info → Activate → 配置下发；
 //   阶段 3（锁内，微秒级）：占位仍属本启动时提交 running 管理项 + 注册钩子 + 崩溃监听。
 // 效果：一个慢插件握手不再阻塞其他插件的 Stop/Call/PushConfig/IsRunning（此前全程持锁）。
 package plugin
@@ -11,27 +11,23 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 
-	"github.com/hashicorp/go-hclog"
-	goplugin "github.com/hashicorp/go-plugin"
 	"go.uber.org/zap"
 
-	"github.com/roberts9012062/boke/pkg/plugin-sdk/handshake"
-	"github.com/roberts9012062/boke/pkg/plugin-sdk/proto"
+	"github.com/roberts9012062/boke/pkg/plugin-sdk/contract"
 )
 
 // startSession 一次启动会话（阶段 2 的产物：子进程客户端与资源句柄）。
 type startSession struct {
-	client  *goplugin.Client // go-plugin 客户端（持有子进程）
-	rpc     *pluginClient    // gRPC 三服务客户端
-	logFile *os.File         // 插件 stderr 日志文件（进程退出时关闭）
+	proc    *childProc    // 子进程（进程桥：进程句柄 + 三条通道）
+	rpc     *pluginClient // Core 服务客户端封装
+	logFile *os.File      // 插件 stderr 日志文件（进程退出时关闭）
 }
 
 // cleanup 释放会话资源（阶段 2 失败或阶段 3 被抢占时调用）。
 func (s *startSession) cleanup() {
-	if s.client != nil {
-		s.client.Kill()
+	if s.proc != nil {
+		s.proc.Kill()
 	}
 	if s.logFile != nil {
 		_ = s.logFile.Close()
@@ -40,7 +36,7 @@ func (s *startSession) cleanup() {
 
 // Start 启用插件：拉起子进程（已 running 幂等返回；starting 中返回错误防并发启动）。
 func (m *PluginManager) Start(ctx context.Context, pluginID string) error {
-	// ---------- 阶段 1：锁内快速检查与占位 ----------
+	// ---------- 阶段 1：锁内快速检查和占位 ----------
 	m.mu.Lock()
 	if mp, ok := m.managed[pluginID]; ok {
 		switch mp.state {
@@ -88,20 +84,26 @@ func (m *PluginManager) Start(ctx context.Context, pluginID string) error {
 	}
 	mp := &ManagedPlugin{
 		pluginID: pluginID, binPath: m.store.BinPath(pluginID),
-		state: stateRunning, client: session.client, rpc: session.rpc, logFile: session.logFile,
+		state: stateRunning, client: session.proc, rpc: session.rpc, logFile: session.logFile,
 	}
 	m.managed[pluginID] = mp
 	m.mu.Unlock()
 
 	// 钩子适配器注册（锁外：Registry 自带锁，避免锁嵌套）
 	m.registerAdapters(pluginID, session.rpc)
+	// 配置下发（running 提交后：schema 聚合的进程上报分支此时可用）
+	m.pushInitialConfig(ctx, pluginID, session.rpc)
 	go m.watchExit(mp)
 	m.logInfo("插件启动完成", zap.String("plugin", pluginID))
 	return nil
 }
 
 // launch 慢速启动流程（锁外执行）：二进制校验 → 拉起子进程握手 → Info 校验 →
-// 能力门控 → Activate → 流式钩子通道 → 配置下发。失败返回错误（session 尽量填充以便清理）。
+// 能力门控 → Activate。失败返回错误（session 尽量填充以便清理）。
+// 流式钩子通道随进程握手一并建立（child_host 拨号 stream 通道；断连时 sendStream
+// 自动降级 ExecuteHook，无需启动阶段单独建流）。
+// 配置下发在 Start 阶段 3 之后（pushInitialConfig）——launch 期间插件尚在 starting
+// 状态，service 层 schema 聚合（进程 Info 上报优先）取不到，会合并出空配置。
 func (m *PluginManager) launch(ctx context.Context, pluginID string) (*startSession, error) {
 	session := &startSession{}
 	// 二进制校验（M3.3 本地预置；Release 下载安装 M3.4 后置）
@@ -113,101 +115,83 @@ func (m *PluginManager) launch(ctx context.Context, pluginID string) (*startSess
 		return session, fmt.Errorf("插件「%s」二进制不可用（期望路径 %s）", pluginID, binPath)
 	}
 
-	// 插件 stderr → 日志文件（stdout 由 go-plugin 用于握手，不可占用）
+	// 插件 stderr → 日志文件（stdout 用于握手行，不可占用）
 	logFile, err := m.openLogFile(pluginID)
 	if err != nil {
 		return session, fmt.Errorf("打开插件日志失败：%w", err)
 	}
 	session.logFile = logFile
 
-	// go-plugin 客户端（AutoMTLS 自动 TLS 加密）
-	// 日志双通道（go-plugin v1.8 行为：握手后子进程 os.Stderr 被 stdio 流接管，
-	// 客户端经 SyncStderr 写入；握手前的输出走原始管道 Stderr——两者都指向日志文件）
-	session.client = goplugin.NewClient(&goplugin.ClientConfig{
-		HandshakeConfig:  handshake.Handshake, // D1 解耦：握手配置单一事实源（handshake 包）
-		Plugins:          map[string]goplugin.Plugin{"core": &coreGRPCPlugin{dataProvider: m.dataProviderFn()}},
-		Cmd:              exec.Command(binPath),
-		AllowedProtocols: []goplugin.Protocol{goplugin.ProtocolGRPC},
-		AutoMTLS:         true,
-		StartTimeout:     handshakeTimeout,
-		Stderr:           logFile,
-		SyncStderr:       logFile,
-		Logger:           hclog.NewNullLogger(),
-	})
-
-	// 握手（阻塞至协议就绪；失败清理资源）
-	rpcClient, err := session.client.Client()
+	// 拉起子进程并建立通道（core/stream + 可选数据服务监听）
+	proc, err := startChild(binPath, logFile, m.dataProviderFn())
 	if err != nil {
-		return session, fmt.Errorf("插件「%s」握手失败：%w", pluginID, err)
+		return session, fmt.Errorf("插件「%s」%w", pluginID, err)
 	}
-	raw, err := rpcClient.Dispense("core")
-	if err != nil {
-		return session, fmt.Errorf("插件「%s」客户端分发失败：%w", pluginID, err)
-	}
-	rpc, ok := raw.(*pluginClient)
-	if !ok {
-		return session, fmt.Errorf("插件「%s」客户端类型错误", pluginID)
-	}
-	session.rpc = rpc
+	session.proc = proc
+	session.rpc = newPluginClient(proc)
 
 	// Info 一致性校验（声明的插件 ID 必须与实例一致）
-	info, err := rpc.info.Info(ctx, &proto.Empty{})
-	if err != nil {
+	var info contract.PluginInfo
+	if err := session.rpc.callCore(ctx, "Info", &contract.Empty{}, &info); err != nil {
 		return session, fmt.Errorf("插件「%s」Info 调用失败：%w", pluginID, err)
 	}
-	if info.Id != pluginID {
-		return session, fmt.Errorf("插件二进制声明 ID「%s」与实例「%s」不一致", info.Id, pluginID)
+	if info.ID != pluginID {
+		return session, fmt.Errorf("插件二进制声明 ID「%s」与实例「%s」不一致", info.ID, pluginID)
 	}
 	// 能力门控（P2 加固）：以「安装登记能力 ∩ 二进制自报能力」判定——
 	// 恶意二进制自报 data.read 不再直接得手（安装登记中未声明的扩展能力一律不授权）；
-	// provider 未配置（旧装配/单测）时退化为仅自报（保持 M3.8 原行为）
-	allowedCaps := info.GetCapabilities()
+	// provider 未配置（旧装配/单测）时退化为仅自报（保持原行为）
+	allowedCaps := info.Capabilities
 	if m.capabilityProvider != nil {
 		registered, err := m.capabilityProvider(ctx, pluginID)
 		if err == nil {
 			allowedCaps = intersectStrings(registered, allowedCaps)
 		}
 	}
-	// 仅声明 data.read 的插件获得数据服务 brokerID（未声明一律不下发）
-	dataBrokerID := rpc.dataBrokerID
-	if dataBrokerID != 0 && !stringListContains(allowedCaps, "data.read") {
-		dataBrokerID = 0
+	// 仅声明 data.read 的插件获得数据服务地址与凭据（未声明一律不下发）
+	dataAddr, dataToken := proc.DataAddr(), proc.DataToken()
+	if dataAddr != "" && !stringListContains(allowedCaps, "data.read") {
+		dataAddr, dataToken = "", ""
 	}
 
-	// Activate（携带许可证信息：provider 查询，无记录/失败按 free demo 兜底）
-	license := &proto.LicenseInfo{Edition: "free"}
+	// Activate（携带许可证信息 + 数据服务凭据：provider 查询，无记录/失败按 free demo 兜底）
+	license := contract.LicenseInfo{Edition: "free"}
 	if m.licenseProvider != nil {
 		if li, err := m.licenseProvider(ctx, pluginID); err == nil && li != nil {
-			license = li
+			license = *li
 		}
 	}
-	if st, err := rpc.info.Activate(ctx, &proto.ActivateRequest{
-		License:      license,
-		DataBrokerId: dataBrokerID, // M3.8：能力门控后的数据服务 brokerID（0=未授权）
-	}); err != nil || !st.Ok {
+	var status contract.Status
+	if err := session.rpc.callCore(ctx, "Activate", &contract.ActivateRequest{
+		License:   license,
+		DataAddr:  dataAddr,  // 能力门控后的数据服务地址（空=未授权）
+		DataToken: dataToken, // 数据服务凭据（与地址成对；空=未授权）
+	}, &status); err != nil || !status.OK {
 		reason := "未知原因"
-		if err == nil && st.Error != "" {
-			reason = st.Error
+		if err == nil && status.Error != "" {
+			reason = status.Error
 		}
 		return session, fmt.Errorf("插件「%s」激活失败：%s", pluginID, reason)
 	}
-
-	// 建立流式钩子通道（M3.9：异步事件经流推送；失败回退 Execute——不阻断启动）
-	if err := rpc.openStream(ctx); err != nil {
-		m.logWarn("插件流式通道建立失败（回退 Execute）", zap.String("plugin", pluginID), zap.Error(err))
-	}
-
-	// 下发配置（M3.7：provider 查询，无记录/失败按空配置；失败仅告警不阻断启动——插件可用默认值）
-	if m.configProvider != nil {
-		if values, err := m.configProvider(ctx, pluginID); err == nil {
-			if _, err := rpc.info.SetConfig(ctx, &proto.ConfigInfo{Values: values}); err != nil {
-				m.logWarn("插件配置下发失败（启动阶段）", zap.String("plugin", pluginID), zap.Error(err))
-			}
-		} else {
-			m.logWarn("插件配置查询失败（启动阶段）", zap.String("plugin", pluginID), zap.Error(err))
-		}
-	}
 	return session, nil
+}
+
+// pushInitialConfig 启动收尾配置下发（Start 阶段 3 提交 running 后调用：
+// 此时 service 层 schema 聚合的进程上报分支可用，合并结果完整；失败仅告警
+// 不阻断——插件可用 schema 默认值，保存配置时会经 PushConfig 补推）。
+func (m *PluginManager) pushInitialConfig(ctx context.Context, pluginID string, rpc *pluginClient) {
+	if m.configProvider == nil {
+		return
+	}
+	values, err := m.configProvider(ctx, pluginID)
+	if err != nil {
+		m.logWarn("插件配置查询失败（启动阶段）", zap.String("plugin", pluginID), zap.Error(err))
+		return
+	}
+	var status contract.Status
+	if err := rpc.callCore(ctx, "SetConfig", &contract.ConfigInfo{Values: values}, &status); err != nil {
+		m.logWarn("插件配置下发失败（启动阶段）", zap.String("plugin", pluginID), zap.Error(err))
+	}
 }
 
 // SetLogger 注入结构化日志（E4：装配后调用；未注入时 logInfo/logWarn 退回 stderr）。

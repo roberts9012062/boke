@@ -56,6 +56,9 @@ CREATE TABLE IF NOT EXISTS posts (
     summary        VARCHAR(500) NOT NULL DEFAULT '',                        -- 摘要
     content        TEXT NOT NULL DEFAULT '',                                -- 正文（Markdown）
     content_format VARCHAR(20)  NOT NULL DEFAULT 'markdown',                -- 正文格式：markdown / html
+    content_type   VARCHAR(20)  NOT NULL DEFAULT 'text',                    -- 媒体形态：text/image/audio/video（迁移 002）
+    post_kind      VARCHAR(20)  NOT NULL DEFAULT 'moment',                  -- 帖子形态：moment=说说 / article=文章（迁移 019）
+    media_ids      JSONB NOT NULL DEFAULT '[]'::jsonb,                      -- 关联媒体 ID 有序数组（迁移 002）
     status         VARCHAR(20)  NOT NULL DEFAULT 'draft',                   -- 状态：draft=草稿 / pending=待审核 / published=已发布 / deleted=已删除
     visibility     VARCHAR(20)  NOT NULL DEFAULT 'public',                  -- 可见性：public=公开 / private=私密 / password=密码访问
     cover_url      VARCHAR(500) NOT NULL DEFAULT '',                        -- 封面图
@@ -68,9 +71,11 @@ CREATE TABLE IF NOT EXISTS posts (
     updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- 查询索引：按状态与发布时间（列表页）、按作者
+-- 查询索引：按状态与发布时间（列表页）、按作者、按媒体形态、按帖子形态
 CREATE INDEX IF NOT EXISTS idx_posts_status_published ON posts (status, published_at DESC);
 CREATE INDEX IF NOT EXISTS idx_posts_author ON posts (author_id);
+CREATE INDEX IF NOT EXISTS idx_posts_type_status ON posts (content_type, status, published_at DESC);
+CREATE INDEX IF NOT EXISTS idx_posts_kind_status ON posts (post_kind, status, published_at DESC);
 
 -- ============================================================
 -- 4. 文章版本表（编辑历史）

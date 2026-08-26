@@ -102,11 +102,11 @@ func randomName(ext string) (string, error) {
 
 // StorageResult 保存结果（供 repository 写入 media_assets）。
 type StorageResult struct {
-	Type      string // 媒体类型
+	Type       string // 媒体类型
 	StorageKey string // 相对存储键（data/media 下路径，如 202608/xxx.jpg）
-	URL       string // 访问地址（/media/xxx.jpg 静态路径）
-	MimeType  string // MIME 类型
-	SizeBytes int64  // 文件大小
+	URL        string // 访问地址（/media/xxx.jpg 静态路径）
+	MimeType   string // MIME 类型
+	SizeBytes  int64  // 文件大小
 }
 
 // Save 保存上传文件到本地磁盘。
@@ -213,4 +213,15 @@ func mimeByExt(ext string) string {
 	default:
 		return "application/octet-stream"
 	}
+}
+
+// DetectType 类型识别公开包装（存储 seam 前置校验用——上传白名单是安全边界，
+// 外部存储路径与本地存储同规则）。
+func DetectType(filename string, mime string) (string, error) {
+	return detectType(filename, mime)
+}
+
+// MaxSizeFor 类型大小上限公开包装（同上，seam 前置校验用）。
+func MaxSizeFor(mediaType string) int64 {
+	return maxSizeFor(mediaType)
 }

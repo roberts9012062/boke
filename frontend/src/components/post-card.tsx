@@ -1,56 +1,27 @@
 // src/components/post-card.tsx
-// 帖子卡片（设计稿 Card Text/Image/Audio/Video）：
+// 说说卡片（设计稿 Card Text/Image/Audio/Video）：
 // 作者行（头像/昵称/@账号·相对时间）→ 正文（截断 3-4 行）→ 媒体预览
-// （图片网格 / 音频播放条）→ 标签 → 底部互动条（赞/评论/收藏/分享）。
-// 动效：卡片 hover 轻浮起（阴影+描边加深）；图片 hover 微放大；点赞爱心弹跳。
+// （图片网格 / 音频播放条）→ 标签 → 底部互动条（赞/评论/收藏/分享，见 post-actions）。
+// 动效：卡片 hover 轻浮起（阴影+描边加深）；图片 hover 微放大。
+// 说明：文章形态（post_kind=article）由 article-card 渲染，本组件只负责说说。
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
 
 import { AudioPlayer } from "@/components/audio-player";
 import { GALLERY_STYLES } from "@/components/image-gallery";
 import { MusicRefPlayer } from "@/components/music-ref-player";
 import { PluginBlock } from "@/components/plugin-block";
-import { SharePanel } from "@/components/share-panel";
+import { PostActions } from "@/components/post-actions";
 import { Avatar } from "@/components/ui/avatar";
 import { useAppearance } from "@/lib/appearance";
-import { apiLikePost, apiUnlikePost, ApiError } from "@/lib/api";
-import { useAuth } from "@/lib/auth";
 import { timeAgo } from "@/lib/utils";
 import type { PostSummary } from "@/types/api";
 
-// PostCard 帖子卡片（列表形态；详情页为独立渲染，不复用本组件）。
+// PostCard 说说卡片（列表形态；详情页为独立渲染，不复用本组件）。
 // 参数：post 帖子摘要。
 export function PostCard({ post }: { post: PostSummary }) {
-  const { user } = useAuth();
   const { settings } = useAppearance(); // 外观设置（自动播放媒体开关）
-  const [liked, setLiked] = useState<boolean>(false);
-  const [likeCount, setLikeCount] = useState<number>(post.like_count);
-  const [error, setError] = useState<string>("");
-  const [shareOpen, setShareOpen] = useState<boolean>(false); // 分享面板（#17）
-  // 正文显示：列表用摘要（列表摘要）
-
-  // 点赞/取消（真实落库；未登录提示登录）
-  const handleLike = async () => {
-    if (!user) {
-      setError("请先登录后再点赞");
-      return;
-    }
-    try {
-      if (liked) {
-        const result = await apiUnlikePost(post.id);
-        setLikeCount(result.like_count);
-        setLiked(false);
-      } else {
-        const result = await apiLikePost(post.id);
-        setLikeCount(result.like_count);
-        setLiked(true);
-      }
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "操作失败");
-    }
-  };
 
   return (
     <article className="rounded-lg border border-line bg-elevated p-5 transition-[translate,box-shadow,border-color] duration-[var(--yy-duration-base)] ease-[var(--yy-ease-out)] hover:-translate-y-0.5 hover:border-accent/40 hover:shadow-[var(--yy-shadow-card-hover)]">
@@ -182,54 +153,8 @@ export function PostCard({ post }: { post: PostSummary }) {
         </div>
       )}
 
-      {/* 底部互动条（设计稿：128 赞 / 36 评论 / 12 收藏 / — 分享） */}
-      {/* 收藏数 M1.7 接入列表聚合（post.favorite_count），点赞真实落库 */}
-      <div className="mt-4 flex items-center gap-6 border-t border-line pt-3 text-xs text-ink-3">
-        <button
-          type="button"
-          onClick={() => void handleLike()}
-          className={`flex items-center gap-1 transition-colors ${
-            liked ? "text-like" : "hover:text-ink"
-          }`}
-        >
-          {/* 爱心弹跳（liked 切换时重播 animate-pop） */}
-          <span aria-hidden className={`inline-block ${liked ? "animate-pop" : ""}`}>
-            {liked ? "♥" : "♡"}
-          </span>
-          <span>{likeCount}</span>
-        </button>
-        <Link href={`/posts/${post.id}#comments`} className="flex items-center gap-1 hover:text-ink">
-          <span aria-hidden>💬</span>
-          <span>{post.comment_count}</span>
-        </Link>
-        <Link href={`/posts/${post.id}`} className="flex items-center gap-1 hover:text-ink">
-          <span aria-hidden>🔖</span>
-          <span>{post.favorite_count ?? 0}</span>
-        </Link>
-        {/* 分享（设计稿《分享面板》，#17 激活） */}
-        <button
-          type="button"
-          onClick={() => setShareOpen(true)}
-          className="flex items-center gap-1 transition-colors hover:text-ink"
-        >
-          <span aria-hidden>↗</span>
-          <span>分享</span>
-        </button>
-      </div>
-      {/* 点赞提示（未登录） */}
-      {error && <p className="mt-2 text-xs text-like">{error}</p>}
-
-      {/* 分享面板（作者 · 话题 元信息 + 图片帖海报图） */}
-      {shareOpen && (
-        <SharePanel
-          title={post.title || post.summary || "分享帖子"}
-          content={post.summary}
-          media={post.media.filter((m) => m.type === "image").map((m) => m.url)}
-          meta={`${post.author.nickname}${post.tags.length > 0 ? ` · ${post.tags.map((t) => t.name).join(" ")}` : ""}`}
-          shareUrl={typeof window !== "undefined" ? `${window.location.origin}/posts/${post.id}` : `/posts/${post.id}`}
-          onClose={() => setShareOpen(false)}
-        />
-      )}
+      {/* 底部互动条（赞/评论/收藏/分享 + 插件槽；共用组件） */}
+      <PostActions post={post} />
     </article>
   );
 }

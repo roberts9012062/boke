@@ -59,3 +59,7 @@ marketplace-repo/
 
 # GUI 测试截图（浏览器验证产物）
 gui-test-screenshots/
+
+# 本地运行产物（wrangler 缓存；data 运行目录含凭据，一律不入库）
+.wrangler/
+data/

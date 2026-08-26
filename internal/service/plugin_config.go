@@ -13,7 +13,7 @@ import (
 
 	"github.com/roberts9012062/boke/internal/repository"
 	"github.com/roberts9012062/boke/pkg/errs"
-	"github.com/roberts9012062/boke/pkg/plugin-sdk/proto"
+	"github.com/roberts9012062/boke/pkg/plugin-sdk/contract"
 )
 
 // PluginDetailDTO 插件详情（设置页数据源：实例 + 聚合 schema + 已存配置）。
@@ -56,8 +56,8 @@ func (s *PluginService) InstanceIDByPluginID(ctx context.Context, pluginID strin
 func (s *PluginService) aggregateSchema(ctx context.Context, pluginID string) []PluginSettingField {
 	// 进程上报优先（运行中拉 Info；失败/空静默走兜底）
 	if s.manager != nil {
-		if info, err := s.manager.PluginInfo(pluginID); err == nil && len(info.GetSettings()) > 0 {
-			return settingFieldsFromProto(info.GetSettings())
+		if info, err := s.manager.PluginInfo(pluginID); err == nil && len(info.Settings) > 0 {
+			return settingFieldsFromContract(info.Settings)
 		}
 	}
 	// 兜底：市场清单声明（旧插件无 Info 上报时仍可配置）
@@ -159,13 +159,13 @@ func (s *PluginService) SetConfig(ctx context.Context, instanceID int64, values 
 	return effective, nil
 }
 
-// settingFieldsFromProto proto 设置项 → service 设置项（契约字段对齐转换）。
-func settingFieldsFromProto(fields []*proto.SettingField) []PluginSettingField {
+// settingFieldsFromContract 契约设置项 → service 设置项（字段对齐转换）。
+func settingFieldsFromContract(fields []contract.SettingField) []PluginSettingField {
 	out := make([]PluginSettingField, 0, len(fields))
 	for _, f := range fields {
 		out = append(out, PluginSettingField{
-			Key: f.GetKey(), Label: f.GetLabel(), Type: f.GetType(),
-			Default: f.GetDefault(), Options: f.GetOptions(),
+			Key: f.Key, Label: f.Label, Type: f.Type,
+			Default: f.Default, Options: f.Options,
 		})
 	}
 	return out

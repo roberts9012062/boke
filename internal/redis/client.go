@@ -12,9 +12,10 @@ import (
 
 // Config Redis 连接参数。
 type Config struct {
-	Host string // 主机
-	Port string // 端口
-	DB   int    // 数据库编号
+	Host     string // 主机
+	Port     string // 端口
+	Password string // 认证密码（Redis 未设密码时为空）
+	DB       int    // 数据库编号
 }
 
 // NewClient 创建 Redis 客户端并做连通性检查。
@@ -30,7 +31,7 @@ func NewClient(ctx context.Context, cfg Config) *redis.Client {
 	client := redis.NewClient(&redis.Options{
 		Addr:     addr,
 		DB:       cfg.DB,
-		Password: "",
+		Password: cfg.Password,
 	})
 
 	// 连通性检查（失败返回 nil，限流降级放行）

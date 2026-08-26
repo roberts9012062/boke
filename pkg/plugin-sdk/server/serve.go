@@ -1,59 +1,48 @@
 // pkg/plugin-sdk/server/serve.go
-// 插件侧入口（M3.3）：插件作者 main 中调用 server.Serve(&Plugin{})，
-// 内部完成 go-plugin 握手（MagicCookie 校验）、gRPC 三服务注册、优雅退出。
-// 契约 proto：pkg/plugin-sdk/proto/plugin.proto（与主进程 internal/plugin 共用）。
+// 插件侧入口：插件作者 main 中调用 server.Serve(&Plugin{})，
+// 内部完成进程桥握手（监听回环端口 + stdout 握手行 + token 鉴权）、
+// net/rpc Core 服务注册、流式钩子接收、stdin 关闭优雅退出。
+// 契约类型：pkg/plugin-sdk/contract（gob 序列化，与主进程 internal/plugin 共用）。
+// 传输：pkg/plugin-sdk/process 自研进程桥（标准库 TCP + net/rpc + gob）——
+// 无 grpc/protobuf/hashicorp 依赖，插件二进制体积为 Go runtime 基线（~3MB）。
 package server
 
 import (
 	"context"
+	"encoding/gob"
 	"fmt"
+	"io"
+	"net"
+	"net/rpc"
 	"os"
 
-	"github.com/hashicorp/go-hclog"
-	"github.com/hashicorp/go-plugin"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/metadata"
-
 	"github.com/roberts9012062/boke/pkg/plugin-sdk"
-	"github.com/roberts9012062/boke/pkg/plugin-sdk/handshake"
-	"github.com/roberts9012062/boke/pkg/plugin-sdk/proto"
+	"github.com/roberts9012062/boke/pkg/plugin-sdk/contract"
+	"github.com/roberts9012062/boke/pkg/plugin-sdk/process"
 )
 
-// Handshake 握手配置别名（D1 解耦：常量已下沉 handshake 包单一事实源；
-// 保留导出兼容既有引用此变量的插件源码，新代码请直接引用 handshake.Handshake）。
-var Handshake = handshake.Handshake
-
-// coreGRPCPlugin go-plugin gRPC 插件封装（插件侧：注册 gRPC 服务；client 侧不支持）。
-type coreGRPCPlugin struct {
-	plugin.NetRPCUnsupportedPlugin // 仅支持 gRPC 协议（net/rpc 误用即报错）
-	impl    sdk.Plugin             // 插件业务实现
-	apiMux  *sdk.APIMux            // 自定义 API 路由表（实现 APIProvider 时非空）
-	logger  hclog.Logger
-	broker  *plugin.GRPCBroker     // 服务端 broker（M3.8：数据服务 Dial 用；GRPCServer 时保存）
+// coreServer 插件核心服务（生命周期 + 钩子 + 自定义 API 三服务合一）。
+type coreServer struct {
+	impl   sdk.Plugin          // 插件业务实现
+	hooks  map[string]sdk.Hook // 已声明钩子（按名称索引）
+	apiMux *sdk.APIMux         // 自定义 API 路由表（可空）
+	token  string              // 连接凭据（数据服务回连宿主时鉴权）
 }
 
-// GRPCServer 注册三个契约服务（生命周期/钩子/自定义 API）。
-func (p *coreGRPCPlugin) GRPCServer(broker *plugin.GRPCBroker, s *grpc.Server) error {
-	p.broker = broker // 保存 broker 供 Activate 时 Dial 主进程数据服务（M3.8）
-	proto.RegisterPluginServiceServer(s, &pluginServiceServer{impl: p.impl, hooks: collectHooks(p.impl), broker: broker})
-	proto.RegisterHookServiceServer(s, &hookServiceServer{hooks: collectHooks(p.impl)})
-	proto.RegisterPluginAPIServer(s, &apiServiceServer{mux: p.apiMux})
-	return nil
-}
-
-// GRPCClient 插件侧不消费主进程服务（返回 nil；握手协议要求实现）。
-func (p *coreGRPCPlugin) GRPCClient(_ context.Context, _ *plugin.GRPCBroker, _ *grpc.ClientConn) (interface{}, error) {
-	return nil, nil
-}
-
-// Serve 插件进程入口（阻塞运行；握手失败/子进程被杀时退出）。
+// Serve 插件进程入口（阻塞运行；宿主关闭 stdin 或服务异常时退出）。
 func Serve(impl sdk.Plugin) {
-	// 插件日志走 stderr（主进程重定向到 logs/plugins/{id}.log）
-	logger := hclog.New(&hclog.LoggerOptions{
-		Name:   "plugin-" + impl.Info().ID,
-		Level:  hclog.Warn,
-		Output: os.Stderr,
-	})
+	// 防误启动：非宿主拉起（无握手环境变量）直接退出
+	if os.Getenv(process.EnvCookie) != process.CookieValue {
+		fmt.Fprintln(os.Stderr, "[plugin] 缺少宿主握手环境变量——插件进程需由主站拉起，直接运行无意义")
+		os.Exit(1)
+	}
+	token := os.Getenv(process.EnvToken)
+
+	listener, err := process.NewListener()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "[plugin] 监听失败：", err)
+		os.Exit(1)
+	}
 
 	// 自定义 API（可选接口：插件实现 RegisterAPI 则挂载）
 	var apiMux *sdk.APIMux
@@ -61,18 +50,61 @@ func Serve(impl sdk.Plugin) {
 		apiMux = sdk.NewAPIMux()
 		p.RegisterAPI(apiMux)
 	}
+	core := &coreServer{impl: impl, hooks: collectHooks(impl), apiMux: apiMux, token: token}
 
-	plugin.Serve(&plugin.ServeConfig{
-		HandshakeConfig: Handshake,
-		Plugins:         map[string]plugin.Plugin{"core": &coreGRPCPlugin{impl: impl, apiMux: apiMux, logger: logger}},
-		GRPCServer:      plugin.DefaultGRPCServer,
-		Logger:          logger,
-	})
+	// stdout 握手行（宿主阻塞等待此行后建立通道连接）
+	fmt.Println(process.BuildHandshakeLine(listener.Addr().String()))
+	_ = os.Stdout.Sync()
+
+	// 服务循环（异常才返回；正常退出由 stdin 关闭触发）
+	serveDone := make(chan error, 1)
+	go func() { serveDone <- acceptLoop(listener, token, core) }()
+
+	// stdin EOF = 宿主退出信号（优雅停用 Deactivate 已先行 RPC 调用）
+	stdinDone := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(io.Discard, os.Stdin)
+		close(stdinDone)
+	}()
+
+	select {
+	case <-stdinDone:
+	case err := <-serveDone:
+		fmt.Fprintln(os.Stderr, "[plugin] 服务循环退出：", err)
+	}
+	_ = listener.Close()
 }
 
-// ---------- gRPC 服务实现（契约 plugin.proto） ----------
+// acceptLoop 连接接受循环：每条连接首行鉴权后按通道分发（core → net/rpc 服务；
+// stream → 异步钩子接收循环）。
+func acceptLoop(listener net.Listener, token string, core *coreServer) error {
+	rpcServer := rpc.NewServer()
+	if err := rpcServer.RegisterName(process.CoreServiceName, core); err != nil {
+		return fmt.Errorf("Core 服务注册失败：%w", err)
+	}
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			return err // listener 关闭/损坏：进程退出（宿主重启重建）
+		}
+		go func(c net.Conn) {
+			defer func() { _ = c.Close() }()
+			channel, reader, err := process.ReadChannelHeader(c, token)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "[plugin] 连接鉴权失败：", err)
+				return
+			}
+			switch channel {
+			case process.ChannelCore:
+				rpcServer.ServeConn(&process.BufferedConn{Reader: reader, Conn: c})
+			case process.ChannelStream:
+				core.recvStream(reader)
+			}
+		}(conn)
+	}
+}
 
-// collectHooks 汇总插件声明的钩子（按名称建索引，供 Execute 分发）。
+// collectHooks 汇总插件声明的钩子（按名称建索引，供 ExecuteHook 分发）。
 func collectHooks(impl sdk.Plugin) map[string]sdk.Hook {
 	hooks := make(map[string]sdk.Hook, len(impl.Hooks()))
 	for _, h := range impl.Hooks() {
@@ -81,226 +113,220 @@ func collectHooks(impl sdk.Plugin) map[string]sdk.Hook {
 	return hooks
 }
 
-// pluginServiceServer PluginService 实现（生命周期）。
-type pluginServiceServer struct {
-	proto.UnimplementedPluginServiceServer
-	impl   sdk.Plugin
-	hooks  map[string]sdk.Hook
-	broker *plugin.GRPCBroker // 数据服务 Dial 用（M3.8；未授权为 nil）
-}
+// ---------- Core net/rpc 服务（契约 contract；方法名即宿主调用路径 "Core.XXX"） ----------
 
-// Info 返回插件信息。
-func (s *pluginServiceServer) Info(context.Context, *proto.Empty) (*proto.PluginInfo, error) {
+// Info 返回插件信息（声明钩子/设置项/能力，主进程校验与安装清单一致）。
+func (s *coreServer) Info(_ contract.Empty, reply *contract.PluginInfo) error {
 	info := s.impl.Info()
 	hooks := make([]string, 0, len(s.hooks))
 	for name := range s.hooks {
 		hooks = append(hooks, name)
 	}
-	// 设置项声明（schema 驱动设置页；插件作者在 Info() 中填写）
-	settings := make([]*proto.SettingField, 0, len(info.Settings))
+	settings := make([]contract.SettingField, 0, len(info.Settings))
 	for _, f := range info.Settings {
-		settings = append(settings, &proto.SettingField{
+		settings = append(settings, contract.SettingField{
 			Key: f.Key, Label: f.Label, Type: f.Type,
 			Default: f.Default, Options: f.Options,
 		})
 	}
-	// 能力声明（M3.8：授权模型——hooks/api/frontend/settings 基础 + data.read 扩展）
-	capabilities := make([]string, 0, len(info.Capabilities))
-	for _, cap := range info.Capabilities {
-		capabilities = append(capabilities, cap)
-	}
-	return &proto.PluginInfo{
-		Id: info.ID, Name: info.Name, Version: info.Version,
+	*reply = contract.PluginInfo{
+		ID: info.ID, Name: info.Name, Version: info.Version,
 		Author: info.Author, Description: info.Description,
-		Hooks: hooks, Settings: settings, Capabilities: capabilities,
-	}, nil
+		Hooks: hooks, Settings: settings, Capabilities: info.Capabilities,
+	}
+	return nil
 }
 
-// Activate 启用回调（携带许可证信息 + 数据服务 broker ID；插件侧更新许可并初始化资源）。
-func (s *pluginServiceServer) Activate(ctx context.Context, req *proto.ActivateRequest) (*proto.Status, error) {
-	license := req.GetLicense()
-	if license == nil {
-		license = &proto.LicenseInfo{Edition: "free"} // 兼容兜底：无许可证按 free
-	}
-	// 更新插件许可（主进程唯一数据源；插件只读，demo 降级/宽限期全由主站处理）
+// Activate 启用回调（许可证 + 数据服务地址下发；更新许可、建数据回连、初始化资源）。
+func (s *coreServer) Activate(args contract.ActivateRequest, reply *contract.Status) error {
+	// 更新插件许可（主进程唯一数据源；插件只读，降级/宽限期全由主站处理）
 	sdk.SetLicense(sdk.LicenseInfo{
-		Edition: license.Edition, Features: license.Features,
-		ExpiresAt: license.ExpiresAt, Degraded: license.Degraded,
+		Edition: args.License.Edition, Features: args.License.Features,
+		ExpiresAt: args.License.ExpiresAt, Degraded: args.License.Degraded,
 	})
-	// 数据服务连接（M3.8：主进程下发 broker ID=声明 data.read 能力被授权；Dial 失败按无数据服务降级）
-	if req.GetDataBrokerId() > 0 && s.broker != nil {
-		if conn, err := s.broker.Dial(uint32(req.GetDataBrokerId())); err == nil {
-			sdk.SetDataClient(&sdkDataBridge{client: proto.NewDataServiceClient(conn)})
+	// 数据服务回连（data.read 授权时宿主下发其监听地址与凭据；Dial 失败按无数据服务降级）
+	if args.DataAddr != "" && args.DataToken != "" {
+		if conn, err := net.Dial("tcp", args.DataAddr); err == nil {
+			if err := process.WriteChannelHeader(conn, args.DataToken, process.ChannelData); err == nil {
+				sdk.SetDataClient(&sdkDataBridge{client: rpc.NewClient(conn)})
+			} else {
+				_ = conn.Close()
+			}
 		}
 	}
-	if err := s.impl.OnActivate(ctx); err != nil {
-		return &proto.Status{Ok: false, Error: err.Error()}, nil
+	if err := s.impl.OnActivate(context.Background()); err != nil {
+		*reply = contract.Status{OK: false, Error: err.Error()}
+		return nil
 	}
-	return &proto.Status{Ok: true}, nil
+	*reply = contract.Status{OK: true}
+	return nil
 }
 
-// Deactivate 停用回调（保存状态/释放资源）。
-func (s *pluginServiceServer) Deactivate(ctx context.Context, _ *proto.Empty) (*proto.Status, error) {
-	if err := s.impl.OnDeactivate(ctx); err != nil {
-		return &proto.Status{Ok: false, Error: err.Error()}, nil
-	}
-	return &proto.Status{Ok: true}, nil
-}
-
-// SetConfig 配置下发回调（主进程：启动激活后 + 保存配置时推送；插件更新内存供 handler 读取）。
-func (s *pluginServiceServer) SetConfig(_ context.Context, req *proto.ConfigInfo) (*proto.Status, error) {
-	sdk.SetConfig(req.GetValues())
-	return &proto.Status{Ok: true}, nil
-}
-
-// sdkDataBridge proto.DataServiceClient → sdk.DataService 适配（M3.8：脱敏数据透传）。
-type sdkDataBridge struct {
-	client proto.DataServiceClient
-}
-
-// GetUser 查询用户脱敏信息。
-func (b *sdkDataBridge) GetUser(ctx context.Context, userID int64) (*sdk.DataUser, error) {
-	u, err := b.client.GetUser(ctx, &proto.UserRequest{UserId: userID})
-	if err != nil {
-		return nil, err
-	}
-	return &sdk.DataUser{
-		ID: u.GetId(), Nickname: u.GetNickname(),
-		AvatarURL: u.GetAvatarUrl(), Role: u.GetRole(), Bio: u.GetBio(),
-	}, nil
-}
-
-// GetPost 查询帖子脱敏信息。
-func (b *sdkDataBridge) GetPost(ctx context.Context, postID int64) (*sdk.DataPost, error) {
-	p, err := b.client.GetPost(ctx, &proto.PostRequest{PostId: postID})
-	if err != nil {
-		return nil, err
-	}
-	return &sdk.DataPost{
-		ID: p.GetId(), Title: p.GetTitle(), Status: p.GetStatus(),
-		AuthorID: p.GetAuthorId(), AuthorName: p.GetAuthorName(),
-	}, nil
-}
-
-// GetSettings 查询站点公开设置（白名单键）。
-func (b *sdkDataBridge) GetSettings(ctx context.Context) (map[string]string, error) {
-	snapshot, err := b.client.GetSettings(ctx, &proto.Empty{})
-	if err != nil {
-		return nil, err
-	}
-	return snapshot.GetValues(), nil
-}
-
-// GetAIModels 查询可用 AI 模型（脱敏；M4.1 插件 AI 辅助）。
-func (b *sdkDataBridge) GetAIModels(ctx context.Context) ([]sdk.DataAIModel, error) {
-	list, err := b.client.GetAIModels(ctx, &proto.Empty{})
-	if err != nil {
-		return nil, err
-	}
-	models := make([]sdk.DataAIModel, 0, len(list.GetModels()))
-	for _, m := range list.GetModels() {
-		models = append(models, sdk.DataAIModel{Name: m.GetName(), Models: m.GetModels()})
-	}
-	return models, nil
-}
-
-// GenerateAI 调用主进程 AI 生成文本（按模型路由供应商；M4.1 插件 AI 辅助）。
-func (b *sdkDataBridge) GenerateAI(ctx context.Context, model string, prompt string, content string) (string, error) {
-	result, err := b.client.GenerateAI(ctx, &proto.GenerateRequest{Model: model, Prompt: prompt, Content: content})
-	if err != nil {
-		return "", err
-	}
-	return result.GetText(), nil
-}
-
-// hookServiceServer HookService 实现（同步钩子执行 + 流式通道）。
-type hookServiceServer struct {
-	proto.UnimplementedHookServiceServer
-	hooks map[string]sdk.Hook
-}
-
-// Stream 流式钩子通道（M3.9 client-streaming）：主进程建立长期连接持续推送
-// 异步钩子事件；本端 recv 循环逐个分发到对应 handler（未订阅/失败仅记录，不阻断）。
-func (s *hookServiceServer) Stream(stream proto.HookService_StreamServer) error {
+// recvStream 流式通道接收循环（宿主持续 gob 编码 StreamEvent；断连退出——
+// 宿主重启插件进程时重建通道）。入参为通道头之后的预读缓冲（防丢首包）。
+func (s *coreServer) recvStream(reader io.Reader) {
+	decoder := gob.NewDecoder(reader)
 	for {
-		ev, err := stream.Recv()
-		if err != nil {
-			return err // 对端关闭/断连：由进程生命周期管理（主进程重建）
+		var ev contract.StreamEvent
+		if err := decoder.Decode(&ev); err != nil {
+			return // 对端关闭/断连：由进程生命周期管理（宿主重建）
 		}
-		hook, ok := s.hooks[ev.GetHook()]
+		hook, ok := s.hooks[ev.Hook]
 		if !ok {
 			continue // 未订阅：静默跳过
 		}
 		go func() {
 			defer func() { _ = recover() }() // handler panic 不拖垮流
-			_, _ = hook.Handler(stream.Context(), sdk.Event{
-				TraceID: ev.GetTraceId(), ActorID: ev.GetActorId(), Payload: ev.GetPayload(),
+			_, _ = hook.Handler(context.Background(), sdk.Event{
+				TraceID: ev.TraceID, ActorID: ev.ActorID, Payload: ev.Payload,
 			})
 		}()
 	}
 }
 
-// Execute 执行钩子（未订阅返回放行；插件内部错误记录不阻断核心）。
-func (s *hookServiceServer) Execute(ctx context.Context, req *proto.HookRequest) (resp *proto.HookResponse, err error) {
-	hook, ok := s.hooks[req.Hook]
+// Deactivate 停用回调（保存状态/释放资源）。
+func (s *coreServer) Deactivate(_ contract.Empty, reply *contract.Status) error {
+	if err := s.impl.OnDeactivate(context.Background()); err != nil {
+		*reply = contract.Status{OK: false, Error: err.Error()}
+		return nil
+	}
+	*reply = contract.Status{OK: true}
+	return nil
+}
+
+// SetConfig 配置下发回调（宿主：启动激活后 + 保存配置时推送；插件更新内存）。
+func (s *coreServer) SetConfig(args contract.ConfigInfo, reply *contract.Status) error {
+	sdk.SetConfig(args.Values)
+	*reply = contract.Status{OK: true}
+	return nil
+}
+
+// ExecuteHook 执行同步钩子（未订阅返回放行；插件内部错误记录不阻断核心）。
+func (s *coreServer) ExecuteHook(args contract.HookRequest, reply *contract.HookResponse) (err error) {
+	hook, ok := s.hooks[args.Hook]
 	if !ok {
-		return &proto.HookResponse{Ok: true, Error: "插件未订阅钩子 " + req.Hook}, nil
+		*reply = contract.HookResponse{OK: true, Error: "插件未订阅钩子 " + args.Hook}
+		return nil
 	}
-	// panic 恢复：插件 handler 崩溃不拖垮 gRPC 服务（主进程侧也会检测进程存活）
+	// panic 恢复：插件 handler 崩溃不拖垮 net/rpc 服务（宿主侧也会检测进程存活）
 	defer func() {
 		if r := recover(); r != nil {
-			resp = &proto.HookResponse{Ok: true, Error: "插件钩子 panic"}
+			*reply = contract.HookResponse{OK: true, Error: "插件钩子 panic"}
 		}
 	}()
-	res, err := hook.Handler(ctx, sdk.Event{TraceID: req.TraceId, ActorID: req.ActorId, Payload: req.Payload})
-	if err != nil {
-		return &proto.HookResponse{Ok: true, Error: err.Error()}, nil
+	res, herr := hook.Handler(context.Background(), sdk.Event{TraceID: args.TraceID, ActorID: args.ActorID, Payload: args.Payload})
+	if herr != nil {
+		*reply = contract.HookResponse{OK: true, Error: herr.Error()}
+		return nil
 	}
-	return &proto.HookResponse{Ok: res.OK, Reason: res.Reason, Modify: res.Modify}, nil
+	*reply = contract.HookResponse{OK: res.OK, Reason: res.Reason, Modify: res.Modify}
+	return nil
 }
 
-// apiServiceServer PluginAPI 实现（自定义 API 分发，精确匹配 method+path）。
-type apiServiceServer struct {
-	proto.UnimplementedPluginAPIServer
-	mux *sdk.APIMux
-}
-
-// Call 分发自定义 API 调用（404 表示未注册路由）。
-// P1 加固：从 gRPC metadata 解析宿主透传的调用者身份，注入 handler ctx
-// （插件侧经 sdk.CallerID/CallerRole/TrustedCaller 查询，做 per-endpoint 鉴权）。
-// panic 恢复：与钩子路径同策略——插件 API 单次 panic 不拖垮插件进程（转 500）。
-func (s *apiServiceServer) Call(ctx context.Context, req *proto.APICall) (resp *proto.APICallResult, err error) {
+// CallAPI 分发自定义 API 调用（404 表示未注册路由）。
+// 调用者身份随契约字段内联传输，注入 handler ctx（插件侧经 sdk.CallerID/
+// CallerRole/TrustedCaller 查询，做 per-endpoint 鉴权）。
+// panic 恢复：插件 API 单次 panic 不拖垮插件进程（转 500）。
+func (s *coreServer) CallAPI(args contract.APICall, reply *contract.APICallResult) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			resp = &proto.APICallResult{Status: 500, Error: fmt.Sprintf("插件 API panic：%v", r)}
+			*reply = contract.APICallResult{Status: 500, Error: fmt.Sprintf("插件 API panic：%v", r)}
 		}
 	}()
-	if s.mux == nil {
-		return &proto.APICallResult{Status: 404, Body: []byte(`{"error":"not_found"}`)}, nil
+	if s.apiMux == nil {
+		*reply = contract.APICallResult{Status: 404, Body: []byte(`{"error":"not_found"}`)}
+		return nil
 	}
-	handler := s.mux.Find(req.Method, req.Path)
+	handler := s.apiMux.Find(args.Method, args.Path)
 	if handler == nil {
-		return &proto.APICallResult{Status: 404, Body: []byte(`{"error":"not_found"}`)}, nil
+		*reply = contract.APICallResult{Status: 404, Body: []byte(`{"error":"not_found"}`)}
+		return nil
 	}
-	callerCtx := sdk.WithCallerIdentity(ctx, callerFromGRPC(ctx))
-	status, body, err := handler(callerCtx, req.Method, req.Path, req.Body)
-	if err != nil {
-		return &proto.APICallResult{Status: 500, Error: err.Error()}, nil
+	callerCtx := sdk.WithCallerIdentity(context.Background(), sdk.CallerIdentity{
+		UserID: args.CallerID, Role: args.CallerRole, System: args.CallerSystem,
+	})
+	status, body, herr := handler(callerCtx, args.Method, args.Path, args.Body)
+	if herr != nil {
+		*reply = contract.APICallResult{Status: 500, Error: herr.Error()}
+		return nil
 	}
-	return &proto.APICallResult{Status: int32(status), Body: body}, nil
+	*reply = contract.APICallResult{Status: int32(status), Body: body}
+	return nil
 }
 
-// callerFromGRPC 从传入 metadata 解析调用者身份（无 metadata 返回零值=最小权限）。
-func callerFromGRPC(ctx context.Context) sdk.CallerIdentity {
-	md, ok := metadata.FromIncomingContext(ctx)
-	if !ok {
-		return sdk.CallerIdentity{}
+// ---------- 数据服务桥（回连宿主的 net/rpc 通道 → sdk.DataService） ----------
+
+// sdkDataBridge net/rpc 客户端 → sdk.DataService 适配。
+type sdkDataBridge struct {
+	client *rpc.Client // 宿主数据服务连接（Activate 时回连建立）
+}
+
+// dataCall 执行一次数据服务调用（统一服务名前缀）。
+func dataCall[T any](b *sdkDataBridge, method string, args any, reply *T) error {
+	return b.client.Call(process.DataServiceName+"."+method, args, reply)
+}
+
+// GetUser 查询用户脱敏信息。
+func (b *sdkDataBridge) GetUser(_ context.Context, userID int64) (*sdk.DataUser, error) {
+	var u contract.UserInfo
+	if err := dataCall(b, "GetUser", contract.UserRequest{UserID: userID}, &u); err != nil {
+		return nil, err
 	}
-	return sdk.CallerFromMetadata(func(key string) string {
-		values := md.Get(key)
-		if len(values) == 0 {
-			return ""
-		}
-		return values[0]
-	})
+	return &sdk.DataUser{ID: u.ID, Nickname: u.Nickname, AvatarURL: u.AvatarURL, Role: u.Role, Bio: u.Bio}, nil
+}
+
+// GetPost 查询帖子脱敏信息。
+func (b *sdkDataBridge) GetPost(_ context.Context, postID int64) (*sdk.DataPost, error) {
+	var p contract.PostInfo
+	if err := dataCall(b, "GetPost", contract.PostRequest{PostID: postID}, &p); err != nil {
+		return nil, err
+	}
+	return &sdk.DataPost{ID: p.ID, Title: p.Title, Status: p.Status, AuthorID: p.AuthorID, AuthorName: p.AuthorName}, nil
+}
+
+// GetSettings 查询站点公开设置（白名单键）。
+func (b *sdkDataBridge) GetSettings(_ context.Context) (map[string]string, error) {
+	var snapshot contract.SettingsSnapshot
+	if err := dataCall(b, "GetSettings", contract.Empty{}, &snapshot); err != nil {
+		return nil, err
+	}
+	return snapshot.Values, nil
+}
+
+// GetAIModels 查询可用 AI 模型（脱敏；空=未配置 AI——面板提示跳转配置）。
+func (b *sdkDataBridge) GetAIModels(_ context.Context) ([]sdk.DataAIModel, error) {
+	var list contract.AIModelList
+	if err := dataCall(b, "GetAIModels", contract.Empty{}, &list); err != nil {
+		return nil, err
+	}
+	models := make([]sdk.DataAIModel, 0, len(list.Models))
+	for _, m := range list.Models {
+		models = append(models, sdk.DataAIModel{Name: m.Name, Models: m.Models})
+	}
+	return models, nil
+}
+
+// GenerateAI 调用宿主 AI 生成文本（按模型路由供应商）。
+func (b *sdkDataBridge) GenerateAI(_ context.Context, model string, prompt string, content string) (string, error) {
+	var result contract.GenerateResult
+	if err := dataCall(b, "GenerateAI", contract.GenerateRequest{Model: model, Prompt: prompt, Content: content}, &result); err != nil {
+		return "", err
+	}
+	return result.Text, nil
+}
+
+// GetOpenAPIKeys 查询开放接口 API Key 清单（含明文 Key；浏览器插件联动远传验证用）。
+func (b *sdkDataBridge) GetOpenAPIKeys(_ context.Context) ([]sdk.DataOpenAPIKey, error) {
+	var list contract.OpenAPIKeyList
+	if err := dataCall(b, "GetOpenAPIKeys", contract.Empty{}, &list); err != nil {
+		return nil, err
+	}
+	keys := make([]sdk.DataOpenAPIKey, 0, len(list.Keys))
+	for _, k := range list.Keys {
+		keys = append(keys, sdk.DataOpenAPIKey{
+			ID: k.ID, Name: k.Name, Key: k.Key, Endpoints: k.Endpoints,
+			ExpiresAt: k.ExpiresAt, LastUsedAt: k.LastUsedAt, CreatedAt: k.CreatedAt,
+		})
+	}
+	return keys, nil
 }

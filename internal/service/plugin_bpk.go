@@ -189,7 +189,7 @@ func (s *PluginService) installFromFile(ctx context.Context, bpkPath string, rep
 	// 实例注册（已卸载记录复用；否则新建）→ 激活（拉起进程/注册钩子）
 	// capabilities 登记取包内 manifest 声明（P2 加固：运行时门控与二进制自报取交集）
 	if findErr == nil {
-		if err := s.plugs.Reinstall(ctx, existing.ID, manifest.Version, repoURL, manifest.Capabilities); err != nil {
+		if err := s.plugs.Reinstall(ctx, existing.ID, manifest.Name, manifest.Version, repoURL, manifest.Capabilities); err != nil {
 			return fmt.Errorf("重新安装插件失败：%w", err)
 		}
 		s.activateInstalled(ctx, existing.ID, manifest.ID)

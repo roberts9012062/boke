@@ -15,6 +15,12 @@ const (
 	PostTypeVideo = "video" // 视频帖（M2 启用）
 )
 
+// 帖子形态（与内容类型正交：形态决定篇幅与展示结构，内容类型决定媒体形态）。
+const (
+	PostKindMoment  = "moment"  // 说说：短内容（≤2000 字），标题可空，时间轴直读摘要
+	PostKindArticle = "article" // 文章：长内容（≤20000 字），标题必填，时间轴展示标题+摘要，点击进详情阅读
+)
+
 // 帖子状态（附录 B 状态字典）。
 const (
 	PostStatusDraft     = "draft"     // 草稿
@@ -41,7 +47,8 @@ type Post struct {
 	Summary       string     `json:"summary"`        // 摘要（自动生成）
 	Content       string     `json:"content"`        // 正文（≤2000 字）
 	ContentFormat string     `json:"content_format"` // 正文格式：markdown / html（空=markdown）
-	ContentType   string     `json:"content_type"`   // 内容类型
+	ContentType   string     `json:"content_type"`   // 内容类型（媒体形态：text/image/audio/video）
+	PostKind      string     `json:"post_kind"`      // 帖子形态：moment=说说 / article=文章
 	Status        string     `json:"status"`         // 状态
 	Visibility    string     `json:"visibility"`     // 可见性
 	CoverURL      string     `json:"cover_url"`      // 封面图
@@ -69,8 +76,9 @@ type PostSeoInput struct {
 // CreatePostReq 发帖/存草稿请求（需求 3.4）。
 type CreatePostReq struct {
 	ContentType   string        `json:"content_type"`   // 内容类型：text/image/audio（video M2 置灰）
-	Title         string        `json:"title"`          // 标题（可选）
-	Content       string        `json:"content"`        // 正文（≤2000 字）
+	PostKind      string        `json:"post_kind"`      // 帖子形态：moment=说说 / article=文章（空=moment；创建后不可变）
+	Title         string        `json:"title"`          // 标题（说说可选；文章必填）
+	Content       string        `json:"content"`        // 正文（说说 ≤2000 字 / 文章 ≤20000 字）
 	ContentFormat string        `json:"content_format"` // 正文格式：markdown / html（空=markdown）
 	Tags          []string      `json:"tags"`           // 标签（≤5 个，每个 ≤20 字符）
 	MediaIDs      []int64       `json:"media_ids"`      // 关联媒体 ID（图片多张有序/音频一张）
@@ -135,8 +143,9 @@ type MusicEmbedDTO struct {
 type PostSummary struct {
 	ID           int64     `json:"id"`            // 帖子 ID
 	Title        string    `json:"title"`         // 标题
-	Summary      string    `json:"summary"`       // 摘要（正文截断）
-	ContentType  string    `json:"content_type"`  // 类型
+	Summary      string    `json:"summary"`       // 摘要（正文截断：说说 60 字 / 文章 200 字）
+	ContentType  string    `json:"content_type"`  // 类型（媒体形态）
+	PostKind     string    `json:"post_kind"`     // 帖子形态：moment=说说 / article=文章
 	Visibility   string    `json:"visibility"`    // 可见性
 	Author       AuthorDTO `json:"author"`        // 作者
 	Tags         []TagDTO  `json:"tags"`          // 标签
@@ -178,6 +187,7 @@ type AdminPostDetail struct {
 	Content       string     `json:"content"`        // 正文（文字帖/图说/说明）
 	ContentFormat string     `json:"content_format"` // 正文格式：markdown / html
 	ContentType   string     `json:"content_type"`   // 内容类型：text/image/audio/video
+	PostKind      string     `json:"post_kind"`      // 帖子形态：moment=说说 / article=文章
 	Status        string     `json:"status"`         // 状态：draft/published/taken_down
 	Visibility    string     `json:"visibility"`     // 可见性：public/followers/private
 	CoverURL      string     `json:"cover_url"`      // 封面图（视频帖独立封面）

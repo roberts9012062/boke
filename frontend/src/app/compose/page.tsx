@@ -1,25 +1,33 @@
 // src/app/compose/page.tsx
 // 发帖中心（设计稿 D/冷月/发帖中心 1400）：
-// 写一帖 → Tab（文字/图片/音频/视频）→ 正文（把月光写成句子…）
-// → 标签（#月色）→ 可见性（公开/私密）→ 0/2000 字数 → 草稿/发布。
-// 走查纠偏：支持 ?draft=ID（草稿继续编辑）与 ?edit=ID（编辑已发布帖子，设计稿《编辑帖子》）。
+// 写一帖 → 形态切换（写说说 / 写文章）→ Tab（文字/图片/音频/视频）→ 正文
+// → 标签（#月色）→ 可见性（公开/私密）→ 字数 → 草稿/发布。
+// 文章形态：标题必填 + 长正文（≤20000 字）+ 图集（图片走 media_ids）。
+// 走查纠偏：支持 ?draft=ID（草稿继续编辑）与 ?edit=ID（编辑已发布帖子）。
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 
 import { AudioUploader } from "@/components/compose/audio-uploader";
-import { collectMediaIds, MAX_CONTENT, MAX_TAGS, TYPE_TABS, VISIBILITY_OPTIONS } from "@/components/compose/config";
+import {
+  collectMediaIds,
+  MAX_ARTICLE_CONTENT,
+  MAX_CONTENT,
+  TYPE_TABS,
+} from "@/components/compose/config";
 import { GalleryStylePicker } from "@/components/compose/gallery-style-picker";
 import { ImageUploader } from "@/components/compose/image-uploader";
-import type { GalleryStyle } from "@/components/image-gallery";
 import { RichTextEditor } from "@/components/compose/rich-text-editor";
+import { TagInput } from "@/components/compose/tag-input";
 import { VideoUploader } from "@/components/compose/video-uploader";
+import { VisibilitySelect } from "@/components/compose/visibility-select";
+import type { GalleryStyle } from "@/components/image-gallery";
 import { DesktopNav } from "@/components/desktop-nav";
 import { MobileTabbar } from "@/components/mobile-tabbar";
 import PluginSlot from "@/components/plugin-slot";
 import { apiCreatePost, apiPostDetail, apiUpdatePost, ApiError } from "@/lib/api";
-import type { PostSeoInput } from "@/types/api";
+import type { PostKind, PostSeoInput } from "@/types/api";
 import { htmlToText } from "@/lib/rich-text";
 import { useAuth } from "@/lib/auth";
 import type { MediaDTO, PostContentType } from "@/types/api";
@@ -47,12 +55,12 @@ function ComposeContent() {
   const editing = editId > 0;
 
   // 表单状态
+  const [postKind, setPostKind] = useState<PostKind>("moment"); // 帖子形态：说说/文章（创建后不可变）
   const [contentType, setContentType] = useState<PostContentType>("text");
+  const [title, setTitle] = useState<string>(""); // 文章标题（必填）
   const [content, setContent] = useState<string>("");
-  const [tagInput, setTagInput] = useState<string>("");
   const [tags, setTags] = useState<string[]>([]);
   const [visibility, setVisibility] = useState<"public" | "followers" | "private">("public");
-  const [visibilityOpen, setVisibilityOpen] = useState<boolean>(false);
   const [images, setImages] = useState<MediaDTO[]>([]);
   const [galleryStyle, setGalleryStyle] = useState<GalleryStyle>(""); // 图片展示风格
   const [audio, setAudio] = useState<MediaDTO | null>(null);
@@ -74,14 +82,16 @@ function ComposeContent() {
     }
     apiPostDetail(editId)
       .then((d) => {
+        setPostKind(d.post_kind === "article" ? "article" : "moment");
         setContentType(d.content_type);
+        setTitle(d.title ?? "");
         setContent(d.content);
         setTags(d.tags.map((t) => t.name.replace(/^#/, "")));
         setVisibility(d.visibility === "private" ? "private" : d.visibility === "followers" ? "followers" : "public");
         setGalleryStyle((d.gallery_style as GalleryStyle) ?? "");
-        // 媒体按类型回填（图片多张 / 音频 / 视频）
+        // 媒体按类型回填（图片多张 / 音频 / 视频；文章形态图片走图集）
         const medias = d.media ?? [];
-        if (d.content_type === "image") {
+        if (d.post_kind === "article" || d.content_type === "image") {
           setImages(medias);
         } else if (d.content_type === "audio") {
           setAudio(medias[0] ?? null);
@@ -115,24 +125,18 @@ function ComposeContent() {
     return null;
   }
 
-  // 添加标签（# 前缀识别，回车/空格提交）
-  const addTag = (raw: string) => {
-    const name = raw.trim().replace(/^#/, "");
-    if (!name || tags.includes(name)) {
-      setTagInput("");
-      return;
-    }
-    if (tags.length >= MAX_TAGS) {
-      setError(`标签最多 ${MAX_TAGS} 个`);
-      return;
-    }
-    setTags((prev) => [...prev, name]);
-    setTagInput("");
-  };
+  // 当前形态的正文上限与占位文案
+  const isArticle = postKind === "article";
+  const maxLength = isArticle ? MAX_ARTICLE_CONTENT : MAX_CONTENT;
 
   // 提交（new：draft=存草稿 / published=发布；edit：保存修改）
   const submit = async (status: "draft" | "published" | "edit") => {
     setError("");
+    // 文章：标题必填（草稿同样校验，与后端一致）
+    if (isArticle && title.trim() === "") {
+      setError("文章标题不能为空");
+      return;
+    }
     // 发布/保存校验：正文非空（需求 3.4 发布必须内容；HTML 按纯文本判空）
     if (status !== "draft" && htmlToText(content).trim() === "") {
       setError("正文不能为空");
@@ -149,13 +153,16 @@ function ComposeContent() {
             robots: seo.robots,
           }
         : undefined;
+      // 媒体组装：文章携带图集；说说按媒体形态类型取值
+      const mediaIds = collectMediaIds(postKind, contentType, images, audio, video);
       if (editing) {
-        // 编辑模式：更新帖子（类型不可变，后端 UpdatePostReq 不支持 content_type）
+        // 编辑模式：更新帖子（形态/类型不可变，后端 UpdatePostReq 不支持）
         await apiUpdatePost(editId, {
+          title: isArticle ? title.trim() : undefined,
           content,
           content_format: "html",
           tags,
-          media_ids: collectMediaIds(contentType, images, audio, video),
+          media_ids: mediaIds,
           gallery_style: galleryStyle,
           visibility,
           ...(seoPayload ? { seo: seoPayload } : {}),
@@ -165,11 +172,13 @@ function ComposeContent() {
         // 新建模式：status 仅 draft/published（edit 分支已提前返回）
         const createStatus = status as "draft" | "published";
         const result = await apiCreatePost({
-          content_type: contentType,
+          content_type: isArticle ? "text" : contentType,
+          post_kind: postKind,
+          title: isArticle ? title.trim() : undefined,
           content,
           content_format: "html",
           tags,
-          media_ids: collectMediaIds(contentType, images, audio, video),
+          media_ids: mediaIds,
           gallery_style: galleryStyle,
           visibility,
           status: createStatus,
@@ -193,44 +202,85 @@ function ComposeContent() {
     <div className="flex min-h-screen flex-col">
       <DesktopNav />
       <main className={`mx-auto w-full flex-1 px-6 py-8 ${hasSeoPlugin ? "lg:max-w-[1240px]" : "max-w-[720px]"}`}>
-        {/* 标题（编辑模式：设计稿《编辑帖子》「编辑帖子」；走查纠偏补） */}
-        <h1 className="mb-6 font-display text-2xl font-semibold text-ink">{editing ? "编辑帖子" : "写一帖"}</h1>
+        {/* 标题（编辑模式：设计稿《编辑帖子》；文章形态文案区分） */}
+        <h1 className="mb-6 font-display text-2xl font-semibold text-ink">
+          {editing ? "编辑" : "写"}
+          {isArticle ? "文章" : "一帖"}
+        </h1>
 
         {/* 两栏布局：左=发布内容，右=插件面板（仅桌面；移动端回退单栏自然堆叠） */}
         <div className="lg:flex lg:items-start lg:gap-8">
           {/* 左栏：发布内容 */}
           <div className="lg:min-w-0 lg:flex-1">
 
-        {/* 类型 Tab（设计稿：文字/图片/音频/视频） */}
-        <div className="flex gap-2 border-b border-line pb-4">
-          {TYPE_TABS.map((tab) => (
+        {/* 形态切换（写说说 / 写文章；编辑模式形态不可变故隐藏切换） */}
+        {!editing && (
+          <div className="mb-4 flex gap-2">
             <button
-              key={tab.key}
               type="button"
-              onClick={() => setContentType(tab.key)}
-              className={`whitespace-nowrap rounded-full px-5 py-1.5 text-sm transition-colors ${
-                contentType === tab.key
-                  ? "bg-accent-soft font-medium text-glow"
-                  : "bg-muted text-ink-2 hover:text-ink"
+              onClick={() => setPostKind("moment")}
+              className={`rounded-full px-5 py-1.5 text-sm transition-colors ${
+                postKind === "moment" ? "bg-accent-soft font-medium text-glow" : "bg-muted text-ink-2 hover:text-ink"
               }`}
             >
-              {tab.label}
+              写说说
             </button>
-          ))}
-        </div>
+            <button
+              type="button"
+              onClick={() => setPostKind("article")}
+              className={`rounded-full px-5 py-1.5 text-sm transition-colors ${
+                postKind === "article" ? "bg-accent-soft font-medium text-glow" : "bg-muted text-ink-2 hover:text-ink"
+              }`}
+            >
+              写文章
+            </button>
+          </div>
+        )}
+
+        {/* 类型 Tab（设计稿：文字/图片/音频/视频；文章形态固定文字不显示） */}
+        {!isArticle && (
+          <div className="flex gap-2 border-b border-line pb-4">
+            {TYPE_TABS.map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setContentType(tab.key)}
+                className={`whitespace-nowrap rounded-full px-5 py-1.5 text-sm transition-colors ${
+                  contentType === tab.key
+                    ? "bg-accent-soft font-medium text-glow"
+                    : "bg-muted text-ink-2 hover:text-ink"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* 文章标题输入（文章形态必填） */}
+        {isArticle && (
+          <input
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            maxLength={100}
+            placeholder="文章标题（必填，100 字以内）"
+            className="w-full rounded-lg border border-line bg-elevated px-4 py-3 font-display text-lg font-semibold text-ink placeholder:font-normal placeholder:text-base placeholder:text-ink-3 focus:border-accent focus:outline-none"
+          />
+        )}
 
         {/* 正文输入（M5 富文本：WYSIWYG 编辑器，图片上传/视频内嵌/外链） */}
         <div className="mt-6">
           <RichTextEditor
             value={content}
             onChange={(v) => setContent(v)}
-            placeholder="把月光写成句子…"
-            maxLength={MAX_CONTENT}
+            placeholder={isArticle ? "把长文写成篇章…" : "把月光写成句子…"}
+            maxLength={maxLength}
           />
         </div>
 
-        {/* 图片上传区（仅图片 Tab 显示） */}
-        {contentType === "image" && (
+        {/* 图片上传区（说说图片 Tab / 文章形态图集，均显示） */}
+        {(isArticle || contentType === "image") && (
           <div className="mt-4">
             <ImageUploader value={images} onChange={setImages} />
             {/* 展示效果选择器（上传图片下方；点击风格实时预览） */}
@@ -238,115 +288,28 @@ function ComposeContent() {
           </div>
         )}
 
-        {/* 音频上传区（仅音频 Tab 显示） */}
-        {contentType === "audio" && (
+        {/* 音频上传区（仅说说音频 Tab 显示） */}
+        {!isArticle && contentType === "audio" && (
           <div className="mt-4">
             <AudioUploader value={audio} onChange={setAudio} />
           </div>
         )}
 
-        {/* 视频上传区（仅视频 Tab 显示，M2） */}
-        {contentType === "video" && (
+        {/* 视频上传区（仅说说视频 Tab 显示，M2） */}
+        {!isArticle && contentType === "video" && (
           <div className="mt-4">
             <VideoUploader value={video} onChange={setVideo} />
           </div>
         )}
 
-        {/* 标签输入（设计稿占位：标签 #月色） */}
+        {/* 标签输入（设计稿占位：标签 #月色；共用组件） */}
         <div className="mt-6">
-          <div className="flex flex-wrap items-center gap-2">
-            {tags.map((tag) => (
-              <span
-                key={tag}
-                className="flex items-center gap-1 rounded-full bg-accent-soft px-3 py-1 text-xs text-glow"
-              >
-                #{tag}
-                <button
-                  type="button"
-                  onClick={() => setTags((prev) => prev.filter((t) => t !== tag))}
-                  className="text-ink-3 hover:text-like"
-                  aria-label={`删除标签 ${tag}`}
-                >
-                  ✕
-                </button>
-              </span>
-            ))}
-            <input
-              type="text"
-              value={tagInput}
-              onChange={(e) => setTagInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  addTag(tagInput);
-                }
-              }}
-              onBlur={() => {
-                if (tagInput.trim()) {
-                  addTag(tagInput);
-                }
-              }}
-              placeholder="标签 #月色"
-              className="h-8 flex-1 rounded-full border border-line bg-muted px-4 text-sm text-ink placeholder:text-ink-3 focus:border-accent focus:outline-none"
-            />
-          </div>
-          <p className="mt-1 text-xs text-ink-3">最多 {MAX_TAGS} 个标签，回车添加</p>
+          <TagInput tags={tags} onChange={setTags} />
         </div>
 
-        {/* 可见性（设计稿：公开 按钮 +「谁可以看」弹层） */}
-        <div className="relative mt-6">
-          <button
-            type="button"
-            onClick={() => setVisibilityOpen((v) => !v)}
-            className="flex items-center gap-1.5 rounded-full border border-line px-4 py-1.5 text-sm text-ink-2 transition-colors hover:text-ink"
-          >
-            {visibility === "public" ? "公开" : visibility === "followers" ? "仅关注者" : "仅自己"}
-            <span className="text-xs text-ink-3" aria-hidden>
-              ▾
-            </span>
-          </button>
-
-          {/* 谁可以看 弹层（设计稿 D/冷月/可见性） */}
-          {visibilityOpen && (
-            <div className="absolute left-0 top-11 z-20 w-72 rounded-lg border border-line bg-elevated p-4 shadow-lg">
-              <p className="font-display text-base font-semibold text-ink">谁可以看</p>
-              <div className="mt-3 space-y-2">
-                {VISIBILITY_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.key}
-                    type="button"
-                    onClick={() => setVisibility(opt.key)}
-                    className={`w-full rounded-md border px-3 py-2.5 text-left transition-colors ${
-                      visibility === opt.key
-                        ? "border-accent bg-accent-soft"
-                        : "border-line hover:bg-muted"
-                    }`}
-                  >
-                    <p className={`text-sm ${visibility === opt.key ? "text-glow" : "text-ink"}`}>
-                      {opt.label}
-                    </p>
-                    <p className="mt-0.5 text-xs text-ink-3">{opt.desc}</p>
-                  </button>
-                ))}
-              </div>
-              <div className="mt-4 flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setVisibilityOpen(false)}
-                  className="rounded-full border border-line px-4 py-1.5 text-sm text-ink-2 hover:text-ink"
-                >
-                  取消
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setVisibilityOpen(false)}
-                  className="rounded-full bg-accent px-5 py-1.5 text-sm text-on-accent"
-                >
-                  完成
-                </button>
-              </div>
-            </div>
-          )}
+        {/* 可见性（设计稿：公开 按钮 +「谁可以看」弹层；共用组件） */}
+        <div className="mt-6">
+          <VisibilitySelect value={visibility} onChange={setVisibility} />
         </div>
 
         {/* 错误提示 */}

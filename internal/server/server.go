@@ -34,7 +34,7 @@ import (
 	"github.com/roberts9012062/boke/internal/repository"
 	"github.com/roberts9012062/boke/internal/router"
 	"github.com/roberts9012062/boke/internal/service"
-	"github.com/roberts9012062/boke/pkg/plugin-sdk/proto"
+	"github.com/roberts9012062/boke/pkg/plugin-sdk/contract"
 )
 
 // NewLogger 创建 zap 日志器：控制台（开发可读）+ 文件（logs/server.log，按大小滚动）。
@@ -157,6 +157,7 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 	backupRepo := repository.NewBackupRepo(conn)         // 备份记录（M4-报表）
 	licenseRepo := repository.NewLicenseRepo(conn)       // 插件许可证（M3.5）
 	orderRepo := repository.NewPluginOrderRepo(conn)     // 插件购买订单（M3.9 支付渠道）
+	openAPIKeyRepo := repository.NewOpenAPIKeyRepo(conn) // 接口开放凭证（/open 网关鉴权）
 
 	// ---------- 业务层 ----------
 	limiter := redis.NewRateLimiter(redisClient)
@@ -181,7 +182,7 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 		hookDispatcher,
 		service.NewPluginManagerEvents(pluginRepo),
 		"logs/plugins",
-		func(ctx context.Context, pluginID string) (*proto.LicenseInfo, error) {
+		func(ctx context.Context, pluginID string) (*contract.LicenseInfo, error) {
 			if licenseProvider == nil {
 				return nil, nil // 未绑定：按 free（demo）处理
 			}
@@ -212,7 +213,15 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 	moderationSvc := service.NewModerationService(reportRepo, sensitiveRepo, banRepo, userRepo, postRepo, commentRepo)
 	// 启动时加载敏感词表（后台变更后自动刷新）
 	_ = moderationSvc.ReloadForbidden(ctx)
-	postSvc := service.NewPostService(postRepo, tagRepo, mediaRepo, userRepo, mediaStore, moderationSvc, relationRepo, hookDispatcher, seoRepo)
+	// 媒体存储 seam 延迟绑定（pluginSvc 在 postSvc 之后构造——闭包调用时才解析）
+	var mediaStorageLookup func() (plugin.MediaStorage, bool)
+	postSvc := service.NewPostService(postRepo, tagRepo, mediaRepo, userRepo, mediaStore, moderationSvc, relationRepo, hookDispatcher, seoRepo,
+		func() (plugin.MediaStorage, bool) {
+			if mediaStorageLookup == nil {
+				return nil, false
+			}
+			return mediaStorageLookup()
+		})
 	notifySvc := service.NewNotificationService(notificationRepo, userRepo, hookDispatcher)
 	// AI 服务（M4：供应商/任务/用量 + 三内置场景；先建供评论预审注入）
 	aiSvc := service.NewAiService(aiProviderRepo, aiTaskRepo, aiUsageRepo, seoRepo, postRepo, commentRepo, reportRepo, cfg.AIKeySecret, hookDispatcher)
@@ -227,7 +236,8 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 	pluginSvc := service.NewPluginService(ghClient, pluginRepo, settingRepo, hookDispatcher, pluginManager, binStore, licenseRepo, orderRepo, cfg.AIKeySecret)
 	licenseProvider = pluginSvc.LicenseInfoProvider // M3.5：许可证查询回调绑定（延迟闭包生效）
 	configProvider = pluginSvc.PluginConfigProvider // M3.7：配置查询回调绑定（启动激活时下发）
-	dataProvider = service.NewPluginDataProvider(userRepo, postRepo, settingRepo, aiSvc) // M3.8：只读数据服务（M4.1：+AI 辅助）
+	mediaStorageLookup = pluginSvc.MediaStorageSeam() // 图床 seam 绑定（图床插件运行时上传直达外部存储）
+	dataProvider = service.NewPluginDataProvider(userRepo, postRepo, settingRepo, aiSvc, openAPIKeyRepo) // M3.8：只读数据服务（M4.1：+AI 辅助；+开放接口 Key 读取）
 	seoSvc := service.NewSeoService(seoRepo, postRepo, "http://localhost:"+cfg.ServerPort)
 	// 数据报表服务（M4-报表：统计聚合 + 趋势 CSV；复用后台聚合数据源）
 	reportSvc := service.NewReportService(repository.NewAdminRepo(conn), reportRepo)
@@ -239,6 +249,8 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 	musicSvc := service.NewQQMusicService()
 	// 自定义页面服务（后台创建独立页面，前台 /pages/{slug} 访问）
 	pageSvc := service.NewPageService(pageRepo)
+	// 接口开放服务（外部 API Key 生成与管理）
+	openAPISvc := service.NewOpenAPIService(openAPIKeyRepo)
 	// GitHub OAuth 服务（M3.5：连接 GitHub 拉取私有/加速清单；凭证未配置时入口隐藏）
 	oauthSvc := service.NewOAuthService(cfg.GitHubOAuthClientID, cfg.GitHubOAuthSecret, cfg.AIKeySecret, cfg.GitHubToken, settingRepo, ghClient)
 	oauthSvc.RestoreToken(ctx) // 启动恢复 OAuth token（有则优先于 .env 静态 token）
@@ -289,7 +301,11 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 		Role:       handler.NewRoleHandler(roleSvc),
 		Music:      handler.NewMusicHandler(musicSvc, pluginSvc),
 		Video:      handler.NewVideoHandler(pluginSvc),
+		TTS:        handler.NewTTSHandler(pluginSvc),
+		Stats:      handler.NewStatsHandler(pluginSvc),
 		Page:       handler.NewPageHandler(pageSvc, logger),
+		OpenAPI:     handler.NewOpenAPIHandler(openAPISvc, logger),
+		OpenAPIKeys: openAPIKeyRepo,
 	}
 	return handlers, jwtMgr, enforcer, cleanup, nil
 }

@@ -76,3 +76,10 @@
 - 严禁使用 commonjs 模块系统。
 - 尽可能使用 TypeScript。只有在构建工具完全不支持 TypeScript 的时候，才使用 JavaScript（如微信小程序的主工程）。
 - 数据结构尽可能全部定义成强类型。如果个别场景不得不使用 `any` 或未经结构化定义的 `json`，需要先停下来征求用户的同意。
+
+## 7. 浏览器插件开发（`browser-extension/`）
+
+- **强制先读手册**：凡涉及 `browser-extension/` 目录的任何新增、修改、修复，必须先完整阅读 `docs/browser-extension-guide.md`（月言浏览器插件开发手册），再动手开发；手册未覆盖的问题，先在 `discuss/` 写方案讨论，再修订手册、再开发。
+- **双浏览器硬性要求**：插件必须同时支持 Google Chrome 与 Microsoft Edge（Chromium / Manifest V3，最低版本 110），一套代码、一份产物；只在一个浏览器验证过的改动视为未完成，交付前须按手册第 12 章「双浏览器验证清单」逐项验证。
+- **构建与调试**：一律使用 `scripts/setup-browser-extension.sh`、`scripts/dev-browser-extension.sh`、`scripts/build-browser-extension.sh` 脚本，禁止直接调用 `pnpm`、`vite` 等命令；日志统一输出到 `logs/` 目录。
+- **每次发版**：`manifest.json` 的 `version` 必须递增，并更新 `browser-extension/CHANGELOG.md`。

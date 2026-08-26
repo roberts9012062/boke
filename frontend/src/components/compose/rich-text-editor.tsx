@@ -11,10 +11,12 @@ import Link from "@tiptap/extension-link";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 
-import { apiUploadMedia, apiResolveQQMusic, apiPluginExtensions, authHeaders, ApiError } from "@/lib/api";
+import { apiUploadMedia, apiResolveQQMusic, apiPluginExtensions, apiPluginCall, authHeaders, ApiError } from "@/lib/api";
+import { compressImage, readFileAsBase64 } from "@/lib/image-compress";
 import { htmlToText } from "@/lib/rich-text";
 import { parseMusicEmbed, qqPlayerURL } from "@/lib/music-embed";
 import { parseVideoEmbed } from "@/lib/video-embed";
+import { ImageLibraryPicker } from "@/components/compose/image-library-picker";
 import { Modal } from "@/components/ui/modal";
 
 import { VideoEmbed } from "./video-embed";
@@ -84,6 +86,7 @@ interface QqSong {
 // RichTextEditor 所见即所得富文本编辑器。
 export function RichTextEditor({ value, onChange, placeholder, maxLength }: RichTextEditorProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cfInputRef = useRef<HTMLInputElement>(null);
   const [imageOpen, setImageOpen] = useState(false);
   const [imageUrl, setImageUrl] = useState("");
   const [imageError, setImageError] = useState("");
@@ -196,24 +199,81 @@ export function RichTextEditor({ value, onChange, placeholder, maxLength }: Rich
     [editor],
   );
 
-  // 图片本地上传：选文件 → 上传媒体库 → 插入图片节点 → 关闭弹窗
+  // 图片本地上传（多选批量）：逐个压缩 → 媒体库（经存储接缝直达 R2）→ 逐个插入正文
   const handleImagePick = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    const files = Array.from(e.target.files ?? []);
     e.target.value = "";
-    if (!file || !editor) {
+    if (files.length === 0 || !editor) {
       return;
     }
     setUploading(true);
     setError("");
     try {
-      const result = await apiUploadMedia(file);
-      editor.chain().focus().setImage({ src: result.url }).run();
+      // 先全部上传收集 URL，最后一次性插入（连续 setImage 每次 focus 重置光标到
+      // 同一位置，多张图会互相顶掉——批量场景必须攒齐再插）
+      const urls: string[] = [];
+      for (const file of files) {
+        setError(`本地上传中 ${urls.length + 1}/${files.length}：${file.name}`);
+        const compressed = await compressImage(file);
+        const result = await apiUploadMedia(compressed);
+        urls.push(result.url);
+      }
+      insertImages(urls);
       setImageOpen(false);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "图片上传失败");
     } finally {
       setUploading(false);
+      setError("");
     }
+  };
+
+  // CF图床直传（多选批量）：逐个压缩 → base64 → 插件 /manage/upload（服务端再按设置压缩）→ 插入正文。
+  // 与本地上传的区别：只进 R2 不登记媒体库（不占帖子图集 9 张名额，仅正文引用）。
+  const handleCfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    if (files.length === 0 || !editor) {
+      return;
+    }
+    setUploading(true);
+    setError("");
+    try {
+      const urls: string[] = [];
+      for (const file of files) {
+        setError(`CF图床上传中 ${urls.length + 1}/${files.length}：${file.name}`);
+        const compressed = await compressImage(file);
+        const b64 = await readFileAsBase64(compressed);
+        const r = await apiPluginCall<{ url?: string; error?: string }>("image-cdn", "/manage/upload", {
+          filename: file.name,
+          mime: compressed.type,
+          content_b64: b64,
+        });
+        if (r.error || !r.url) {
+          throw new Error(r.error || "图床上传失败");
+        }
+        urls.push(r.url);
+      }
+      insertImages(urls);
+      setImageOpen(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "图床上传失败");
+    } finally {
+      setUploading(false);
+      setError("");
+    }
+  };
+
+  // insertImages 批量插入图片节点（一次事务插多个，避免连续 setImage 光标重置）。
+  const insertImages = (urls: string[]) => {
+    if (!editor || urls.length === 0) {
+      return;
+    }
+    editor
+      .chain()
+      .focus()
+      .insertContent(urls.map((url) => ({ type: "image", attrs: { src: url } })))
+      .run();
   };
 
   // 图片外链：粘贴图片 URL 插入图片节点
@@ -545,28 +605,58 @@ export function RichTextEditor({ value, onChange, placeholder, maxLength }: Rich
         <EditorContent editor={editor} />
       </div>
 
-      {/* 隐藏图片选择 */}
-      <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => void handleImagePick(e)} />
+      {/* 隐藏图片选择（本地批量 / CF图床批量，均 multiple） */}
+      <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => void handleImagePick(e)} />
+      <input ref={cfInputRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => void handleCfUpload(e)} />
 
       {error && <p className="mt-1 text-xs text-like">{error}</p>}
 
       {/* 字数统计 */}
       <p className="mt-1 text-right text-xs text-ink-3">{charCount} / {maxLength}</p>
 
-      {/* 图片弹窗（本地上传 / 外链 URL） */}
+      {/* 图片弹窗（本地上传 / CF图床直传 / 图库选择 / 外链 URL） */}
       <Modal open={imageOpen} title="插入图片" onClose={() => { setImageOpen(false); setImageError(""); }} maxWidth="max-w-[420px]">
         <div className="space-y-4">
-          {/* 本地上传 */}
-          <div>
+          {/* 双通道上传：本地（进媒体库+图集）与 CF图床直传（仅正文引用） */}
+          <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
               disabled={uploading}
               onClick={() => fileInputRef.current?.click()}
-              className="flex h-20 w-full items-center justify-center rounded-lg border border-dashed border-line text-sm text-ink-3 transition-colors hover:border-accent hover:text-ink disabled:opacity-60"
+              className="flex h-20 w-full flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-line text-xs text-ink-3 transition-colors hover:border-accent hover:text-ink disabled:opacity-60"
             >
-              {uploading ? "上传中…" : "本地上传图片"}
+              <span className="text-lg" aria-hidden>⬆</span>
+              {uploading ? "上传中…" : "本地上传（多选）"}
+              <span className="text-[10px] text-ink-3">进媒体库 · 可作图集</span>
+            </button>
+            <button
+              type="button"
+              disabled={uploading}
+              onClick={() => cfInputRef.current?.click()}
+              className="flex h-20 w-full flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-line text-xs text-ink-3 transition-colors hover:border-accent hover:text-ink disabled:opacity-60"
+            >
+              <span className="text-lg" aria-hidden>☁</span>
+              {uploading ? "上传中…" : "CF图床上传（多选）"}
+              <span className="text-[10px] text-ink-3">直传 R2 · 仅正文引用</span>
             </button>
           </div>
+          {(error || imageError) && <p className="text-xs text-like" role="status">{error || imageError}</p>}
+
+          {/* 分隔 */}
+          <div className="flex items-center gap-2 text-xs text-ink-3">
+            <span className="h-px flex-1 bg-line" />
+            或
+            <span className="h-px flex-1 bg-line" />
+          </div>
+
+          {/* CF图床图库选择（插件 running 时可用；选中插入正文） */}
+          <ImageLibraryPicker
+            onPick={(url) => {
+              editor?.chain().focus().setImage({ src: url }).run();
+              setImageOpen(false);
+            }}
+            onClose={() => setImageOpen(false)}
+          />
 
           {/* 分隔 */}
           <div className="flex items-center gap-2 text-xs text-ink-3">

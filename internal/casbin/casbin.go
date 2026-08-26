@@ -40,13 +40,14 @@ const (
 	DomainAi         = "ai"         // AI 设置
 	DomainReports    = "reports"    // 数据报表
 	DomainBackups    = "backups"    // 备份导出
+	DomainOpenAPI    = "openapi"    // 接口开放（外部 API Key 管理与开放网关）
 )
 
 // AllDomains 全部资源域（superadmin 通配矩阵用）。
 var AllDomains = []string{
 	DomainDashboard, DomainPosts, DomainPages, DomainComments, DomainUsers,
 	DomainMedia, DomainTags, DomainSettings, DomainRoles, DomainModeration,
-	DomainPlugins, DomainSeo, DomainAi, DomainReports, DomainBackups,
+	DomainPlugins, DomainSeo, DomainAi, DomainReports, DomainBackups, DomainOpenAPI,
 }
 
 // defaultMatrix 默认权限矩阵（角色 → 可访问域；设计稿权限范围对齐）。

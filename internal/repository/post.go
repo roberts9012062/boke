@@ -27,7 +27,8 @@ func NewPostRepo(pool *pgxpool.Pool) *PostRepo {
 }
 
 // postColumns 帖子查询列清单（不含 media_ids，单独扫描）。
-const postColumns = `id, author_id, title, summary, content, content_format, content_type, status, visibility, cover_url, gallery_style, view_count, like_count, comment_count, published_at, created_at, updated_at`
+// 注意：列顺序必须与 scanPost / scanFavoritePost 的扫描顺序严格一致（多处共用）。
+const postColumns = `id, author_id, title, summary, content, content_format, content_type, post_kind, status, visibility, cover_url, gallery_style, view_count, like_count, comment_count, published_at, created_at, updated_at`
 
 // scanPost 将查询行扫描为 Post 实体（media_ids 需单独处理）。
 func scanPost(row pgx.Row) (model.Post, error) {
@@ -35,7 +36,7 @@ func scanPost(row pgx.Row) (model.Post, error) {
 	var mediaIDs []byte
 	err := row.Scan(
 		&p.ID, &p.AuthorID, &p.Title, &p.Summary, &p.Content, &p.ContentFormat,
-		&p.ContentType, &p.Status, &p.Visibility, &p.CoverURL, &p.GalleryStyle,
+		&p.ContentType, &p.PostKind, &p.Status, &p.Visibility, &p.CoverURL, &p.GalleryStyle,
 		&p.ViewCount, &p.LikeCount, &p.CommentCount,
 		&p.PublishedAt, &p.CreatedAt, &p.UpdatedAt, &mediaIDs,
 	)
@@ -58,7 +59,7 @@ func scanFavoritePost(row pgx.Row) (FavoritePostRow, error) {
 	var favoritedAt time.Time
 	err := row.Scan(
 		&p.ID, &p.AuthorID, &p.Title, &p.Summary, &p.Content, &p.ContentFormat,
-		&p.ContentType, &p.Status, &p.Visibility, &p.CoverURL, &p.GalleryStyle,
+		&p.ContentType, &p.PostKind, &p.Status, &p.Visibility, &p.CoverURL, &p.GalleryStyle,
 		&p.ViewCount, &p.LikeCount, &p.CommentCount,
 		&p.PublishedAt, &p.CreatedAt, &p.UpdatedAt, &mediaIDs,
 		&favoritedAt,
@@ -86,10 +87,10 @@ func (r *PostRepo) Create(ctx context.Context, p model.Post) (int64, error) {
 	}
 	var id int64
 	err = r.pool.QueryRow(ctx, `
-		INSERT INTO posts (author_id, title, summary, content, content_format, content_type, status, visibility, cover_url, gallery_style, media_ids, published_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		INSERT INTO posts (author_id, title, summary, content, content_format, content_type, post_kind, status, visibility, cover_url, gallery_style, media_ids, published_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		RETURNING id`,
-		p.AuthorID, p.Title, p.Summary, p.Content, p.ContentFormat, p.ContentType,
+		p.AuthorID, p.Title, p.Summary, p.Content, p.ContentFormat, p.ContentType, p.PostKind,
 		p.Status, p.Visibility, p.CoverURL, p.GalleryStyle, mediaJSON, p.PublishedAt,
 	).Scan(&id)
 	return id, err
@@ -178,6 +179,7 @@ func (r *PostRepo) DecrCommentCount(ctx context.Context, id int64) error {
 // ListParams 列表查询参数。
 type ListParams struct {
 	ContentType string // 类型过滤（空 = 全部）
+	Kind        string // 帖子形态过滤：moment/article（空 = 全部形态）
 	AuthorID    int64  // 作者过滤（0 = 不限）
 	Page        int    // 页码（从 1 起）
 	PageSize    int    // 每页条数
@@ -189,6 +191,10 @@ func (r *PostRepo) List(ctx context.Context, p ListParams) ([]model.Post, int64,
 	// 动态 WHERE（参数化，防注入）
 	where := "WHERE status = 'published'"
 	args := make([]any, 0, 4)
+	if p.Kind != "" {
+		args = append(args, p.Kind)
+		where += fmt.Sprintf(" AND post_kind = $%d", len(args))
+	}
 	if p.ContentType != "" {
 		args = append(args, p.ContentType)
 		where += fmt.Sprintf(" AND content_type = $%d", len(args))

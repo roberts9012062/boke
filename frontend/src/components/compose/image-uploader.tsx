@@ -6,12 +6,49 @@
 import { useRef, useState } from "react";
 
 import { apiUploadMedia } from "@/lib/api";
+import { compressImage } from "@/lib/image-compress";
 import type { MediaDTO } from "@/types/api";
 
 // 图片数量上限（需求 3.4：≤9 张）
 const MAX_IMAGES = 9;
-// 压缩后目标大小（1MB）
-const TARGET_SIZE = 1 << 20;
+
+// isImageFile 图片类型判定（纯函数）。
+function isImageFile(file: File): boolean {
+  return /^image\/(jpeg|png|gif|webp)$/i.test(file.type || "");
+}
+
+// collectDroppedFiles 从拖放事件收集图片文件（含文件夹：webkitGetAsEntry 递归遍历）。
+async function collectDroppedFiles(dt: DataTransfer): Promise<File[]> {
+  const out: File[] = [];
+  const entries = Array.from(dt.items ?? [])
+    .map((it) => (it.webkitGetAsEntry ? it.webkitGetAsEntry() : null))
+    .filter((e): e is FileSystemEntry => e !== null);
+  if (entries.length === 0) {
+    return Array.from(dt.files ?? []).filter(isImageFile);
+  }
+  const walk = async (entry: FileSystemEntry): Promise<void> => {
+    if (entry.isFile) {
+      const file = await new Promise<File>((resolve, reject) =>
+        (entry as FileSystemFileEntry).file(resolve, reject),
+      );
+      if (isImageFile(file)) {
+        out.push(file);
+      }
+      return;
+    }
+    const reader = (entry as FileSystemDirectoryEntry).createReader();
+    const children = await new Promise<FileSystemEntry[]>((resolve, reject) =>
+      reader.readEntries(resolve, reject),
+    );
+    for (const child of children) {
+      await walk(child);
+    }
+  };
+  for (const entry of entries) {
+    await walk(entry);
+  }
+  return out;
+}
 
 // ImageUploader 图片上传区。
 // 参数：value 已上传媒体；onChange 变化回调（上传中状态由父组件处理）。
@@ -25,55 +62,11 @@ export function ImageUploader({
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
+  const [dragOver, setDragOver] = useState<boolean>(false);
 
-  // 压缩图片：canvas 重绘，质量逐步降低直至 ≤1MB。
-  // 返回：压缩后的 File。
-  async function compressImage(file: File): Promise<File> {
-    // 已是小文件直接返回
-    if (file.size <= TARGET_SIZE) {
-      return file;
-    }
-    const bitmap = await createImageBitmap(file);
-    // 等比缩放：长边不超过 1600px
-    const maxSide = 1600;
-    let { width, height } = bitmap;
-    if (width > maxSide || height > maxSide) {
-      const ratio = Math.min(maxSide / width, maxSide / height);
-      width = Math.round(width * ratio);
-      height = Math.round(height * ratio);
-    }
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) {
-      return file;
-    }
-    ctx.drawImage(bitmap, 0, 0, width, height);
-    bitmap.close();
-
-    // 质量 0.8 起，逐级降低直到达标（webp 压缩率高）
-    const type = "image/webp";
-    let quality = 0.8;
-    let blob: Blob | null = null;
-    for (let i = 0; i < 5; i++) {
-      blob = await new Promise<Blob | null>((resolve) =>
-        canvas.toBlob(resolve, type, quality),
-      );
-      if (blob && blob.size <= TARGET_SIZE) {
-        break;
-      }
-      quality -= 0.15;
-    }
-    if (!blob) {
-      return file;
-    }
-    return new File([blob], file.name.replace(/\.\w+$/, ".webp"), { type });
-  }
-
-  // 选择文件后逐个压缩上传
-  const handleFiles = async (files: FileList | null) => {
-    if (!files || files.length === 0) {
+  // 选择/拖入文件后逐个压缩上传（统一入口：点击选择与拖拽共用）
+  const handleFilesFromList = async (files: File[]) => {
+    if (files.length === 0) {
       return;
     }
     // 数量上限校验（含已有）
@@ -86,7 +79,7 @@ export function ImageUploader({
     setUploading(true);
     try {
       const uploaded: MediaDTO[] = [];
-      for (const file of Array.from(files)) {
+      for (const file of files) {
         const compressed = await compressImage(file);
         const result = await apiUploadMedia(compressed);
         uploaded.push({
@@ -138,16 +131,32 @@ export function ImageUploader({
         </div>
       )}
 
-      {/* 上传入口（未达上限时显示） */}
+      {/* 上传入口（未达上限时显示：点击选择 + 拖拽文件/文件夹） */}
       {value.length < MAX_IMAGES && (
-        <button
-          type="button"
-          onClick={() => inputRef.current?.click()}
-          disabled={uploading}
-          className="mt-3 flex h-24 w-full items-center justify-center rounded-lg border border-dashed border-line text-sm text-ink-3 transition-colors hover:border-accent hover:text-ink-2 disabled:opacity-60"
+        <div
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragOver(true);
+          }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={async (e) => {
+            e.preventDefault();
+            setDragOver(false);
+            const files = await collectDroppedFiles(e.dataTransfer);
+            await handleFilesFromList(files);
+          }}
         >
-          {uploading ? "上传中…" : `+ 添加图片（${value.length}/${MAX_IMAGES}）`}
-        </button>
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            disabled={uploading}
+            className={`mt-3 flex h-24 w-full items-center justify-center rounded-lg border border-dashed text-sm transition-colors disabled:opacity-60 ${
+              dragOver ? "border-accent bg-accent-soft text-glow" : "border-line text-ink-3 hover:border-accent hover:text-ink-2"
+            }`}
+          >
+            {uploading ? "上传中…" : dragOver ? "松开即可上传（支持多张/文件夹）" : `+ 添加图片（${value.length}/${MAX_IMAGES}，可拖拽）`}
+          </button>
+        </div>
       )}
       {/* 隐藏文件选择 */}
       <input
@@ -156,7 +165,7 @@ export function ImageUploader({
         accept="image/*"
         multiple
         className="hidden"
-        onChange={(e) => void handleFiles(e.target.files)}
+        onChange={(e) => void handleFilesFromList(Array.from(e.target.files ?? []))}
       />
       {error && <p className="mt-2 text-xs text-like">{error}</p>}
     </div>

@@ -57,6 +57,8 @@ func (h *PostHandler) Create(c *gin.Context) {
 func (h *PostHandler) List(c *gin.Context) {
 	// 类型过滤：全部（空）/text/image/audio/video
 	contentType := c.Query("type")
+	// 形态过滤：全部形态（空）/moment=说说 /article=文章
+	kind := c.Query("kind")
 	// 分页：page 从 1 起，page_size 默认 20 上限 100
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
@@ -67,7 +69,7 @@ func (h *PostHandler) List(c *gin.Context) {
 		pageSize = 20
 	}
 
-	items, total, err := h.posts.ListTimeline(c.Request.Context(), contentType, page, pageSize, middleware.GetUserID(c))
+	items, total, err := h.posts.ListTimeline(c.Request.Context(), contentType, kind, page, pageSize, middleware.GetUserID(c))
 	if err != nil {
 		h.failWithLog(c, err)
 		return

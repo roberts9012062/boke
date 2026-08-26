@@ -40,9 +40,10 @@ type MailConfig struct {
 
 // RedisConfig Redis 连接参数（从环境变量读取）。
 type RedisConfig struct {
-	Host string // 主机
-	Port string // 端口
-	DB   int    // 数据库编号
+	Host     string // 主机
+	Port     string // 端口
+	Password string // 认证密码（Redis 未设密码时为空）
+	DB       int    // 数据库编号
 }
 
 // Load 从环境变量读取全部运行配置，并校验必填项。
@@ -85,9 +86,10 @@ func Load() (Config, error) {
 
 	// 加载 Redis 连接配置（未配置时 Host 为空，限流降级放行）
 	cfg.Redis = RedisConfig{
-		Host: os.Getenv("REDIS_HOST"),
-		Port: os.Getenv("REDIS_PORT"),
-		DB:   0,
+		Host:     os.Getenv("REDIS_HOST"),
+		Port:     os.Getenv("REDIS_PORT"),
+		Password: os.Getenv("REDIS_PASSWORD"),
+		DB:       0,
 	}
 	if db := os.Getenv("REDIS_DB"); db != "" {
 		if n, err := strconv.Atoi(db); err == nil {

@@ -1,9 +1,11 @@
 // src/components/compose/config.ts
 // 发帖中心配置常量与媒体辅助（从 compose 页抽出，保持页面行数 ≤300 规范）。
-import type { MediaDTO, PostContentType } from "@/types/api";
+import type { MediaDTO, PostContentType, PostKind } from "@/types/api";
 
 // 正文上限（需求 3.4：0/2000）
 export const MAX_CONTENT = 2000;
+// 文章正文上限（文章形态放宽长内容）
+export const MAX_ARTICLE_CONTENT = 20000;
 // 标签上限
 export const MAX_TAGS = 5;
 
@@ -22,13 +24,18 @@ export const TYPE_TABS: readonly { key: PostContentType; label: string }[] = [
   { key: "video", label: "视频" },
 ];
 
-// collectMediaIds 组装媒体 ID（图片多选 / 音频单选 / 视频单选；纯函数）。
+// collectMediaIds 组装媒体 ID（文章携带图集 / 图片多选 / 音频单选 / 视频单选；纯函数）。
 export function collectMediaIds(
+  postKind: PostKind,
   contentType: PostContentType,
   images: MediaDTO[],
   audio: MediaDTO | null,
   video: MediaDTO | null,
 ): number[] {
+  // 文章：图片走图集（media_ids 有序数组）
+  if (postKind === "article") {
+    return images.map((m) => m.id);
+  }
   if (contentType === "image") {
     return images.map((m) => m.id);
   }

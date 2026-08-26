@@ -115,14 +115,14 @@ func (r *PluginRepo) SetPubkey(ctx context.Context, pluginID string, pubkeyPEM s
 // 说明（M3.1）：plugin_id 唯一约束，卸载为软删（uninstalled），重装需 UPDATE 复用而非 INSERT；
 //              M3.3 起安装默认 installed，激活成功（内置注册/进程外拉起）后转 running；
 //              capabilities 为安装来源声明的能力（P2 加固：运行时门控取交集依据）。
-func (r *PluginRepo) Reinstall(ctx context.Context, instanceID int64, version string, repoURL string, capabilities []string) error {
+func (r *PluginRepo) Reinstall(ctx context.Context, instanceID int64, name string, version string, repoURL string, capabilities []string) error {
 	capsRaw, err := json.Marshal(capabilities)
 	if err != nil {
 		return err
 	}
 	_, err = r.pool.Exec(ctx, `
-		UPDATE plugin_instances SET state = 'installed', version = $2, repo_url = $3, capabilities = $4::jsonb, updated_at = now()
-		WHERE id = $1`, instanceID, version, repoURL, string(capsRaw))
+		UPDATE plugin_instances SET state = 'installed', name = $2, version = $3, repo_url = $4, capabilities = $5::jsonb, updated_at = now()
+		WHERE id = $1`, instanceID, name, version, repoURL, string(capsRaw))
 	return err
 }
 

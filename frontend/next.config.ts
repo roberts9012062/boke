@@ -52,8 +52,9 @@ const nextConfig: NextConfig = {
               "default-src 'self'",
               `script-src ${scriptSrc.join(" ")}`,
               "style-src 'self' 'unsafe-inline'",
-              // M7 网易云 / M8 QQ 音乐插件：放行网易云/QQ 音乐 CDN 的封面图片与音频直链（仅 https）
-              "img-src 'self' data: blob: https://*.music.126.net https://*.gtimg.cn",
+              // img-src 放行 https 外链：正文插图来自任意图床/CDN（CF图床 imgs.* 等）；
+              // 图片为无脚本执行的被动资源，风险低于 script/connect（M7/M8 音乐域已含于 https:）
+              "img-src 'self' data: blob: https:",
               // media-src 含 blob:：插件 MSE 播放器（B站 DASH 1080P）经 objectURL 装载媒体
               "media-src 'self' blob: https://*.music.126.net https://*.qq.com https://*.tc.qq.com",
               "font-src 'self' data:",

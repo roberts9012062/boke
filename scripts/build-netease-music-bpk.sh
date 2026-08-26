@@ -21,7 +21,7 @@ mkdir -p "$BUILD_DIR"
 echo "[步骤 1/2] 编译插件二进制（当前平台）..." | tee -a "$LOG_FILE"
 GOOS="$(go env GOOS)"
 GOARCH="$(go env GOARCH)"
-go build -o "$BUILD_DIR/plugin.bin" -C marketplace-repo ./netease-music 2>&1 | tee -a "$LOG_FILE"
+go build -C marketplace-repo -ldflags "-s -w" -trimpath -o "$BUILD_DIR/plugin.bin" ./netease-music 2>&1 | tee -a "$LOG_FILE"
 
 echo "[步骤 2/2] 打包 .bpk（免费插件 + 前端扩展）..." | tee -a "$LOG_FILE"
 go run ./cmd/bp pack \
