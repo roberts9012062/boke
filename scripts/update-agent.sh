@@ -23,6 +23,9 @@ LOG_FILE="$LOG_DIR/update-agent-$(date +%Y%m%d).log"
 
 mkdir -p "$LOG_DIR" "$DATA_DIR"
 
+# systemd 服务不继承登录 shell 的 HOME（git 找不到全局配置 → dubious ownership 拒绝操作）
+export HOME="${HOME:-/root}"
+
 # log 统一日志（终端 + 文件）
 log() { echo "[$(date '+%F %T')] $*" | tee -a "$LOG_FILE"; }
 
@@ -81,7 +84,8 @@ if ! git fetch --tags origin main >> "$LOG_FILE" 2>&1; then
   write_status failed "拉取远程仓库失败（检查服务器网络）" 0 "$VERSION"
   rm -f "$TASK_FILE"; exit 1
 fi
-if ! git checkout -q "$VERSION" >> "$LOG_FILE" 2>&1; then
+# -f 强制切换：更新以仓库为准（丢弃本地未提交修改；data/logs 为挂载卷不受影响）
+if ! git checkout -qf "$VERSION" >> "$LOG_FILE" 2>&1; then
   write_status failed "切换到版本 $VERSION 失败（tag 不存在）" 0 "$VERSION"
   rm -f "$TASK_FILE"; exit 1
 fi

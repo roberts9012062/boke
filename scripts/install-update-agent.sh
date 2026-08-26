@@ -28,6 +28,7 @@ After=docker.service network-online.target
 [Service]
 Type=oneshot
 WorkingDirectory=$ROOT
+Environment=HOME=/root
 ExecStart=$AGENT $ROOT
 EOF
 
