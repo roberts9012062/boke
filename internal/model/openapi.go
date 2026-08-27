@@ -54,6 +54,22 @@ func OpenAPICatalog() []CatalogEntry {
 			Params:      []CatalogParam{},
 		},
 		{
+			Endpoint:    "posts.create",
+			Method:      "POST",
+			Path:        "/api/v1/open/posts",
+			Name:        "发布文章",
+			Description: "凭 Key 以绑定用户身份发布文章（浏览器插件「AI 生成文章」通道；正文支持 markdown/html，可携带标签、媒体与 SEO 输入）",
+			Params: []CatalogParam{
+				{Name: "title", Type: "string", Location: "body", Required: true, Description: "文章标题"},
+				{Name: "content", Type: "string", Location: "body", Required: true, Description: "正文（≤20000 字）"},
+				{Name: "content_format", Type: "string", Location: "body", Required: false, Description: "markdown / html（空=markdown）"},
+				{Name: "tags", Type: "array", Location: "body", Required: false, Description: "标签（≤5 个）"},
+				{Name: "media_ids", Type: "array", Location: "body", Required: false, Description: "关联媒体 ID（AI 配图转存后的 media_id）"},
+				{Name: "seo", Type: "object", Location: "body", Required: false, Description: "{seo_title, seo_description} SEO 输入"},
+				{Name: "status", Type: "string", Location: "body", Required: false, Description: "draft=草稿 / published=发布（空=published）"},
+			},
+		},
+		{
 			Endpoint:    "posts.list",
 			Method:      "GET",
 			Path:        "/api/v1/open/posts",

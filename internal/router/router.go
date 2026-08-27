@@ -245,6 +245,7 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager, e
 	openGroup := api.Group("/open")
 	openGroup.Use(middleware.ApiKeyAuth(handlers.OpenAPIKeys))
 	openGroup.GET("/me", handlers.OpenAPI.Me)                          // 我的资料（me.profile，凭 Key 返回绑定用户）
+	openGroup.POST("/posts", handlers.OpenAPI.CreatePost)              // 发布文章（posts.create，凭 Key 绑定用户发帖）
 	openGroup.GET("/posts", handlers.Post.List)                        // 帖子列表（posts.list）
 	openGroup.GET("/posts/:id", handlers.Post.Get)                     // 帖子详情（posts.detail）
 	openGroup.GET("/posts/:id/comments", handlers.Comment.List)        // 帖子评论（posts.comments）
