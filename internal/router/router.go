@@ -257,6 +257,7 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager, e
 	openGroup.GET("/meta", handlers.Site.GetMeta)                      // 站点信息（site.meta）
 	openGroup.GET("/ai/models", handlers.OpenAPI.GatewayAIModels)      // AI 模型列表（ai.models）
 	openGroup.POST("/ai/chat", handlers.OpenAPI.GatewayAIChat)         // AI 对话（ai.chat）
+	openGroup.POST("/ai/assist", handlers.OpenAPI.GatewayAIAssist)     // AI 辅助（ai.assist：扩写/润色/配图/配乐/识图）
 
 		// ---------- 私信模块（M2） ----------
 		authed.GET("/conversations", handlers.Message.ListConversations)          // 会话列表（filter=all|unread）

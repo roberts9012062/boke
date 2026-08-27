@@ -180,6 +180,18 @@ func OpenAPICatalog() []CatalogEntry {
 				{Name: "max_tokens", Type: "integer", Location: "body", Required: false, Description: "最大输出 token（默认 300，上限 16000）"},
 			},
 		},
+		{
+			Endpoint:    "ai.assist",
+			Method:      "POST",
+			Path:        "/api/v1/open/ai/assist",
+			Name:        "AI 辅助（多模态）",
+			Description: "发帖 AI 辅助（MiniMax 多模态）：内容扩写/润色（返回文本）、按内容配图/配乐（生成物已转存本站媒体库，返回地址与媒体 ID）、图片识别（传图片地址返回描述）",
+			Params: []CatalogParam{
+				{Name: "action", Type: "string", Location: "body", Required: true, Description: "动作：expand=扩写 / polish=润色 / image=配图 / music=配乐 / recognize=识图"},
+				{Name: "content", Type: "string", Location: "body", Required: false, Description: "帖子正文（expand/polish/image/music 的输入）"},
+				{Name: "image_url", Type: "string", Location: "body", Required: false, Description: "待识别图片的公网地址（recognize 必填）"},
+			},
+		},
 	}
 }
 

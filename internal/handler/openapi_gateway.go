@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/roberts9012062/boke/internal/ai"
+	"github.com/roberts9012062/boke/internal/service"
 	"github.com/roberts9012062/boke/pkg/errs"
 	"github.com/roberts9012062/boke/pkg/resp"
 )
@@ -89,4 +90,28 @@ func (h *OpenAPIHandler) GatewayAIChat(c *gin.Context) {
 		return
 	}
 	resp.OK(c, gin.H{"model": req.Model, "reply": reply})
+}
+
+// GatewayAIAssist 处理 AI 辅助（POST /api/v1/open/ai/assist，X-Api-Key 鉴权）。
+// 动作：expand/polish（文本）、image/music（生成物转存媒体库）、recognize（识图）；
+// 复用后台同一条辅助管道（任务提示词与启停在后台 AI 设置配置）。
+func (h *OpenAPIHandler) GatewayAIAssist(c *gin.Context) {
+	var req struct {
+		Action   string `json:"action" binding:"required"`
+		Content  string `json:"content"`
+		ImageURL string `json:"image_url"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, errs.New(errs.CodeBadRequest, "请求体需包含 action（expand/polish/image/music/recognize）"))
+		return
+	}
+	result, err := h.ai.Assist(c.Request.Context(), req.Action, service.AssistInput{
+		Content:  req.Content,
+		ImageURL: req.ImageURL,
+	})
+	if err != nil {
+		h.failWithLog(c, err)
+		return
+	}
+	resp.OK(c, result)
 }

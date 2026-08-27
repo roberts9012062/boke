@@ -9,9 +9,12 @@ package service
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -109,9 +112,15 @@ func (s *AiService) assistChat(ctx context.Context, task *repository.AiTask, con
 }
 
 // assistRecognize 图片识别：任务 model 路由到视觉模型（MiniMax-M3）多模态对话。
+// 图片地址支持两种形态：公网 URL 原样发送；本站路径（/media/...）读文件转
+// base64 data URL 发送（不依赖上游服务器回源拉图，站内图片识别更稳定）。
 func (s *AiService) assistRecognize(ctx context.Context, task *repository.AiTask, imageURL string) (*AssistResult, error) {
 	if imageURL == "" {
 		return nil, errs.New(errs.CodeBadRequest, "缺少待识别的图片地址")
+	}
+	resolvedURL, err := s.resolveImageInput(imageURL)
+	if err != nil {
+		return nil, err
 	}
 	provider, err := s.resolveProviderByModel(ctx, task.Model)
 	if err != nil {
@@ -121,7 +130,7 @@ func (s *AiService) assistRecognize(ctx context.Context, task *repository.AiTask
 		Model: task.Model,
 		Messages: []ai.Message{
 			{Role: "system", Content: task.PromptTemplate},
-			{Role: "user", Content: "请识别这张图片", ImageURL: imageURL},
+			{Role: "user", Content: "请识别这张图片", ImageURL: resolvedURL},
 		},
 		MaxTokens: task.MaxTokens,
 	})
@@ -129,6 +138,20 @@ func (s *AiService) assistRecognize(ctx context.Context, task *repository.AiTask
 		return nil, err
 	}
 	return &AssistResult{Action: task.TaskName, Text: result.Text}, nil
+}
+
+// resolveImageInput 图片输入归一：本站 /media/ 路径 → base64 data URL；
+// 公网 URL 与 data URL 原样返回。
+func (s *AiService) resolveImageInput(imageURL string) (string, error) {
+	if !strings.HasPrefix(imageURL, "/media/") || s.mediaStore == nil {
+		return imageURL, nil
+	}
+	raw, err := os.ReadFile(filepath.Join(s.mediaStore.RootDir(), strings.TrimPrefix(imageURL, "/media/")))
+	if err != nil {
+		return "", errs.New(errs.CodeBadRequest, "读取站内图片失败："+err.Error())
+	}
+	mimeType := http.DetectContentType(raw)
+	return "data:" + mimeType + ";base64," + base64.StdEncoding.EncodeToString(raw), nil
 }
 
 // renderGenPrompt 组装生成类提示词（任务模板 {content} 占位替换；纯函数）。

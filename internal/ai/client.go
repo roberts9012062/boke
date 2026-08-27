@@ -165,10 +165,30 @@ func (c *Client) ChatMessages(ctx context.Context, req ChatRequest) (*Result, er
 		return nil, errors.New("AI 服务未返回内容（choices 为空）")
 	}
 	return &Result{
-		Text:      strings.TrimSpace(parsed.Choices[0].Message.Content),
+		Text:      strings.TrimSpace(stripThinkTags(parsed.Choices[0].Message.Content)),
 		InTokens:  parsed.Usage.PromptTokens,
 		OutTokens: parsed.Usage.CompletionTokens,
 	}, nil
+}
+
+// thinkOpenTag / thinkCloseTag 推理模型思考标签（MiniMax-M3 等在正文前输出推理过程）。
+const (
+	thinkOpenTag  = "<think>"
+	thinkCloseTag = "</think>"
+)
+
+// stripThinkTags 剥离推理模型输出中的思考段（<think>…</think>，纯函数）：
+// 推理过程不是面向用户的正文，保留会污染帖子内容与对话展示。
+func stripThinkTags(content string) string {
+	start := strings.Index(content, thinkOpenTag)
+	if start < 0 {
+		return content
+	}
+	end := strings.Index(content, thinkCloseTag)
+	if end < start {
+		return content // 标签不成对（流式截断等异常）：原样返回防误删
+	}
+	return content[:start] + content[end+len(thinkCloseTag):]
 }
 
 // Embedding 执行一次向量嵌入（统一契约 EmbeddingRequest）。

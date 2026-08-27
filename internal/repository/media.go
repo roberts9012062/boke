@@ -35,11 +35,12 @@ func NewMediaRepo(pool *pgxpool.Pool) *MediaRepo {
 }
 
 // Create 创建媒体记录（返回新媒体 ID）。
+// owner_id 为 0 时写 NULL（系统生成媒体，AI 辅助产物——外键对 NULL 放行）。
 func (r *MediaRepo) Create(ctx context.Context, m MediaAsset) (int64, error) {
 	var id int64
 	err := r.pool.QueryRow(ctx, `
 		INSERT INTO media_assets (owner_id, type, storage_key, url, mime_type, size_bytes, width, height, status)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		VALUES (NULLIF($1, 0), $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id`,
 		m.OwnerID, m.Type, m.StorageKey, m.URL, m.MimeType,
 		m.SizeBytes, m.Width, m.Height, m.Status,
