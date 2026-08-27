@@ -242,6 +242,18 @@ func (r *UserRepo) DeleteCascade(ctx context.Context, id int64) ([]string, error
 	return keys, tx.Commit(ctx)
 }
 
+// FindOwnerID 查询站长用户 ID（superadmin 且状态正常，取 ID 最小者；站点元信息站长资料用）。
+// 无站长（未初始化等）返回 ErrNotFound，调用方按无站长处理。
+func (r *UserRepo) FindOwnerID(ctx context.Context) (int64, error) {
+	var id int64
+	err := r.pool.QueryRow(ctx,
+		`SELECT id FROM users WHERE role = 'superadmin' AND status = 'active' ORDER BY id LIMIT 1`).Scan(&id)
+	if err != nil {
+		return 0, err
+	}
+	return id, nil
+}
+
 // CountPosts 统计用户帖子数（主页统计用）。
 func (r *UserRepo) CountPosts(ctx context.Context, userID int64) (int64, error) {
 	var count int64

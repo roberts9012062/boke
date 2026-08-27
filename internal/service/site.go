@@ -27,26 +27,41 @@ type NavLinkDTO struct {
 	Children []NavLinkDTO  `json:"children,omitempty"` // 二级菜单（最多两级，二级不可再嵌套）
 }
 
-// SiteMetaDTO 站点元信息（GET /api/v1/meta 响应）。
-type SiteMetaDTO struct {
-	SiteName        string       `json:"site_name"`        // 站点名称
-	SiteDescription string       `json:"site_description"` // 站点描述
-	DefaultTheme    string       `json:"default_theme"`    // 默认主题（冷月/薄雾）
-	MaintenanceMode string       `json:"maintenance_mode"` // 维护开关（on/off，M2 前端拦截用）
-	Nav             []NavLinkDTO `json:"nav"`              // 头部导航项（空=前端回退默认导航）
+// OwnerSummaryDTO 站长公开摘要（首页左栏站长卡片数据源；真实资料，非静态文案）。
+type OwnerSummaryDTO struct {
+	ID         int64  `json:"id"`          // 用户 ID（点击卡片跳主页用）
+	Username   string `json:"username"`    // 用户名（@账号）
+	Nickname   string `json:"nickname"`    // 昵称
+	AvatarURL  string `json:"avatar_url"`  // 头像地址
+	Bio        string `json:"bio"`         // 个人简介
+	PostCount  int64  `json:"post_count"`  // 已发布帖子数
+	LikeCount  int64  `json:"like_count"`  // 获赞数
+	TopicCount int64  `json:"topic_count"` // 参与话题数
 }
 
-// SiteService 站点信息服务（连接器类，仅依赖 settings 仓库）。
+// SiteMetaDTO 站点元信息（GET /api/v1/meta 响应）。
+type SiteMetaDTO struct {
+	SiteName        string           `json:"site_name"`        // 站点名称
+	SiteDescription string           `json:"site_description"` // 站点描述
+	DefaultTheme    string           `json:"default_theme"`    // 默认主题（冷月/薄雾）
+	MaintenanceMode string           `json:"maintenance_mode"` // 维护开关（on/off，M2 前端拦截用）
+	Nav             []NavLinkDTO     `json:"nav"`              // 头部导航项（空=前端回退默认导航）
+	Owner           *OwnerSummaryDTO `json:"owner,omitempty"`  // 站长公开摘要（无站长时缺省）
+}
+
+// SiteService 站点信息服务（连接器类）。
 type SiteService struct {
 	settings *repository.SettingRepo // 站点设置数据访问
+	users    *repository.UserRepo    // 用户数据访问（站长资料与统计）
 }
 
 // NewSiteService 创建站点信息服务。
-func NewSiteService(settings *repository.SettingRepo) *SiteService {
-	return &SiteService{settings: settings}
+func NewSiteService(settings *repository.SettingRepo, users *repository.UserRepo) *SiteService {
+	return &SiteService{settings: settings, users: users}
 }
 
 // Meta 读取站点元信息（settings 表实时读取；读取失败时回退默认值，保证服务可用性）。
+// 附带站长公开摘要（superadmin 用户真实资料与统计；查询失败不阻断 meta 返回）。
 func (s *SiteService) Meta(ctx context.Context) SiteMetaDTO {
 	all, err := s.settings.All(ctx)
 	if err != nil {
@@ -55,6 +70,7 @@ func (s *SiteService) Meta(ctx context.Context) SiteMetaDTO {
 			SiteName:        defaultSiteName,
 			SiteDescription: defaultSiteDescription,
 			DefaultTheme:    defaultDefaultTheme,
+			Owner:           s.ownerSummary(ctx),
 		}
 	}
 	return SiteMetaDTO{
@@ -63,7 +79,35 @@ func (s *SiteService) Meta(ctx context.Context) SiteMetaDTO {
 		DefaultTheme:    valueOr(all, "theme", defaultDefaultTheme),
 		MaintenanceMode: maintenanceValue(all),
 		Nav:             ParseNavLinks(all["nav_links"]),
+		Owner:           s.ownerSummary(ctx),
 	}
+}
+
+// ownerSummary 组装站长公开摘要（资料 + 帖子/获赞/话题统计；无站长或查询失败返回 nil）。
+func (s *SiteService) ownerSummary(ctx context.Context) *OwnerSummaryDTO {
+	if s.users == nil {
+		return nil
+	}
+	ownerID, err := s.users.FindOwnerID(ctx)
+	if err != nil {
+		return nil // 未初始化或查询失败：无站长，前端回退占位
+	}
+	user, err := s.users.FindByID(ctx, ownerID)
+	if err != nil {
+		return nil
+	}
+	summary := &OwnerSummaryDTO{
+		ID:        user.ID,
+		Username:  user.Username,
+		Nickname:  user.Nickname,
+		AvatarURL: user.AvatarURL,
+		Bio:       user.Bio,
+	}
+	// 统计失败不阻断（缺省 0，卡片仍展示资料）
+	summary.PostCount, _ = s.users.CountPosts(ctx, ownerID)
+	summary.LikeCount, _ = s.users.CountLikes(ctx, ownerID)
+	summary.TopicCount, _ = s.users.CountTopics(ctx, ownerID)
+	return summary
 }
 
 // ParseNavLinks 解析导航配置（settings.nav_links JSON 数组文本）。

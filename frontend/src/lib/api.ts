@@ -208,6 +208,34 @@ export function apiDeactivateAccount(): Promise<void> {
   return post<void>("/me/deactivate", {});
 }
 
+// ---------- 站点信息 ----------
+
+// OwnerSummary 站长公开摘要（首页左栏站长卡片：真实资料与统计）。
+export interface OwnerSummary {
+  id: number;
+  username: string;
+  nickname: string;
+  avatar_url: string;
+  bio: string;
+  post_count: number;
+  like_count: number;
+  topic_count: number;
+}
+
+// SiteMeta 站点元信息（公开接口 /api/v1/meta）。
+export interface SiteMeta {
+  site_name: string;
+  site_description: string;
+  default_theme: string;
+  maintenance_mode: string;
+  owner?: OwnerSummary;
+}
+
+// apiSiteMeta 拉取站点元信息（含站长公开摘要）。
+export function apiSiteMeta(): Promise<SiteMeta> {
+  return get<SiteMeta>("/meta");
+}
+
 // ---------- 帖子方法（M1.3） ----------
 
 // 时间线列表（type 过滤：全部/图/音/影；kind 过滤：moment=说说/article=文章；分页）。
