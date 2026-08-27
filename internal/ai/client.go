@@ -23,12 +23,47 @@ import (
 const defaultTemperature = 0.2
 
 // chatRequest Chat Completions 请求体（仅封装本包用到的字段）。
+// Messages 为线格式（多模态消息在组装时转换：ImageURL 非空 → content 数组）。
 type chatRequest struct {
-	Model       string    `json:"model"`       // 模型名
-	Messages    []Message `json:"messages"`    // 消息列表
-	MaxTokens   int       `json:"max_tokens"`  // 最大输出 token
-	Temperature float64   `json:"temperature"` // 采样温度
-	Stream      bool      `json:"stream"`      // 是否流式
+	Model       string        `json:"model"`       // 模型名
+	Messages    []wireMessage `json:"messages"`    // 消息列表
+	MaxTokens   int           `json:"max_tokens"`  // 最大输出 token
+	Temperature float64       `json:"temperature"` // 采样温度
+	Stream      bool          `json:"stream"`      // 是否流式
+}
+
+// wireMessage 线格式消息：纯文本时 content 为字符串；带图片时为数组（OpenAI 兼容多模态）。
+type wireMessage struct {
+	Role    string `json:"role"`
+	Content any    `json:"content"` // string 或 []wireContentPart
+}
+
+// wireContentPart 多模态 content 数组元素（text / image_url）。
+type wireContentPart struct {
+	Type     string `json:"type"` // text / image_url
+	Text     string `json:"text,omitempty"`
+	ImageURL *struct {
+		URL string `json:"url"`
+	} `json:"image_url,omitempty"`
+}
+
+// toWireMessages 统一消息转线格式（纯函数）：ImageURL 非空的消息按多模态数组发出。
+func toWireMessages(messages []Message) []wireMessage {
+	out := make([]wireMessage, 0, len(messages))
+	for _, msg := range messages {
+		if msg.ImageURL == "" {
+			out = append(out, wireMessage{Role: msg.Role, Content: msg.Content})
+			continue
+		}
+		imagePart := &struct {
+			URL string `json:"url"`
+		}{URL: msg.ImageURL}
+		out = append(out, wireMessage{Role: msg.Role, Content: []wireContentPart{
+			{Type: "text", Text: msg.Content},
+			{Type: "image_url", ImageURL: imagePart},
+		}})
+	}
+	return out
 }
 
 // chatResponse Chat Completions 响应体（非流式，仅解析用到的字段）。
@@ -110,7 +145,7 @@ func (c *Client) ChatMessages(ctx context.Context, req ChatRequest) (*Result, er
 	}
 	body := chatRequest{
 		Model:       model,
-		Messages:    req.Messages,
+		Messages:    toWireMessages(req.Messages),
 		MaxTokens:   req.MaxTokens,
 		Temperature: temperature,
 		Stream:      false,

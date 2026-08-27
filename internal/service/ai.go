@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/roberts9012062/boke/internal/ai"
+	"github.com/roberts9012062/boke/internal/media"
 	"github.com/roberts9012062/boke/internal/plugin"
 	"github.com/roberts9012062/boke/internal/repository"
 	"github.com/roberts9012062/boke/pkg/errs"
@@ -78,18 +79,21 @@ type AiUsageDTO struct {
 
 // AiService AI 服务（连接器类）。
 type AiService struct {
-	providers *repository.AiProviderRepo // 供应商
-	tasks     *repository.AiTaskRepo     // 任务路由
-	usage     *repository.AiUsageRepo    // 用量统计
-	seo       *repository.SeoRepo        // SEO 元数据（摘要落库）
-	posts     *repository.PostRepo       // 帖子（场景输入）
-	comments  *repository.CommentRepo    // 评论（审核场景）
-	reports   *repository.ReportRepo     // 举报工单（高风险标记）
-	keySecret string                     // API Key 加密密钥（config.AIKeySecret）
-	hooks     plugin.Dispatcher          // 钩子调度器（M3.9 ai.before/after_generate；可空=钩子不生效）
+	providers  *repository.AiProviderRepo // 供应商
+	tasks      *repository.AiTaskRepo     // 任务路由
+	usage      *repository.AiUsageRepo    // 用量统计
+	seo        *repository.SeoRepo        // SEO 元数据（摘要落库）
+	posts      *repository.PostRepo       // 帖子（场景输入）
+	comments   *repository.CommentRepo    // 评论（审核场景）
+	reports    *repository.ReportRepo     // 举报工单（高风险标记）
+	mediaStore *media.Store               // 媒体存储（AI 配图/配乐生成物转存；可空=禁用转存）
+	mediaRepo  *repository.MediaRepo      // 媒体登记（转存后写入 media_assets）
+	keySecret  string                     // API Key 加密密钥（config.AIKeySecret）
+	hooks      plugin.Dispatcher          // 钩子调度器（M3.9 ai.before/after_generate；可空=钩子不生效）
 }
 
 // NewAiService 创建 AI 服务。
+// mediaStore / mediaRepo 供发帖 AI 辅助的生成物转存（MiniMax 文生图/音乐 URL 仅 24 小时有效）。
 func NewAiService(
 	providers *repository.AiProviderRepo,
 	tasks *repository.AiTaskRepo,
@@ -98,10 +102,12 @@ func NewAiService(
 	posts *repository.PostRepo,
 	comments *repository.CommentRepo,
 	reports *repository.ReportRepo,
+	mediaStore *media.Store,
+	mediaRepo *repository.MediaRepo,
 	keySecret string,
 	hooks plugin.Dispatcher,
 ) *AiService {
-	return &AiService{providers: providers, tasks: tasks, usage: usage, seo: seo, posts: posts, comments: comments, reports: reports, keySecret: keySecret, hooks: hooks}
+	return &AiService{providers: providers, tasks: tasks, usage: usage, seo: seo, posts: posts, comments: comments, reports: reports, mediaStore: mediaStore, mediaRepo: mediaRepo, keySecret: keySecret, hooks: hooks}
 }
 
 // ---------- 供应商管理 ----------

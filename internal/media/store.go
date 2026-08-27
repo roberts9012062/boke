@@ -9,12 +9,14 @@
 package media
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
+	"net/textproto"
 	"os"
 	"path/filepath"
 	"strings"
@@ -167,6 +169,27 @@ func (s *Store) Save(header *multipart.FileHeader, reader io.Reader) (StorageRes
 // RootDir 返回存储根目录（静态服务挂载用）。
 func (s *Store) RootDir() string {
 	return s.rootDir
+}
+
+// SaveBytes 保存字节流到本地磁盘（AI 生成物转存通道：生成图片/音频经下载后落库，
+// 不经过 multipart 上传链路）。
+// 参数：filename 带扩展名的文件名（仅用于类型识别）；contentType MIME 类型；data 内容。
+// 返回：保存结果；类型不支持/超限等错误。
+func (s *Store) SaveBytes(filename string, contentType string, data []byte) (StorageResult, error) {
+	mediaType, err := detectType(filename, contentType)
+	if err != nil {
+		return StorageResult{}, err
+	}
+	if int64(len(data)) > maxSizeFor(mediaType) {
+		return StorageResult{}, ErrFileTooLarge
+	}
+	// 复用 multipart 头结构走统一 Save（零拷贝差异：构造等价 header + 字节读取器）
+	header := &multipart.FileHeader{
+		Filename: filename,
+		Size:     int64(len(data)),
+		Header:   textproto.MIMEHeader{"Content-Type": []string{contentType}},
+	}
+	return s.Save(header, bytes.NewReader(data))
 }
 
 // Remove 删除本地文件（后台媒体库删除；文件不存在视为成功）。

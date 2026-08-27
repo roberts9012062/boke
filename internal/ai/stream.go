@@ -71,7 +71,7 @@ func (c *Client) ChatStream(ctx context.Context, req ChatRequest) (ChatStream, e
 	}
 	body := chatRequest{
 		Model:       model,
-		Messages:    req.Messages,
+		Messages:    toWireMessages(req.Messages),
 		MaxTokens:   req.MaxTokens,
 		Temperature: temperature,
 		Stream:      true,

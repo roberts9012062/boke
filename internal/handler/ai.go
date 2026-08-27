@@ -402,3 +402,28 @@ func (h *AiHandler) GenSeoAdvice(c *gin.Context) {
 	}
 	resp.OK(c, gin.H{"title": advice.Title, "description": advice.Description, "keywords": advice.Keywords})
 }
+
+// Assist 发帖 AI 辅助（POST /api/v1/admin/ai/assist，body: {action, content, image_url}）。
+// 动作：expand 扩写 / polish 润色 / image 配图 / music 配乐 / recognize 图片识别；
+// 文本类返回 {text}，生成类返回 {media_url, media_type}（已转存本站媒体库）。
+func (h *AiHandler) Assist(c *gin.Context) {
+	var req struct {
+		Action   string `json:"action"`             // 动作（expand/polish/image/music/recognize）
+		Content  string `json:"content"`             // 帖子正文（文本与生成类输入）
+		ImageURL string `json:"image_url,omitempty"` // 待识别图片地址（recognize）
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || req.Action == "" {
+		resp.Fail(c, 400, errs.New(errs.CodeBadRequest, "请求体需包含 action"))
+		return
+	}
+	result, err := h.ai.Assist(c.Request.Context(), req.Action, service.AssistInput{
+		Content:  req.Content,
+		ImageURL: req.ImageURL,
+	})
+	if err != nil {
+		h.logger.Error("AI 辅助执行失败", zap.String("action", req.Action), zap.Error(err))
+		resp.FailFrom(c, err)
+		return
+	}
+	resp.OK(c, result)
+}

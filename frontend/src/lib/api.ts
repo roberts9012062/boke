@@ -1200,3 +1200,24 @@ export async function apiPluginCall<T>(pluginId: string, path: string, body?: un
   });
   return (await res.json()) as T;
 }
+
+// ---------- 发帖 AI 辅助（MiniMax 多模态） ----------
+
+// AiAssistResult AI 辅助执行结果（文本类 text；生成类 media_*）。
+export interface AiAssistResult {
+  action: string;
+  text?: string;
+  media_url?: string;
+  media_type?: "image" | "audio";
+  media_id?: number;
+  media_mime?: string;
+  media_size?: number;
+}
+
+// AiAssistAction 辅助动作（与后端 internal/service/ai_assist.go 约定）。
+export type AiAssistAction = "expand" | "polish" | "image" | "music" | "recognize";
+
+// apiAiAssist 发帖 AI 辅助（扩写/润色/配图/配乐/识图；生成物已转存本站媒体库）。
+export function apiAiAssist(action: AiAssistAction, content: string, imageURL: string): Promise<AiAssistResult> {
+  return post<AiAssistResult>("/admin/ai/assist", { action, content, image_url: imageURL });
+}

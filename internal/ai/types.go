@@ -18,6 +18,10 @@ type Result struct {
 type Message struct {
 	Role    string `json:"role"`    // system / user / assistant
 	Content string `json:"content"` // 消息内容
+	// ImageURL 可选图片输入（多模态识别用，MiniMax-M3 等视觉模型支持）：
+	// 非空时本条消息按 [{type:text},{type:image_url}] 数组形式发出（OpenAI 兼容多模态协议）；
+	// 序列化不直接参与（由客户端组装时转换），避免对纯文本供应商发出冗余字段。
+	ImageURL string `json:"-"`
 }
 
 // ChatRequest 对话补全请求（统一契约，供应商无关）。

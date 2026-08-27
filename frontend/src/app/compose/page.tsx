@@ -10,6 +10,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 
 import { AudioUploader } from "@/components/compose/audio-uploader";
+import { AiAssistPanel } from "@/components/compose/ai-assist-panel";
 import {
   collectMediaIds,
   MAX_ARTICLE_CONTENT,
@@ -276,6 +277,24 @@ function ComposeContent() {
             onChange={(v) => setContent(v)}
             placeholder={isArticle ? "把长文写成篇章…" : "把月光写成句子…"}
             maxLength={maxLength}
+          />
+        </div>
+
+        {/* AI 辅助（MiniMax：扩写/润色/配图/配乐/识图；提示词在后台 AI 设置配置） */}
+        <div className="mt-4">
+          <AiAssistPanel
+            contentText={htmlToText(content)}
+            images={images}
+            onApplyText={(text, mode) =>
+              setContent((prev) => (mode === "replace" ? text : prev + (prev ? "\n\n" : "") + text))
+            }
+            onAddImage={(media) => setImages((prev) => [...prev, media])}
+            onSetAudio={(media) => {
+              setAudio(media);
+              if (contentType !== "audio") {
+                setContentType("audio");
+              }
+            }}
           />
         </div>
 

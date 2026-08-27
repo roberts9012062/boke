@@ -411,6 +411,7 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager, e
 		ai.POST("/gen/reply", handlers.Ai.GenReply)            // ?post_id=&action= 智能回复助手
 		ai.POST("/gen/seo-advice", handlers.Ai.GenSeoAdvice)   // ?post_id= SEO 建议
 		ai.POST("/review/comments", handlers.Ai.ReviewComments) // 批量 AI 审核评论
+		ai.POST("/assist", handlers.Ai.Assist)                 // 发帖 AI 辅助（扩写/润色/配图/配乐/识图）
 		// 数据报表域（M4-报表，设计稿《数据报表》；与举报 /reports 前缀并存，路径不同）
 		reportsView := adminGroup.Group("/reports", perm(casbin.DomainReports))
 		reportsView.GET("/overview", handlers.Report.Overview)     // ?days=7|30
