@@ -141,8 +141,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <span className="font-display text-sm font-semibold text-ink">月言 · 管理</span>
         </Link>
 
-        {/* 主菜单（设计稿主项平铺 + 插件一级可展开；前 10 项插在插件菜单上方） */}
-        <nav className="flex-1 overflow-y-auto px-2 py-2">
+        {/* 主菜单（设计稿主项平铺 + 插件一级可展开；前 10 项插在插件菜单上方）
+            min-h-0：允许 flex 子项收缩——菜单超长时独立滚动，
+            底部「版本徽标 + 返回站点」固定悬浮不随菜单滚动 */}
+        <nav className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
           <NavList items={MAIN_ITEMS.slice(0, 10)} pathname={pathname} />
 
           {/* 插件（一级菜单，可展开；二级：插件商城/我的插件） */}
