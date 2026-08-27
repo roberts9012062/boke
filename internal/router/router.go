@@ -258,6 +258,7 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager, e
 	openGroup.GET("/ai/models", handlers.OpenAPI.GatewayAIModels)      // AI 模型列表（ai.models）
 	openGroup.POST("/ai/chat", handlers.OpenAPI.GatewayAIChat)         // AI 对话（ai.chat）
 	openGroup.POST("/ai/assist", handlers.OpenAPI.GatewayAIAssist)     // AI 辅助（ai.assist：扩写/润色/配图/配乐/识图）
+	openGroup.POST("/ai/search", handlers.OpenAPI.GatewayAISearch)     // 联网搜索（ai.search：SearXNG 聚合检索）
 
 		// ---------- 私信模块（M2） ----------
 		authed.GET("/conversations", handlers.Message.ListConversations)          // 会话列表（filter=all|unread）
@@ -413,6 +414,9 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager, e
 		ai.POST("/gen/seo-advice", handlers.Ai.GenSeoAdvice)   // ?post_id= SEO 建议
 		ai.POST("/review/comments", handlers.Ai.ReviewComments) // 批量 AI 审核评论
 		ai.POST("/assist", handlers.Ai.Assist)                 // 发帖 AI 辅助（扩写/润色/配图/配乐/识图）
+		ai.GET("/search-config", handlers.Ai.GetSearchConfig)  // 联网搜索配置（SearXNG 地址）
+		ai.PUT("/search-config", handlers.Ai.SaveSearchConfig) // 保存联网搜索配置
+		ai.POST("/search-test", handlers.Ai.SearchTest)        // 联网搜索实测
 		// 数据报表域（M4-报表，设计稿《数据报表》；与举报 /reports 前缀并存，路径不同）
 		reportsView := adminGroup.Group("/reports", perm(casbin.DomainReports))
 		reportsView.GET("/overview", handlers.Report.Overview)     // ?days=7|30

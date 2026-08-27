@@ -178,6 +178,18 @@ func OpenAPICatalog() []CatalogEntry {
 				{Name: "model", Type: "string", Location: "body", Required: true, Description: "模型名（取自 AI 模型列表接口）"},
 				{Name: "messages", Type: "array", Location: "body", Required: true, Description: "对话消息数组：[{role: system|user|assistant, content: 文本}]，按顺序携带上下文"},
 				{Name: "max_tokens", Type: "integer", Location: "body", Required: false, Description: "最大输出 token（默认 300，上限 16000）"},
+				{Name: "web_search", Type: "string", Location: "body", Required: false, Description: "true=联网回答（站点需配置 SearXNG；响应附 search_results 引用来源）"},
+			},
+		},
+		{
+			Endpoint:    "ai.search",
+			Method:      "POST",
+			Path:        "/api/v1/open/ai/search",
+			Name:        "联网搜索",
+			Description: "聚合搜索引擎检索（SearXNG：Google/Bing/DuckDuckGo 等聚合；浏览器插件等外部应用凭 Key 直查，返回标题/摘要/来源地址）",
+			Params: []CatalogParam{
+				{Name: "query", Type: "string", Location: "body", Required: true, Description: "搜索关键词"},
+				{Name: "limit", Type: "integer", Location: "body", Required: false, Description: "返回条数（默认 5，上限 10）"},
 			},
 		},
 		{

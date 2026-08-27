@@ -88,6 +88,7 @@ type AiService struct {
 	reports    *repository.ReportRepo     // 举报工单（高风险标记）
 	mediaStore *media.Store               // 媒体存储（AI 配图/配乐生成物转存；可空=禁用转存）
 	mediaRepo  *repository.MediaRepo      // 媒体登记（转存后写入 media_assets）
+	settings   *repository.SettingRepo    // 站点设置（SearXNG 联网搜索地址等可选项）
 	keySecret  string                     // API Key 加密密钥（config.AIKeySecret）
 	hooks      plugin.Dispatcher          // 钩子调度器（M3.9 ai.before/after_generate；可空=钩子不生效）
 }
@@ -104,10 +105,11 @@ func NewAiService(
 	reports *repository.ReportRepo,
 	mediaStore *media.Store,
 	mediaRepo *repository.MediaRepo,
+	settings *repository.SettingRepo,
 	keySecret string,
 	hooks plugin.Dispatcher,
 ) *AiService {
-	return &AiService{providers: providers, tasks: tasks, usage: usage, seo: seo, posts: posts, comments: comments, reports: reports, mediaStore: mediaStore, mediaRepo: mediaRepo, keySecret: keySecret, hooks: hooks}
+	return &AiService{providers: providers, tasks: tasks, usage: usage, seo: seo, posts: posts, comments: comments, reports: reports, mediaStore: mediaStore, mediaRepo: mediaRepo, settings: settings, keySecret: keySecret, hooks: hooks}
 }
 
 // ---------- 供应商管理 ----------

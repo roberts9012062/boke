@@ -1221,3 +1221,27 @@ export type AiAssistAction = "expand" | "polish" | "image" | "music" | "recogniz
 export function apiAiAssist(action: AiAssistAction, content: string, imageURL: string): Promise<AiAssistResult> {
   return post<AiAssistResult>("/admin/ai/assist", { action, content, image_url: imageURL });
 }
+
+// ---------- 联网搜索（SearXNG，AI 可选增强） ----------
+
+// WebSearchResult 联网搜索结果条目。
+export interface WebSearchResult {
+  title: string;
+  url: string;
+  snippet: string;
+}
+
+// apiSearchConfig 读取联网搜索配置（url 空 = 未启用）。
+export function apiSearchConfig(): Promise<{ url: string }> {
+  return get<{ url: string }>("/admin/ai/search-config");
+}
+
+// apiSaveSearchConfig 保存联网搜索配置（空 url = 停用）。
+export function apiSaveSearchConfig(url: string): Promise<void> {
+  return put<void>("/admin/ai/search-config", { url });
+}
+
+// apiSearchTest 联网搜索实测（返回真实检索结果）。
+export function apiSearchTest(query: string): Promise<{ results: WebSearchResult[] }> {
+  return post<{ results: WebSearchResult[] }>("/admin/ai/search-test", { query });
+}

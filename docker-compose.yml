@@ -87,5 +87,16 @@ services:
       - backend
     restart: unless-stopped
 
+  # ---------- SearXNG 元搜索引擎（AI 联网搜索数据源；可选组件） ----------
+  # 说明：不暴露宿主端口，仅容器网络内供 backend 访问（http://searxng:8080）；
+  #       在后台「AI 设置-联网搜索」填写该地址即启用；backend 不依赖其存活
+  #       （未配置或实例故障时 AI 功能正常，仅无联网能力）。
+  searxng:
+    image: searxng/searxng:latest
+    container_name: boke-searxng
+    volumes:
+      - ./docker/searxng/settings.yml:/etc/searxng/settings.yml:ro
+    restart: unless-stopped
+
 volumes:
   pgdata:

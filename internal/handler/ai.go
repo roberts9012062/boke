@@ -427,3 +427,49 @@ func (h *AiHandler) Assist(c *gin.Context) {
 	}
 	resp.OK(c, result)
 }
+
+// GetSearchConfig 读取联网搜索配置（GET /api/v1/admin/ai/search-config）。
+func (h *AiHandler) GetSearchConfig(c *gin.Context) {
+	cfg, err := h.ai.GetSearchConfig(c.Request.Context())
+	if err != nil {
+		resp.FailFrom(c, err)
+		return
+	}
+	resp.OK(c, cfg)
+}
+
+// SaveSearchConfig 保存联网搜索配置（PUT /api/v1/admin/ai/search-config，body: {url}；空=停用）。
+func (h *AiHandler) SaveSearchConfig(c *gin.Context) {
+	var req struct {
+		URL string `json:"url"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, errs.ErrBadRequest)
+		return
+	}
+	if err := h.ai.SaveSearchConfig(c.Request.Context(), service.SearchConfig{URL: req.URL}); err != nil {
+		resp.FailFrom(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"saved": true})
+}
+
+// SearchTest 联网搜索实测（POST /api/v1/admin/ai/search-test，body: {query, limit}；
+// 配置页「测试」按钮用，返回真实检索结果验证实例可用）。
+func (h *AiHandler) SearchTest(c *gin.Context) {
+	var req struct {
+		Query string `json:"query" binding:"required"`
+		Limit int    `json:"limit"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, errs.ErrBadRequest)
+		return
+	}
+	results, err := h.ai.SearchWeb(c.Request.Context(), req.Query, req.Limit)
+	if err != nil {
+		h.logger.Error("联网搜索测试失败", zap.String("query", req.Query), zap.Error(err))
+		resp.FailFrom(c, err)
+		return
+	}
+	resp.OK(c, gin.H{"results": results})
+}

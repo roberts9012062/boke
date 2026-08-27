@@ -1,0 +1,18 @@
+# docker/searxng/settings.yml
+# SearXNG 配置（AI 联网搜索数据源；仅容器网络内服务，不对外暴露端口）。
+#
+# 关键项说明：
+#   - use_default_settings: 复用官方默认聚合源（Google/Bing/DuckDuckGo 等 70+）
+#   - formats 含 json：开放 JSON API（backend 检索用；官方镜像默认仅 html）
+#   - limiter false：内网专用实例，无需请求限流（未暴露公网）
+use_default_settings: true
+
+server:
+  secret_key: "boke-searxng-internal-only"
+  limiter: false
+  image_proxy: false
+
+search:
+  formats:
+    - html
+    - json

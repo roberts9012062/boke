@@ -6,6 +6,7 @@
 import { useState } from "react";
 
 import { ProvidersTab } from "@/components/admin/ai/providers-tab";
+import { SearchTab } from "@/components/admin/ai/search-tab";
 import { TasksTab } from "@/components/admin/ai/tasks-tab";
 import { UsageTab } from "@/components/admin/ai/usage-tab";
 
@@ -14,6 +15,7 @@ const TABS: readonly { key: string; label: string; desc: string }[] = [
   { key: "providers", label: "供应商", desc: "OpenAI 兼容接口配置（deepseek/qwen/kimi/glm/openai）" },
   { key: "tasks", label: "任务配置", desc: "内置场景（摘要/标签/评论审核）的模型与提示词" },
   { key: "usage", label: "用量统计", desc: "AI 调用次数与 Token 消耗" },
+  { key: "search", label: "联网搜索", desc: "SearXNG 元搜索引擎（可选项：AI 联网回答与开放搜索接口）" },
 ];
 
 // AiPage AI 设置页。
@@ -52,6 +54,7 @@ export default function AiPage() {
         {tab === "providers" && <ProvidersTab />}
         {tab === "tasks" && <TasksTab />}
         {tab === "usage" && <UsageTab />}
+        {tab === "search" && <SearchTab />}
       </div>
     </div>
   );
