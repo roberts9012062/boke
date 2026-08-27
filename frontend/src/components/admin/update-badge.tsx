@@ -112,12 +112,13 @@ export function UpdateBadge() {
   const badge = hasUpdate ? `新版本 ${formatVersion(check?.latest_version ?? "")}` : formatVersion(check?.current_version ?? "dev");
 
   return (
-    <div className="border-t border-line px-5 py-2.5">
-      <div className="flex items-center justify-between gap-2">
+    // 紧凑底栏：内边距与菜单对齐（px-2），高度收敛，hover 圆角块与 NavList 视觉一致
+    <div className="border-t border-line px-2 py-1.5">
+      <div className="flex items-center gap-1">
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="flex min-w-0 items-center gap-1.5 text-left text-xs text-ink-2 transition-colors hover:text-ink"
+          className="flex min-w-0 flex-1 items-center gap-1.5 rounded-lg px-3 py-1.5 text-left text-[11px] text-ink-2 transition-colors hover:bg-muted hover:text-ink"
           aria-label="站点版本与更新"
         >
           <span className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${hasUpdate ? "animate-pulse bg-emerald-500" : "bg-line-strong"}`} />
@@ -127,7 +128,7 @@ export function UpdateBadge() {
           href="https://github.com/roberts9012062/boke"
           target="_blank"
           rel="noreferrer"
-          className="shrink-0 text-ink-3 transition-colors hover:text-ink"
+          className="shrink-0 rounded-lg px-2 py-1.5 text-ink-3 transition-colors hover:bg-muted hover:text-ink"
           aria-label="GitHub 源码仓库"
           title="GitHub 源码仓库"
         >
