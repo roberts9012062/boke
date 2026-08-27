@@ -208,6 +208,19 @@ func OpenAPICatalog() []CatalogEntry {
 			},
 		},
 		{
+			Endpoint:    "ai.chat.stream",
+			Method:      "POST",
+			Path:        "/api/v1/open/ai/chat/stream",
+			Name:        "AI 流式对话",
+			Description: "与 AI 对话同参，响应为 SSE 事件流（data: {\"text\":\"增量\"} 逐块下发，data: [DONE] 结束；web_search=true 时首个事件为引用来源）——逐字渲染场景（浏览器插件对话气泡）",
+			Params: []CatalogParam{
+				{Name: "model", Type: "string", Location: "body", Required: true, Description: "模型名（取自 AI 模型列表接口）"},
+				{Name: "messages", Type: "array", Location: "body", Required: true, Description: "对话消息数组（含历史轮次）"},
+				{Name: "max_tokens", Type: "integer", Location: "body", Required: false, Description: "最大输出 token（默认 300，上限 16000）"},
+				{Name: "web_search", Type: "string", Location: "body", Required: false, Description: "true=联网回答（首个事件下发 search_results 来源）"},
+			},
+		},
+		{
 			Endpoint:    "ai.search",
 			Method:      "POST",
 			Path:        "/api/v1/open/ai/search",

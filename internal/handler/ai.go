@@ -318,24 +318,35 @@ func (h *AiHandler) GenerateStream(c *gin.Context) {
 		resp.Fail(c, 500, errs.New(errs.CodeInternal, "当前环境不支持流式响应"))
 		return
 	}
-	// 逐 chunk 写出增量文本（JSON 编码，规避增量文本含换行导致的 SSE 解析歧义）
+	// 逐 chunk 写出增量文本（思考段剥离；JSON 编码规避增量含换行的解析歧义）
+	filter := ai.NewThinkFilter()
 	enc := json.NewEncoder(c.Writer)
+	writeText := func(text string) bool {
+		if text == "" {
+			return true
+		}
+		if _, err := c.Writer.Write([]byte("data: ")); err != nil {
+			return false
+		}
+		if err := enc.Encode(map[string]string{"text": text}); err != nil {
+			return false
+		}
+		if _, err := c.Writer.Write([]byte("\n")); err != nil {
+			return false
+		}
+		flusher.Flush()
+		return true
+	}
 	for {
 		chunk, recvErr := stream.Recv()
 		if recvErr != nil {
 			break // io.EOF 或读取异常均视为结束
 		}
-		if _, err := c.Writer.Write([]byte("data: ")); err != nil {
+		if !writeText(filter.Feed(chunk.Text)) {
 			break
 		}
-		if err := enc.Encode(map[string]string{"text": chunk.Text}); err != nil {
-			break
-		}
-		if _, err := c.Writer.Write([]byte("\n")); err != nil {
-			break
-		}
-		flusher.Flush()
 	}
+	writeText(filter.Flush())
 	_, _ = c.Writer.Write([]byte("data: [DONE]\n\n"))
 	flusher.Flush()
 }
