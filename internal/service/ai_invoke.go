@@ -73,6 +73,16 @@ func (s *AiService) chatProvider(ctx context.Context, provider *repository.AiPro
 	}
 	req.Model = model
 	result, err := p.Chat(ctx, req)
+	// 瞬时故障自动重试一次（上游网关偶发超时/断连——长输入推理请求
+	// 撞 MiniMax 等网关 30s 限时会整单 500，重试可显著自愈；重试仍失败才报错）
+	if err != nil {
+		select {
+		case <-ctx.Done():
+			return nil, errs.New(errs.CodeUpstream, "AI 服务不可用："+err.Error())
+		case <-time.After(time.Second):
+		}
+		result, err = p.Chat(ctx, req)
+	}
 	if err != nil {
 		return nil, errs.New(errs.CodeUpstream, "AI 服务不可用："+err.Error())
 	}
