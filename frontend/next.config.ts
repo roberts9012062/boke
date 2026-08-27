@@ -18,6 +18,11 @@ const nextConfig: NextConfig = {
   // 容器部署：standalone 产物（.next/standalone 含精简 node_modules + server.js），
   // 本地 dev 不受影响
   output: "standalone",
+  // rewrites 代理超时（默认 30s 会掐断 AI 长任务——润色/文章化推理可达数分钟，
+  // 与后端 AI 客户端 300s 上限对齐）
+  experimental: {
+    proxyTimeout: 300_000,
+  },
   // 代理：/api、/media、/plugin-assets 与 /plugin-sdk → 后端 Gin 服务
   async rewrites() {
     return [

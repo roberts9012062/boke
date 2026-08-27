@@ -20,7 +20,7 @@ import (
 // AI 常量（M4）。
 const (
 	aiSystemUserID   = 1          // 系统账号 ID（admin 种子账号；AI 标记工单的举报人）
-	aiRequestTimeout = 60         // AI 请求超时（秒）
+	aiRequestTimeout = 300        // AI 请求超时（秒；长文润色/文章化推理可达数分钟，上限 5 分钟）
 	aiKeyMask        = "sk-***"   // API Key 掩码回显
 	maxPromptLen     = 4000       // 场景输入文本上限（字符，控制 token 成本）
 	aiMaxSummaryLen  = 300        // AI 摘要上限（字符）
