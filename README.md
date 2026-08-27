@@ -69,6 +69,34 @@ cp .env.example .env   # 填写数据库连接与 JWT_SECRET
 > 管理员账号：`admin`（用户名）或 `admin@yueyan.site`（邮箱）/ `mateng321`（迁移 011 后角色为超级管理员；首次登录后请修改）。
 > 邮件发送：`.env` 配置 `SMTP_*` 后自动启用真实发送；未配置时重置链接写入 `logs/`（开发模式）。
 > AI：`.env` 可选配置 `AI_KEY_SECRET`（供应商 API Key 加密密钥，未配置回退 JWT_SECRET）；供应商 Key 在后台「AI 设置」填写。
+> 联网搜索：可选组件，见下方 [🔌 可选组件：SearXNG 联网搜索](#-可选组件searxng-联网搜索)。
+
+## 🔌 可选组件：SearXNG 联网搜索
+
+**这是什么？** [SearXNG](https://docs.searxng.org/) 是开源自托管元搜索引擎——一次检索聚合 Google、Bing、DuckDuckGo 等数十家结果，且搜索记录不经第三方聚合服务留存，隐私可控。
+
+**为什么要配置？** 配置后你的站点 AI 获得「联网」能力：
+
+- **AI 对话联网回答**：开放接口 `POST /api/v1/open/ai/chat` 加 `"web_search": true`，AI 先检索实时信息再作答，回答附引用来源（`search_results`），可溯源
+- **聚合搜索直查**：开放接口 `POST /api/v1/open/ai/search`（`{query, limit}`），浏览器插件、脚本等外部应用凭 `X-Api-Key` 直接获得聚合搜索结果
+- 检索实例故障或未配置时自动回退普通对话，不影响 AI 任何功能
+
+**不配置可以吗？** 完全可以——这是纯可选项。不配置时 AI 对话、内容辅助（扩写/润色/配图/配乐/识图）等全部功能照常使用，仅无联网检索能力。
+
+**按需安装（Docker 部署）：**
+
+```bash
+# 编排已内置 SearXNG 服务（仅容器内网，不对外暴露端口）
+#   需要：docker compose up -d 即含 searxng，无需额外操作
+#   不需要：删除或注释 docker-compose.yml 中的 searxng 服务块即可，主服务不受影响
+```
+
+**启用配置（两步）：**
+
+1. 后台「AI 设置 → 联网搜索」填入地址 `http://searxng:8080`（内置实例；也可填任意外部 SearXNG 实例），保存
+2. 同页「测试搜索」输入关键词实测，返回真实结果即生效
+
+配置文件位于 `docker/searxng/settings.yml`（默认开启 JSON API、关闭限流——内网专用形态，按需自行调整聚合源）。
 
 ## 📁 目录结构
 
