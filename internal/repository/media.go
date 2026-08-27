@@ -35,12 +35,14 @@ func NewMediaRepo(pool *pgxpool.Pool) *MediaRepo {
 }
 
 // Create 创建媒体记录（返回新媒体 ID）。
-// owner_id 为 0 时写 NULL（系统生成媒体，AI 辅助产物——外键对 NULL 放行）。
+// owner_id 为 0（系统生成，AI 辅助产物）时归属站长——媒体读取链路按非空
+// int64 扫描 owner_id，NULL 行会击穿时间线等聚合查询，故系统产物统一归
+// 站长（superadmin 最小 ID）而非留空。
 func (r *MediaRepo) Create(ctx context.Context, m MediaAsset) (int64, error) {
 	var id int64
 	err := r.pool.QueryRow(ctx, `
 		INSERT INTO media_assets (owner_id, type, storage_key, url, mime_type, size_bytes, width, height, status)
-		VALUES (NULLIF($1, 0), $2, $3, $4, $5, $6, $7, $8, $9)
+		VALUES (COALESCE(NULLIF($1, 0), (SELECT min(id) FROM users WHERE role = 'superadmin')), $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id`,
 		m.OwnerID, m.Type, m.StorageKey, m.URL, m.MimeType,
 		m.SizeBytes, m.Width, m.Height, m.Status,
