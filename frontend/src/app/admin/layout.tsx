@@ -129,10 +129,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     );
   }
 
-  return (
-    <div className="flex min-h-screen bg-bg">
-      {/* 左侧导航（设计稿固定侧栏） */}
-      <aside className="fixed inset-y-0 left-0 z-30 flex w-52 flex-col border-r border-line bg-elevated">
+    return (
+      // 外壳锁定视口高度（app-shell）：左右区域各自持滚动容器互不干扰，
+      // 左侧菜单滚动不影响内容，内容滚动不影响菜单与底部悬浮区
+      <div className="flex h-screen overflow-hidden bg-bg">
+      {/* 左侧导航（设计稿固定侧栏；外壳 flex 子项，整列高度恒定） */}
+      <aside className="flex h-full w-52 shrink-0 flex-col border-r border-line bg-elevated">
         {/* 品牌（设计稿：月言 / 管理后台） */}
         <Link href="/admin" className="flex items-center gap-2 px-5 py-4">
           <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent font-display text-sm font-bold text-on-accent">
@@ -224,10 +226,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </Link>
       </aside>
 
-      {/* 主内容区 */}
-      <div className="ml-52 flex-1">
-        {/* 顶部栏（设计稿：Admin / 用户信息） */}
-        <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-line bg-elevated/90 px-6 backdrop-blur">
+      {/* 主内容区（独立滚动容器：min-h-0 收缩 + overflow-y-auto，与左侧菜单互不干扰） */}
+      <div className="flex h-full min-w-0 flex-1 flex-col">
+        {/* 顶部栏（区域自身滚动，无需 sticky 贴顶技巧） */}
+        <header className="z-20 flex h-14 shrink-0 items-center justify-between border-b border-line bg-elevated/90 px-6 backdrop-blur">
           <span className="text-sm text-ink-3">管理后台</span>
           <div className="flex items-center gap-2">
             <span className="flex h-8 w-8 items-center justify-center rounded-full bg-muted text-xs text-ink-2">
@@ -240,7 +242,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </div>
         </header>
 
-        <main className="p-6">{children}</main>
+        <main className="min-h-0 flex-1 overflow-y-auto p-6">{children}</main>
       </div>
     </div>
   );
