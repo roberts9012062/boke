@@ -260,6 +260,7 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager, e
 	openGroup.POST("/ai/chat", handlers.OpenAPI.GatewayAIChat)         // AI 对话（ai.chat）
 	openGroup.POST("/ai/assist", handlers.OpenAPI.GatewayAIAssist)     // AI 辅助（ai.assist：扩写/润色/配图/配乐/识图）
 	openGroup.POST("/ai/search", handlers.OpenAPI.GatewayAISearch)     // 联网搜索（ai.search：SearXNG 聚合检索）
+	openGroup.POST("/media/transfer", handlers.OpenAPI.MediaTransfer)  // 图片转存（media.transfer：外链图落站点媒体库）
 
 		// ---------- 私信模块（M2） ----------
 		authed.GET("/conversations", handlers.Message.ListConversations)          // 会话列表（filter=all|unread）

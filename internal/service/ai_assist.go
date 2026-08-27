@@ -12,7 +12,9 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -258,11 +260,14 @@ func (s *AiService) persistRemoteMedia(ctx context.Context, remoteURL string, na
 	if err != nil {
 		return nil, errs.New(errs.CodeUpstream, "生成物读取失败："+err.Error())
 	}
-	// 文件名：前缀 + 扩展名（按类型；image-01 输出 png，音乐输出 mp3）
+	// 文件名：前缀 + 扩展名。音频固定 mp3；图片按响应 Content-Type 判定
+	// （外链转存场景有 jpeg/webp/gif，生成场景默认 png）
 	ext := ".png"
 	mimeType := "image/png"
 	if kind == "audio" {
 		ext, mimeType = ".mp3", "audio/mpeg"
+	} else if byCT := extByContentType(resp.Header.Get("Content-Type")); byCT.ext != "" {
+		ext, mimeType = byCT.ext, byCT.mime
 	}
 	stored, err := s.mediaStore.SaveBytes(namePrefix+"-"+time.Now().Format("20060102-150405")+ext, mimeType, data)
 	if err != nil {
@@ -284,4 +289,82 @@ func (s *AiService) persistRemoteMedia(ctx context.Context, remoteURL string, na
 		}
 	}
 	return out, nil
+}
+
+// imageExt 图片扩展名与 MIME 组（Content-Type 判定用）。
+type imageExt struct {
+	ext  string
+	mime string
+}
+
+// extByContentType 按响应 Content-Type 推断图片扩展名（纯函数；非图片类型返回空）。
+func extByContentType(contentType string) (result imageExt) {
+	switch strings.ToLower(strings.TrimSpace(strings.Split(contentType, ";")[0])) {
+	case "image/jpeg", "image/jpg":
+		return imageExt{ext: ".jpg", mime: "image/jpeg"}
+	case "image/png":
+		return imageExt{ext: ".png", mime: "image/png"}
+	case "image/webp":
+		return imageExt{ext: ".webp", mime: "image/webp"}
+	case "image/gif":
+		return imageExt{ext: ".gif", mime: "image/gif"}
+	case "image/avif":
+		return imageExt{ext: ".avif", mime: "image/avif"}
+	}
+	return imageExt{}
+}
+
+// TransferResult 外链图转存结果。
+type TransferResult struct {
+	URL       string `json:"url"`        // 本站持久地址（/media/...）
+	MediaID   int64  `json:"media_id"`   // 媒体库 ID（发帖 media_ids 关联用）
+	MimeType  string `json:"mime_type"`  // MIME 类型
+	SizeBytes int64  `json:"size_bytes"` // 文件大小（字节）
+}
+
+// 私网/本机地址段（SSRF 防护：拒绝插件转存指向站点内网的 URL）。
+func isPrivateHost(host string) bool {
+	lower := strings.ToLower(strings.TrimSpace(host))
+	if lower == "localhost" || strings.HasSuffix(lower, ".localhost") ||
+		strings.HasPrefix(lower, "127.") || lower == "::1" || strings.HasPrefix(lower, "0.") {
+		return true
+	}
+	ips, err := net.LookupIP(lower)
+	if err != nil {
+		return true // 解析失败按私网拒绝（防 DNS 异常绕过）
+	}
+	for _, ip := range ips {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
+			return true
+		}
+	}
+	return false
+}
+
+// TransferImage 外链图片转存（浏览器插件发布前把源站图片落到本站媒体库，
+// 解决源站防盗链导致发布后裂图）：仅放行 http/https 公网地址与图片响应。
+// 返回本站持久地址与媒体 ID。
+func (s *AiService) TransferImage(ctx context.Context, imageURL string) (*TransferResult, error) {
+	imageURL = strings.TrimSpace(imageURL)
+	parsed, err := url.Parse(imageURL)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" {
+		return nil, errs.New(errs.CodeBadRequest, "图片地址需为 http/https 公网链接")
+	}
+	if isPrivateHost(parsed.Hostname()) {
+		return nil, errs.New(errs.CodeBadRequest, "拒绝转存内网地址图片")
+	}
+	media, err := s.persistRemoteMedia(ctx, imageURL, "transfer", "image")
+	if err != nil {
+		return nil, err
+	}
+	// 落盘内容须为图片（Content-Type 判定不出已知图片类型时按注入文件拒绝）
+	if media.MimeType != "" && !strings.HasPrefix(media.MimeType, "image/") {
+		return nil, errs.New(errs.CodeUpstream, "目标地址返回的不是图片（"+media.MimeType+"）")
+	}
+	return &TransferResult{
+		URL:       media.URL,
+		MediaID:   media.ID,
+		MimeType:  media.MimeType,
+		SizeBytes: media.SizeBytes,
+	}, nil
 }

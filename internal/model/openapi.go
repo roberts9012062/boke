@@ -198,6 +198,16 @@ func OpenAPICatalog() []CatalogEntry {
 			},
 		},
 		{
+			Endpoint:    "media.transfer",
+			Method:      "POST",
+			Path:        "/api/v1/open/media/transfer",
+			Name:        "图片转存",
+			Description: "外链图片落到站点媒体库（源站防盗链图片发布后裂图的解决通道）：返回本站持久地址与媒体 ID，插件发布前替换引用；仅放行公网 http/https 图片地址",
+			Params: []CatalogParam{
+				{Name: "url", Type: "string", Location: "body", Required: true, Description: "外链图片地址（http/https 公网）"},
+			},
+		},
+		{
 			Endpoint:    "ai.search",
 			Method:      "POST",
 			Path:        "/api/v1/open/ai/search",
