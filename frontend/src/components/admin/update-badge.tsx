@@ -138,8 +138,8 @@ export function UpdateBadge() {
         </a>
       </div>
 
-      {/* 版本与更新弹窗 */}
-      <Modal open={open} title="站点版本与更新" onClose={() => setOpen(false)} maxWidth="480">
+      {/* 版本与更新弹窗（宽度 600px；Modal 的 maxWidth 为 Tailwind 类） */}
+      <Modal open={open} title="站点版本与更新" onClose={() => setOpen(false)} maxWidth="max-w-[600px]">
         <div className="space-y-4">
           {/* 版本信息 */}
           <div className="flex items-center justify-between rounded-lg border border-line px-4 py-3">
