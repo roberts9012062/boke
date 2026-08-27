@@ -120,10 +120,31 @@ const streamUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (
 // 背景：B 站 CDN 对 Referer 严格校验（页面直连时部分 webview 注入 Referer 即 403），
 // 前端统一经本同源代理加载——服务端以「浏览器 UA + 无 Referer」转发并透传 Range，
 // 浏览器按同源流播放（拖动进度条走 Range 请求）。
+// allowedStreamHost B 站视频 CDN 域群白名单（纯函数；仅 https）。
+// B 站 playurl 多节点轮询，流地址域名不止 bilivideo.com：
+//   *.bilivideo.com / *.bilivideo.cn（含 mcdn.bilivideo.cn 等子域）
+//   upos-*.akamaized.net（海外 CDN；限定 upos 前缀防泛 akamaized 滥用）
+func allowedStreamHost(host string) bool {
+	lower := strings.ToLower(strings.TrimSpace(host))
+	if lower == "" {
+		return false
+	}
+	if strings.HasSuffix(lower, ".bilivideo.com") || lower == "bilivideo.com" {
+		return true
+	}
+	if strings.HasSuffix(lower, ".bilivideo.cn") || lower == "bilivideo.cn" {
+		return true
+	}
+	if strings.HasPrefix(lower, "upos-") && strings.HasSuffix(lower, ".akamaized.net") {
+		return true
+	}
+	return false
+}
+
 func (h *VideoHandler) Stream(c *gin.Context) {
 	src := c.Query("src")
 	parsed, err := url.Parse(src)
-	if err != nil || parsed.Scheme != "https" || !strings.HasSuffix(parsed.Host, ".bilivideo.com") {
+	if err != nil || parsed.Scheme != "https" || !allowedStreamHost(parsed.Host) {
 		c.JSON(403, gin.H{"error": "非法视频源地址"})
 		return
 	}
