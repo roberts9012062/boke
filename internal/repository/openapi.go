@@ -5,6 +5,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -53,6 +54,25 @@ func (r *OpenAPIKeyRepo) Delete(ctx context.Context, id int64) (bool, error) {
 		return false, err
 	}
 	return tag.RowsAffected() > 0, nil
+}
+
+// UpdateEndpoints 更新凭证授权接口清单（权限设置用；RETURNING 回读完整记录）。
+// 返回：更新后的凭证与是否找到。
+func (r *OpenAPIKeyRepo) UpdateEndpoints(ctx context.Context, id int64, endpoints []string) (model.OpenAPIKey, bool, error) {
+	row := r.pool.QueryRow(ctx, `
+		UPDATE open_api_keys SET endpoints = $1
+		WHERE id = $2
+		RETURNING `+openAPIKeyColumns,
+		endpoints, id,
+	)
+	k, err := scanOpenAPIKey(row)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return model.OpenAPIKey{}, false, nil
+		}
+		return model.OpenAPIKey{}, false, err
+	}
+	return k, true, nil
 }
 
 // List 全部凭证（按创建时间倒序，后台列表用）。

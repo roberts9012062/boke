@@ -6,6 +6,7 @@
 import { useEffect, useState } from "react";
 
 import { AiManualModal } from "@/components/admin/open-api/ai-manual-modal";
+import { EndpointsPermModal } from "@/components/admin/open-api/endpoints-perm-modal";
 import { EndpointCatalog } from "@/components/admin/open-api/endpoint-catalog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ApiError } from "@/lib/api";
@@ -55,6 +56,7 @@ export function OpenApiManager() {
   const [deleteTarget, setDeleteTarget] = useState<OpenAPIKey | null>(null);
   const [deleting, setDeleting] = useState<boolean>(false);
   const [manualTarget, setManualTarget] = useState<OpenAPIKey | null>(null);
+  const [permTarget, setPermTarget] = useState<OpenAPIKey | null>(null);
   const [copiedKeyId, setCopiedKeyId] = useState<number>(0);
 
   // 加载目录与凭证列表
@@ -137,6 +139,11 @@ export function OpenApiManager() {
       setDeleting(false);
       setDeleteTarget(null);
     }
+  };
+
+  // 权限保存成功：用返回记录原位替换列表项
+  const handlePermSaved = (record: OpenAPIKey) => {
+    setKeys((prev) => prev.map((k) => (k.id === record.id ? record : k)));
   };
 
   // 复制单个 Key（2 秒反馈）
@@ -286,8 +293,15 @@ export function OpenApiManager() {
                   <td className="whitespace-nowrap px-4 py-3 text-right">
                     <button
                       type="button"
+                      onClick={() => setPermTarget(record)}
+                      className="rounded-full border border-line px-3 py-1 text-xs text-ink-2 transition-colors hover:border-accent hover:text-glow"
+                    >
+                      权限设置
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => setDeleteTarget(record)}
-                      className="rounded-full border border-line px-3 py-1 text-xs text-ink-2 transition-colors hover:border-like/50 hover:text-like"
+                      className="ml-2 rounded-full border border-line px-3 py-1 text-xs text-ink-2 transition-colors hover:border-like/50 hover:text-like"
                     >
                       删除
                     </button>
@@ -317,6 +331,17 @@ export function OpenApiManager() {
         onConfirm={() => void handleDelete()}
         onClose={() => setDeleteTarget(null)}
       />
+
+      {/* 权限设置弹窗（勾选增/减授权接口） */}
+      {permTarget && (
+        <EndpointsPermModal
+          open={permTarget !== null}
+          onClose={() => setPermTarget(null)}
+          apiKey={permTarget}
+          catalog={catalog}
+          onSaved={handlePermSaved}
+        />
+      )}
 
       {/* AI 开发手册弹窗（打开时按 Key 授权的接口生成） */}
       {manualTarget && (

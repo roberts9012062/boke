@@ -42,6 +42,30 @@ func generateAPIKey() (string, error) {
 	return openAPIKeyPrefix + hex.EncodeToString(buf), nil
 }
 
+// normalizeEndpoints 校验并去重接口标识清单（纯函数；创建与权限设置共用）。
+// 规则：至少一个、全部在目录内（防绕过目录授权未开放接口）、保持原顺序去重。
+func normalizeEndpoints(endpoints []string) ([]string, error) {
+	if len(endpoints) == 0 {
+		return nil, errs.New(errs.CodeBadRequest, "请至少选择一个接口")
+	}
+	valid := model.CatalogEndpoints()
+	seen := make(map[string]bool, len(endpoints))
+	for _, ep := range endpoints {
+		if !valid[ep] {
+			return nil, errs.New(errs.CodeBadRequest, "包含未开放的接口："+ep)
+		}
+		seen[ep] = true
+	}
+	out := make([]string, 0, len(seen))
+	for _, ep := range endpoints {
+		if seen[ep] {
+			out = append(out, ep)
+			seen[ep] = false
+		}
+	}
+	return out, nil
+}
+
 // CreateKey 生成凭证（endpoints 须在目录内且 ≥1；expire_days 正整数或空=永久；
 // ownerUserID 为生成者用户 ID，作为 Key 的绑定归属供 /open/me 返回资料，0=不绑定）。
 // 返回：创建后的完整凭证（含明文 Key）。
@@ -51,25 +75,9 @@ func (s *OpenAPIService) CreateKey(ctx context.Context, req model.CreateOpenAPIK
 	if utf8.RuneCountInString(name) > openAPIKeyNameMaxLen {
 		return nil, errs.New(errs.CodeBadRequest, "备注名不能超过 100 字")
 	}
-	if len(req.Endpoints) == 0 {
-		return nil, errs.New(errs.CodeBadRequest, "请至少选择一个接口")
-	}
-	// 勾选的接口标识必须全部在目录内（防绕过目录授权未开放接口）
-	valid := model.CatalogEndpoints()
-	seen := make(map[string]bool, len(req.Endpoints))
-	for _, ep := range req.Endpoints {
-		if !valid[ep] {
-			return nil, errs.New(errs.CodeBadRequest, "包含未开放的接口："+ep)
-		}
-		seen[ep] = true
-	}
-	// 去重（保持原顺序）
-	endpoints := make([]string, 0, len(seen))
-	for _, ep := range req.Endpoints {
-		if seen[ep] {
-			endpoints = append(endpoints, ep)
-			seen[ep] = false
-		}
+	endpoints, err := normalizeEndpoints(req.Endpoints)
+	if err != nil {
+		return nil, err
 	}
 	// 过期时间：正整数 = N 天后过期；nil/0 = 永久
 	var expiresAt *time.Time
@@ -113,4 +121,21 @@ func (s *OpenAPIService) DeleteKey(ctx context.Context, id int64) error {
 		return errs.ErrNotFound
 	}
 	return nil
+}
+
+// UpdateKeyEndpoints 更新凭证的授权接口清单（后台「权限设置」：增/减可调用的接口）。
+// 校验与创建同规（目录内、≥1、去重）；返回更新后的完整凭证。
+func (s *OpenAPIService) UpdateKeyEndpoints(ctx context.Context, id int64, endpoints []string) (*model.OpenAPIKey, error) {
+	normalized, err := normalizeEndpoints(endpoints)
+	if err != nil {
+		return nil, err
+	}
+	record, found, err := s.keys.UpdateEndpoints(ctx, id, normalized)
+	if err != nil {
+		return nil, fmt.Errorf("更新凭证权限失败：%w", err)
+	}
+	if !found {
+		return nil, errs.ErrNotFound
+	}
+	return &record, nil
 }

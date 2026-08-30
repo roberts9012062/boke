@@ -342,6 +342,7 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager, e
 		openAPI.GET("/keys", handlers.OpenAPI.ListKeys)     // 凭证列表
 		openAPI.POST("/keys", handlers.OpenAPI.CreateKey)   // 生成凭证（多选接口 + 过期天数）
 		openAPI.DELETE("/keys/:id", handlers.OpenAPI.DeleteKey) // 删除凭证
+		openAPI.PUT("/keys/:id/endpoints", handlers.OpenAPI.UpdateKeyEndpoints) // 权限设置（增/减授权接口）
 		// 站点设置域
 		settings := adminGroup.Group("/settings", perm(casbin.DomainSettings))
 		settings.GET("", handlers.Admin.GetSettings)

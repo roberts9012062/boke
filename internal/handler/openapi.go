@@ -87,3 +87,26 @@ func (h *OpenAPIHandler) DeleteKey(c *gin.Context) {
 	}
 	resp.OK(c, gin.H{"id": id})
 }
+
+// UpdateKeyEndpoints 处理权限设置（PUT /api/v1/admin/open-api/keys/:id/endpoints）。
+// 请求体：{endpoints: [...]}——增/减该 Key 可调用的接口（校验与创建同规）。
+func (h *OpenAPIHandler) UpdateKeyEndpoints(c *gin.Context) {
+	id, err := parseID(c, "id")
+	if err != nil {
+		h.failWithLog(c, err)
+		return
+	}
+	var req struct {
+		Endpoints []string `json:"endpoints"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, errs.ErrBadRequest)
+		return
+	}
+	record, err := h.openapi.UpdateKeyEndpoints(c.Request.Context(), id, req.Endpoints)
+	if err != nil {
+		h.failWithLog(c, err)
+		return
+	}
+	resp.OK(c, record)
+}

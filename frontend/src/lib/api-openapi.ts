@@ -1,7 +1,7 @@
 // src/lib/api-openapi.ts
 // 接口开放模块 API 封装：开放接口目录 + API Key 凭证管理（后台「接口开放」页面）。
 // 说明：与后端 /admin/open-api/* 接口一一对应；独立文件避免 api.ts 持续膨胀。
-import { get, post, del } from "./api";
+import { get, post, put, del } from "./api";
 
 // ---------- 类型（与后端 internal/model/openapi.go 手工同步） ----------
 
@@ -62,4 +62,9 @@ export function apiCreateOpenApiKey(req: CreateOpenAPIKeyReq): Promise<OpenAPIKe
 // 删除凭证。
 export function apiDeleteOpenApiKey(id: number): Promise<{ id: number }> {
   return del<{ id: number }>(`/admin/open-api/keys/${id}`);
+}
+
+// 更新凭证授权接口（权限设置：增/减可调用的接口；返回更新后的完整记录）。
+export function apiUpdateOpenApiKeyEndpoints(id: number, endpoints: string[]): Promise<OpenAPIKey> {
+  return put<OpenAPIKey>(`/admin/open-api/keys/${id}/endpoints`, { endpoints });
 }
