@@ -271,16 +271,6 @@ func OpenAPICatalog() []CatalogEntry {
 			Description: "精品导航插件收藏的全部站点（名称/地址/分类/标签/简介/内嵌图标 dataURL，含聚合分类与标签清单）；浏览器插件等外部应用凭 Key 同步站点导航数据。需安装并启用「精品导航」插件",
 			Params:      []CatalogParam{},
 		},
-		{
-			Endpoint:    "navlinks.save",
-			Method:      "POST",
-			Path:        "/api/v1/open/nav/links",
-			Name:        "导航同步写入",
-			Description: "向精品导航插件批量写入/更新收藏站点（按地址 upsert：已存在则更新内容字段，返回新增/更新计数）；浏览器插件等外部应用凭 Key 把本地收藏同步到站点。需安装并启用「精品导航」插件",
-			Params: []CatalogParam{
-				{Name: "links", Type: "array", Location: "body", Required: true, Description: "站点数组（≤200 条）：{url 站点地址(必填), name 名称(必填), category 分类(必填), tags 标签数组(可选), description 简介(可选), icon 图标 dataURL 或 http 地址(可选)}"},
-			},
-		},
 	}
 }
 
