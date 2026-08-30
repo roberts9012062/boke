@@ -300,6 +300,7 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 		Backup:     handler.NewBackupHandler(backupSvc, logger),
 		Role:       handler.NewRoleHandler(roleSvc),
 		Music:      handler.NewMusicHandler(musicSvc, pluginSvc),
+		Nav:        handler.NewNavBridgeHandler(pluginSvc),
 		Video:      handler.NewVideoHandler(pluginSvc),
 		TTS:        handler.NewTTSHandler(pluginSvc),
 		Stats:      handler.NewStatsHandler(pluginSvc),

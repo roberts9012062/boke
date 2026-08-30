@@ -208,6 +208,19 @@ func OpenAPICatalog() []CatalogEntry {
 			},
 		},
 		{
+			Endpoint:    "ai.chat.stream",
+			Method:      "POST",
+			Path:        "/api/v1/open/ai/chat/stream",
+			Name:        "AI 流式对话",
+			Description: "与 AI 对话同参，响应为 SSE 事件流（data: {\"text\":\"增量\"} 逐块下发，data: [DONE] 结束；web_search=true 时首个事件为引用来源）——逐字渲染场景（浏览器插件对话气泡）",
+			Params: []CatalogParam{
+				{Name: "model", Type: "string", Location: "body", Required: true, Description: "模型名（取自 AI 模型列表接口）"},
+				{Name: "messages", Type: "array", Location: "body", Required: true, Description: "对话消息数组（含历史轮次）"},
+				{Name: "max_tokens", Type: "integer", Location: "body", Required: false, Description: "最大输出 token（默认 300，上限 16000）"},
+				{Name: "web_search", Type: "string", Location: "body", Required: false, Description: "true=联网回答（首个事件下发 search_results 来源）"},
+			},
+		},
+		{
 			Endpoint:    "ai.search",
 			Method:      "POST",
 			Path:        "/api/v1/open/ai/search",
@@ -229,7 +242,15 @@ func OpenAPICatalog() []CatalogEntry {
 				{Name: "content", Type: "string", Location: "body", Required: false, Description: "帖子正文（expand/polish/image/music 的输入）"},
 				{Name: "image_url", Type: "string", Location: "body", Required: false, Description: "待识别图片的公网地址（recognize 必填）"},
 			},
+		},		{
+			Endpoint:    "navlinks.list",
+			Method:      "GET",
+			Path:        "/api/v1/open/nav/links",
+			Name:        "导航列表",
+			Description: "精品导航插件收藏的全部站点（名称/地址/分类/标签/简介/内嵌图标 dataURL，含聚合分类与标签清单）；浏览器插件等外部应用凭 Key 同步站点导航数据。需安装并启用「精品导航」插件",
+			Params:      []CatalogParam{},
 		},
+
 	}
 }
 

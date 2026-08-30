@@ -18,6 +18,11 @@ const nextConfig: NextConfig = {
   // 容器部署：standalone 产物（.next/standalone 含精简 node_modules + server.js），
   // 本地 dev 不受影响
   output: "standalone",
+  // rewrites 代理超时（默认 30s 会掐断 AI 长任务——润色/文章化推理可达数分钟，
+  // 与后端 AI 客户端 300s 上限对齐）
+  experimental: {
+    proxyTimeout: 300_000,
+  },
   // 代理：/api、/media、/plugin-assets 与 /plugin-sdk → 后端 Gin 服务
   async rewrites() {
     return [
@@ -62,8 +67,9 @@ const nextConfig: NextConfig = {
               // img-src 放行 https 外链：正文插图来自任意图床/CDN（CF图床 imgs.* 等）；
               // 图片为无脚本执行的被动资源，风险低于 script/connect（M7/M8 音乐域已含于 https:）
               "img-src 'self' data: blob: https:",
-              // media-src 含 blob:：插件 MSE 播放器（B站 DASH 1080P）经 objectURL 装载媒体
-              "media-src 'self' blob: https://*.music.126.net https://*.qq.com https://*.tc.qq.com",
+              // media-src 含 blob:：插件 MSE 播放器（B站 DASH 1080P）经 objectURL 装载媒体；
+              // bilivideo 域群：B 站视频浏览器直连播放（mp4 durl，视频流量不经服务器中转）
+              "media-src 'self' blob: https://*.music.126.net https://*.qq.com https://*.tc.qq.com https://*.bilivideo.com https://*.bilivideo.cn https://*.akamaized.net https://*.mcdn.bilivideo.cn",
               "font-src 'self' data:",
               "frame-src 'self' https://player.bilibili.com https://www.youtube.com https://www.youtube-nocookie.com https://v.qq.com https://player.vimeo.com https://music.163.com https://i.y.qq.com",
               "connect-src 'self' ws://localhost:3000",

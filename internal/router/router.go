@@ -42,6 +42,7 @@ type Handlers struct {
 	Backup   *handler.BackupHandler   // 备份导出控制器（M4-报表）
 	Role     *handler.RoleHandler     // 角色权限控制器（M5）
 	Music    *handler.MusicHandler    // 音乐解析控制器（M7：QQ songmid→songid）
+	Nav      *handler.NavBridgeHandler // 精品导航桥接控制器（nav-links 插件访客/开放网关通道）
 	Video    *handler.VideoHandler    // B站视频桥接控制器（bilibili-video 插件游客通道）
 	TTS      *handler.TTSHandler      // 朗读桥接控制器（tts-reader 插件游客通道）
 	Stats    *handler.StatsHandler    // 统计桥接控制器（stats-pro 插件访客上报通道）
@@ -176,6 +177,10 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager, e
 	api.POST("/video/bilibili/guest-qr-check", handlers.Video.GuestQrCheck) // 游客扫码轮询（签发 guest_token）
 	api.POST("/video/bilibili/guest-status", handlers.Video.GuestStatus)    // 游客 token 有效性
 	api.GET("/video/bilibili/stream", handlers.Video.Stream)               // 视频流代理（同源加载 + Range 透传）
+
+	// ---------- 精品导航公开桥接（nav-links 插件：前台访客数据通道） ----------
+	// 插件代理 API 需登录，而前台导航页要求访客可浏览——公开组 + System 身份直达插件
+	api.GET("/nav/links", handlers.Nav.PublicLinks) // 导航页数据（含内嵌图标；30s 浏览器缓存）
 	api.GET("/video/bilibili/image", handlers.Video.Image)                 // 图床代理（封面/头像防盗链）
 
 	// ---------- TTS 朗读公开桥接（tts-reader 插件：访客朗读通道） ----------
@@ -261,6 +266,8 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager, e
 	openGroup.POST("/ai/assist", handlers.OpenAPI.GatewayAIAssist)     // AI 辅助（ai.assist：扩写/润色/配图/配乐/识图）
 	openGroup.POST("/ai/search", handlers.OpenAPI.GatewayAISearch)     // 联网搜索（ai.search：SearXNG 聚合检索）
 	openGroup.POST("/media/transfer", handlers.OpenAPI.MediaTransfer)  // 图片转存（media.transfer：外链图落站点媒体库）
+	openGroup.GET("/nav/links", handlers.Nav.OpenList)   // 导航列表（navlinks.list：精品导航插件收藏站点同步）
+	openGroup.POST("/ai/chat/stream", handlers.OpenAPI.GatewayAIChatStream) // AI 流式对话（ai.chat.stream：SSE 透传）
 
 		// ---------- 私信模块（M2） ----------
 		authed.GET("/conversations", handlers.Message.ListConversations)          // 会话列表（filter=all|unread）
