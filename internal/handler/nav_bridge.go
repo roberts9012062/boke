@@ -12,6 +12,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -73,4 +74,92 @@ func (h *NavBridgeHandler) OpenList(c *gin.Context) {
 		return
 	}
 	resp.OK(c, payload)
+}
+
+// navSaveLink 同步写入的单条导航载荷（与插件 Link 模型对齐的插件侧子集）。
+type navSaveLink struct {
+	Name        string   `json:"name"`
+	URL         string   `json:"url"`
+	Category    string   `json:"category"`
+	Tags        []string `json:"tags"`
+	Description string   `json:"description"`
+	Icon        string   `json:"icon"`
+	Sort        int      `json:"sort"`
+}
+
+// OpenSave 开放网关写入端点（POST /api/v1/open/nav/links，X-Api-Key 鉴权 + 目录授权 navlinks.save）。
+// 浏览器插件「同步到站点」通道：body {links:[…]} 批量写入——
+// 先拉插件现有链接取 URL 集合（已存在跳过，不覆盖站点侧编辑），再逐条转调插件 POST /links
+// 创建（System 身份，SDK 桥接设计内路径）；单条失败计数不中断。返回 {created, skipped, failed}。
+func (h *NavBridgeHandler) OpenSave(c *gin.Context) {
+	if h.pluginSvc == nil {
+		resp.Fail(c, 503, errs.New(errs.CodeInternal, "插件服务未配置"))
+		return
+	}
+	var req struct {
+		Links []navSaveLink `json:"links" binding:"required,min=1"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, errs.New(errs.CodeBadRequest, "请求体需包含非空 links 数组"))
+		return
+	}
+	// 基础清洗：URL 必须为 http/https，name 缺省取 URL；上限 500 条/次
+	existingURL := make(map[string]bool)
+	status, data, err := h.callPlugin(c.Request.Context())
+	if err == nil && status == 200 {
+		var current struct {
+			Links []struct {
+				URL string `json:"url"`
+			} `json:"links"`
+		}
+		if json.Unmarshal(data, &current) == nil {
+			for _, item := range current.Links {
+				existingURL[item.URL] = true
+			}
+		}
+		// 拉不到现有数据不阻塞写入（仅失去跳过能力）
+	}
+
+	created, skipped, failed := 0, 0, 0
+	for i := range req.Links {
+		if len(req.Links) > 500 && i >= 500 {
+			failed += len(req.Links) - 500
+			break
+		}
+		link := req.Links[i]
+		link.URL = trimNavURL(link.URL)
+		if link.URL == "" {
+			failed++
+			continue
+		}
+		if link.Name == "" {
+			link.Name = link.URL
+		}
+		if existingURL[link.URL] {
+			skipped++
+			continue
+		}
+		body, marshalErr := json.Marshal(link)
+		if marshalErr != nil {
+			failed++
+			continue
+		}
+		s, _, callErr := h.pluginSvc.CallAPI(c.Request.Context(), navLinksPluginID, "POST", "/links", body, bridgeSystemCaller)
+		if callErr != nil || s >= 300 {
+			failed++
+			continue
+		}
+		existingURL[link.URL] = true
+		created++
+	}
+	resp.OK(c, gin.H{"created": created, "skipped": skipped, "failed": failed})
+}
+
+// trimNavURL 清洗同步 URL（去空白；非 http/https 返回空串拒绝）。
+func trimNavURL(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if !strings.HasPrefix(trimmed, "http://") && !strings.HasPrefix(trimmed, "https://") {
+		return ""
+	}
+	return trimmed
 }

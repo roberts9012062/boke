@@ -267,6 +267,7 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager, e
 	openGroup.POST("/ai/search", handlers.OpenAPI.GatewayAISearch)     // 联网搜索（ai.search：SearXNG 聚合检索）
 	openGroup.POST("/media/transfer", handlers.OpenAPI.MediaTransfer)  // 图片转存（media.transfer：外链图落站点媒体库）
 	openGroup.GET("/nav/links", handlers.Nav.OpenList)   // 导航列表（navlinks.list：精品导航插件收藏站点同步）
+	openGroup.POST("/nav/links", handlers.Nav.OpenSave)  // 导航同步写入（navlinks.save：插件书签批量同步到精品导航）
 	openGroup.POST("/media", handlers.OpenAPI.MediaUpload)             // 媒体上传（media.upload：本地图凭 Key 落站点媒体库）
 	openGroup.POST("/ai/chat/stream", handlers.OpenAPI.GatewayAIChatStream) // AI 流式对话（ai.chat.stream：SSE 透传）
 
