@@ -16,6 +16,12 @@ bin/
 *.exe
 *.test
 
+# 依赖目录（frontend/ 与 browser-extension/ 各自安装）
+node_modules/
+
+# 浏览器自动化调试产物（Playwright MCP 控制台日志）
+.playwright-mcp/
+
 # 本地数据库文件（如后续引入 SQLite）
 *.db
 *.sqlite
