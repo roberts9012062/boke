@@ -21,6 +21,9 @@ ENV BACKEND_URL=${BACKEND_URL}
 WORKDIR /src/frontend
 COPY --from=deps /src/frontend/node_modules ./node_modules
 COPY frontend/ .
+# 仓库根 docs/ 一并暂存：插件参考手册（/plugin-reference）运行时读取 docs/ 下的
+# markdown 源文件，镜像需携带（下一阶段复制到 /docs）。
+COPY docs /src/docs
 RUN npm run build
 
 # ---------- 运行阶段 ----------
@@ -34,6 +37,9 @@ WORKDIR /app
 COPY --from=build /src/frontend/.next/standalone ./
 COPY --from=build /src/frontend/.next/static ./.next/static
 COPY --from=build /src/frontend/public ./public
+# 插件参考手册的 markdown 源：运行时 cwd 为 /app，lib/plugin-reference.ts 按
+# process.cwd()/../docs（即 /docs）定位 docs 目录，必须放在该绝对路径。
+COPY --from=build /src/docs /docs
 
 EXPOSE 3000
 
