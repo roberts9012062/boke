@@ -208,6 +208,16 @@ func OpenAPICatalog() []CatalogEntry {
 			},
 		},
 		{
+			Endpoint:    "media.upload",
+			Method:      "POST",
+			Path:        "/api/v1/open/media",
+			Name:        "媒体上传",
+			Description: "本地文件上传到站点媒体库（浏览器插件「写说说」通道：本地图/粘贴图以 Key 绑定用户身份上传，返回本站持久地址与媒体 ID；类型与大小校验沿用主站媒体规则）",
+			Params: []CatalogParam{
+				{Name: "file", Type: "string", Location: "body", Required: true, Description: "上传文件（multipart 字段名 file）"},
+			},
+		},
+		{
 			Endpoint:    "ai.chat.stream",
 			Method:      "POST",
 			Path:        "/api/v1/open/ai/chat/stream",
