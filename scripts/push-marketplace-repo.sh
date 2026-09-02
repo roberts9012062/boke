@@ -121,6 +121,8 @@ else
 fi
 
 # 上传本地全部文件（幂等：远程已存在则携带 sha 更新）
+# 409 重试：经代理或 GitHub API 主从延迟时，第 2 步索引里的 sha 可能已陈旧——
+# 重新 GET 该文件当前 sha 后重 PUT 一次，仍失败才报错退出
 echo "[4/5] 上传本地文件..." | tee -a "$LOG_FILE"
 COUNT=0
 while IFS= read -r file; do
@@ -132,6 +134,14 @@ while IFS= read -r file; do
   fi
   body="{\"message\":\"feat: update plugin marketplace $rel\",\"content\":\"$content_b64\"$sha_json,\"branch\":\"$BRANCH\"}"
   resp="$(gh_api PUT "/repos/$OWNER/$REPO/contents/$rel" "$body")"
+  if echo "$resp" | grep -q '"status": *"409"'; then
+    cur_sha="$(gh_api GET "/repos/$OWNER/$REPO/contents/$rel" | python -c "import sys,json; print(json.load(sys.stdin).get('sha',''))" 2>/dev/null | tr -d '\r')"
+    if [ -n "$cur_sha" ]; then
+      echo "      [重试] $rel 索引 sha 陈旧，按当前 sha 重传" | tee -a "$LOG_FILE"
+      body="{\"message\":\"feat: update plugin marketplace $rel\",\"content\":\"$content_b64\",\"sha\":\"$cur_sha\",\"branch\":\"$BRANCH\"}"
+      resp="$(gh_api PUT "/repos/$OWNER/$REPO/contents/$rel" "$body")"
+    fi
+  fi
   if echo "$resp" | python -c "import sys,json; json.load(sys.stdin)['content']" >/dev/null 2>&1; then
     COUNT=$((COUNT + 1))
   else
