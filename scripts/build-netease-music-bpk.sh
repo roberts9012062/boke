@@ -23,11 +23,12 @@ GOOS="$(go env GOOS)"
 GOARCH="$(go env GOARCH)"
 go build -C marketplace-repo -ldflags "-s -w" -trimpath -o "$BUILD_DIR/plugin.bin" ./netease-music 2>&1 | tee -a "$LOG_FILE"
 
-echo "[步骤 2/2] 打包 .bpk（免费插件 + 前端扩展）..." | tee -a "$LOG_FILE"
+echo "[步骤 2/2] 打包 .bpk（免费插件 + 前端扩展 + 市场私钥签名）..." | tee -a "$LOG_FILE"
 go run ./cmd/bp pack \
   -plugin "marketplace-repo/netease-music/yueyan-plugin.json" \
   -bin "$BUILD_DIR/plugin.bin" \
   -frontend "marketplace-repo/netease-music/frontend" \
+  -key "data/keys/market-private.pem" \
   -os "$GOOS" -arch "$GOARCH" \
   -version 0.1.0 \
   -out "dist" 2>&1 | tee -a "$LOG_FILE"
