@@ -271,6 +271,35 @@ func OpenAPICatalog() []CatalogEntry {
 			Description: "精品导航插件收藏的全部站点（名称/地址/分类/标签/简介/内嵌图标 dataURL，含聚合分类与标签清单）；浏览器插件等外部应用凭 Key 同步站点导航数据。需安装并启用「精品导航」插件",
 			Params:      []CatalogParam{},
 		},
+		{
+			Endpoint:    "navlinks.private.list",
+			Method:      "GET",
+			Path:        "/api/v1/open/nav/private/links",
+			Name:        "私有导航列表",
+			Description: "精品导航中可见性为「私有」的收藏站点（响应结构与「导航列表」一致，仅含私有条目）；浏览器插件凭 Key 同步站长私有导航。需安装并启用「精品导航」插件",
+			Params:      []CatalogParam{},
+		},
+		{
+			Endpoint:    "navlinks.private.config",
+			Method:      "GET",
+			Path:        "/api/v1/open/nav/private/config",
+			Name:        "私有导航设置读取",
+			Description: "读取私有导航访问设置：访问方式（self=仅自己可见 / password=密码访问）、是否已设访问密码、私有页标题/副标题、私有条目数；不含任何密码材料。需安装并启用「精品导航」插件",
+			Params:      []CatalogParam{},
+		},
+		{
+			Endpoint:    "navlinks.private.save",
+			Method:      "POST",
+			Path:        "/api/v1/open/nav/private/config",
+			Name:        "私有导航设置写入",
+			Description: "修改私有导航访问设置（浏览器插件对接通道）：访问方式切换、设置访问密码（6-64 位，留空=保持现有）、私有页标题/副标题；修改密码后前台旧解锁自动失效。需安装并启用「精品导航」插件",
+			Params: []CatalogParam{
+				{Name: "mode", Type: "string", Location: "body", Required: true, Description: "访问方式：self=仅自己可见 / password=密码访问"},
+				{Name: "password", Type: "string", Location: "body", Required: false, Description: "访问密码（6-64 位；留空=保持现有密码；切 password 模式必须已设密码或本次提供）"},
+				{Name: "title", Type: "string", Location: "body", Required: false, Description: "私有页标题（≤30 字，空=默认「私有导航」）"},
+				{Name: "subtitle", Type: "string", Location: "body", Required: false, Description: "私有页副标题（≤60 字）"},
+			},
+		},
 	}
 }
 

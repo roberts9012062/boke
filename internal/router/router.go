@@ -180,7 +180,11 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager, e
 
 	// ---------- 精品导航公开桥接（nav-links 插件：前台访客数据通道） ----------
 	// 插件代理 API 需登录，而前台导航页要求访客可浏览——公开组 + System 身份直达插件
-	api.GET("/nav/links", handlers.Nav.PublicLinks) // 导航页数据（含内嵌图标；30s 浏览器缓存）
+	api.GET("/nav/links", handlers.Nav.PublicLinks) // 导航页数据（含内嵌图标；30s 浏览器缓存；仅开放条目）
+	// 私有导航门禁（v1.3.14）：meta/unlock 公开；数据端点挂 OptionalAuth 识别管理员登录态
+	api.GET("/nav/private/meta", handlers.Nav.PrivateMeta)                                   // 门禁元数据（模式/密码已设/文案/条数）
+	api.POST("/nav/private/unlock", handlers.Nav.PrivateUnlock)                              // 密码解锁（7 天 token）
+	api.GET("/nav/private/links", middleware.OptionalAuth(jwtMgr), handlers.Nav.PrivateLinks) // 私有数据（管理员或 token 放行；no-store）
 	api.GET("/video/bilibili/image", handlers.Video.Image)                 // 图床代理（封面/头像防盗链）
 
 	// ---------- TTS 朗读公开桥接（tts-reader 插件：访客朗读通道） ----------
@@ -268,6 +272,9 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager, e
 	openGroup.POST("/media/transfer", handlers.OpenAPI.MediaTransfer)  // 图片转存（media.transfer：外链图落站点媒体库）
 	openGroup.GET("/nav/links", handlers.Nav.OpenList)   // 导航列表（navlinks.list：精品导航插件收藏站点同步）
 	openGroup.POST("/nav/links", handlers.Nav.OpenSave)  // 导航同步写入（navlinks.save：插件书签批量同步到精品导航）
+	openGroup.GET("/nav/private/links", handlers.Nav.OpenPrivateList)        // 私有导航数据（navlinks.private.list：私有条目同步）
+	openGroup.GET("/nav/private/config", handlers.Nav.OpenPrivateConfigGet)  // 私有访问设置读取（navlinks.private.config）
+	openGroup.POST("/nav/private/config", handlers.Nav.OpenPrivateConfigSave) // 私有访问设置写入（navlinks.private.save：模式/密码/文案）
 	openGroup.POST("/media", handlers.OpenAPI.MediaUpload)             // 媒体上传（media.upload：本地图凭 Key 落站点媒体库）
 	openGroup.POST("/ai/chat/stream", handlers.OpenAPI.GatewayAIChatStream) // AI 流式对话（ai.chat.stream：SSE 透传）
 
