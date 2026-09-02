@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # scripts/build-nav-links-bpk.sh
-# 构建精品导航插件双平台 .bpk 安装包（交叉编译 → cmd/bp 打包，含前端扩展）。
+# 构建精品导航插件双平台 .bpk 安装包（交叉编译 → cmd/bp 打包，含前端扩展，
+# 经市场根私钥 data/keys/market-private.pem 签名——站点配置信任公钥后仅接受签名包）。
 #
 # 用法：
 #   ./scripts/build-nav-links-bpk.sh
@@ -42,6 +43,7 @@ for p in "${PLATFORMS[@]}"; do
     -plugin "marketplace-repo/nav-links/yueyan-plugin.json" \
     -bin "$BUILD_DIR/plugin.bin-$GOOS-$GOARCH" \
     -frontend "marketplace-repo/nav-links/frontend" \
+    -key "data/keys/market-private.pem" \
     -os "$GOOS" -arch "$GOARCH" \
     -version "$VERSION" \
     -out "dist" 2>&1 | tee -a "$LOG_FILE"

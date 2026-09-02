@@ -24,7 +24,9 @@ def github(method: str, url: str, body: dict | None = None, data: bytes | None =
         req.add_header("Content-Type", "application/octet-stream")
     try:
         with urllib.request.urlopen(req, data) as resp:
-            payload = json.loads(resp.read().decode("utf-8"))
+            raw = resp.read().decode("utf-8")
+            # 204 No Content 等空响应体（如删除 Release 资产成功）不参与 JSON 解析
+            payload = json.loads(raw) if raw.strip() else {}
             return resp.status, payload
     except urllib.error.HTTPError as e:
         payload = {}
