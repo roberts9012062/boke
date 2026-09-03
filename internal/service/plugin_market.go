@@ -63,6 +63,7 @@ type PluginInfo struct {
 	Platforms    []string `json:"platforms,omitempty"` // 支持平台（linux/darwin/windows，M3.4）
 	MusicProvider string   `json:"music_provider,omitempty"` // 音乐源声明（E7：provider 名如 qq/netease；宿主 /music/:provider/* 桥接动态发现）
 	StorageProvider bool  `json:"storage_provider,omitempty"` // 图床声明（media.storage seam 提供方候选：发帖上传直达外部存储；宿主按设置项/清单发现选取）
+	StorageRawUpload bool `json:"storage_raw_upload,omitempty"` // 图床直传保留原图（发帖直传通道跳过前端压缩——TG 等保真图床声明；缺省压缩，CF 行为不变）
 	Assets       *PluginAssets `json:"assets,omitempty"` // Release 资产声明（M3.4）
 	Nav          *PluginNav `json:"nav,omitempty"` // 侧栏入口声明（安装启用后注册，前端扩展点）
 	SettingsSchema []PluginSettingField `json:"settings_schema,omitempty"` // 设置项 schema（schema 驱动设置页）

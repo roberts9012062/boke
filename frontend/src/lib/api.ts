@@ -767,6 +767,7 @@ export interface InstalledPlugin {
   nav?: PluginNav; // 侧栏入口声明（动态扩展）
   settings_schema?: PluginSettingField[]; // 设置项 schema
   storage_provider?: boolean; // 图床声明（media.storage seam 候选；后台设置页图床插件下拉）
+  storage_raw_upload?: boolean; // 图床直传保留原图（发帖直传通道跳过前端压缩——TG 等保真图床）
 }
 
 // 插件许可证状态（M3.5：Ed25519 签发/验签）。

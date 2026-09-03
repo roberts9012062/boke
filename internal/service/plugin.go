@@ -47,6 +47,7 @@ type InstalledPluginDTO struct {
 	Nav       *PluginNav `json:"nav,omitempty"` // 侧栏入口声明（前端动态扩展）
 	SettingsSchema []PluginSettingField `json:"settings_schema,omitempty"` // 设置项 schema（设置页）
 	StorageProvider bool `json:"storage_provider,omitempty"` // 图床声明（media.storage seam 候选；后台设置页图床插件下拉）
+	StorageRawUpload bool `json:"storage_raw_upload,omitempty"` // 图床直传保留原图（发帖直传通道跳过前端压缩）
 }
 
 // manifestCache/readmeCache 类型定义见 plugin_market.go（商城缓存）。
@@ -112,6 +113,7 @@ func (s *PluginService) ListInstalled(ctx context.Context) ([]InstalledPluginDTO
 				items[i].Nav = info.Nav
 				items[i].SettingsSchema = info.SettingsSchema
 				items[i].StorageProvider = info.StorageProvider
+				items[i].StorageRawUpload = info.StorageRawUpload
 			}
 		}
 	}

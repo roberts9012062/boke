@@ -11,7 +11,7 @@ import Link from "@tiptap/extension-link";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 
-import { apiUploadMedia, apiResolveQQMusic, apiPluginExtensions, apiPluginCall, authHeaders, ApiError } from "@/lib/api";
+import { apiUploadMedia, apiResolveQQMusic, apiPluginExtensions, apiPluginCall, apiInstalledPlugins, authHeaders, ApiError } from "@/lib/api";
 import { compressImage, readFileAsBase64 } from "@/lib/image-compress";
 import { htmlToText } from "@/lib/rich-text";
 import { parseMusicEmbed, qqPlayerURL } from "@/lib/music-embed";
@@ -31,6 +31,14 @@ function isBilibiliInput(input: string): boolean {
     return false;
   }
   return /bilibili\.com|b23\.tv/i.test(u) || /^BV[0-9A-Za-z]{10}$/.test(u);
+}
+
+// ImageBedChannel 图床直传通道（数据驱动：已安装且声明 storage_provider 的 running 插件；
+// 上传调插件 /manage/upload 契约——{filename, mime, content_b64} → {url}，图床插件同构）。
+interface ImageBedChannel {
+  id: string; // 插件 ID
+  name: string; // 插件名（按钮文案）
+  raw: boolean; // 直传保留原图（storage_raw_upload 声明：跳过前端压缩，TG 等保真图床）
 }
 
 // sanitizeUrl 仅允许 http/https 链接（防 javascript: 等危险协议；纯函数）。
@@ -86,7 +94,8 @@ interface QqSong {
 // RichTextEditor 所见即所得富文本编辑器。
 export function RichTextEditor({ value, onChange, placeholder, maxLength }: RichTextEditorProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const cfInputRef = useRef<HTMLInputElement>(null);
+  // 图床直传通道的隐藏 input 集合（每通道一个；键=插件 ID）
+  const bedInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const [imageOpen, setImageOpen] = useState(false);
   const [imageUrl, setImageUrl] = useState("");
   const [imageError, setImageError] = useState("");
@@ -114,6 +123,8 @@ export function RichTextEditor({ value, onChange, placeholder, maxLength }: Rich
   const [error, setError] = useState("");
   // B站视频插件是否 running（running 时 B 站地址走高清解析弹窗）
   const [bilibiliReady, setBilibiliReady] = useState(false);
+  // 图床直传通道列表（数据驱动：已安装 running 的 storage_provider 声明插件）
+  const [bedChannels, setBedChannels] = useState<ImageBedChannel[]>([]);
 
   // 检测 B站视频插件可用性（公开扩展清单；失败静默回退通用 iframe 流程）
   useEffect(() => {
@@ -123,6 +134,21 @@ export function RichTextEditor({ value, onChange, placeholder, maxLength }: Rich
       })
       .catch(() => {
         setBilibiliReady(false);
+      });
+  }, []);
+
+  // 检测可用图床直传通道（已安装插件列表过滤 storage_provider 声明；失败静默——仅本地通道可用）
+  useEffect(() => {
+    apiInstalledPlugins()
+      .then((r) => {
+        setBedChannels(
+          r.items
+            .filter((p) => p.storage_provider && p.state === "running")
+            .map((p) => ({ id: p.plugin_id, name: p.name, raw: Boolean(p.storage_raw_upload) })),
+        );
+      })
+      .catch(() => {
+        setBedChannels([]);
       });
   }, []);
 
@@ -228,9 +254,10 @@ export function RichTextEditor({ value, onChange, placeholder, maxLength }: Rich
     }
   };
 
-  // CF图床直传（多选批量）：逐个压缩 → base64 → 插件 /manage/upload（服务端再按设置压缩）→ 插入正文。
-  // 与本地上传的区别：只进 R2 不登记媒体库（不占帖子图集 9 张名额，仅正文引用）。
-  const handleCfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // 图床直传（多选批量，数据驱动通道）：逐个 →（按通道决定压缩或原图）→ base64 →
+  // 插件 /manage/upload → 插入正文。与本地上传的区别：不登记媒体库（不占帖子图集名额，仅正文引用）。
+  // raw 通道（storage_raw_upload 声明，如 TG图床）直传原文件保真；其余通道前端压缩（CF 行为不变）。
+  const handleBedUpload = async (channel: ImageBedChannel, e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
     e.target.value = "";
     if (files.length === 0 || !editor) {
@@ -241,12 +268,12 @@ export function RichTextEditor({ value, onChange, placeholder, maxLength }: Rich
     try {
       const urls: string[] = [];
       for (const file of files) {
-        setError(`CF图床上传中 ${urls.length + 1}/${files.length}：${file.name}`);
-        const compressed = await compressImage(file);
-        const b64 = await readFileAsBase64(compressed);
-        const r = await apiPluginCall<{ url?: string; error?: string }>("image-cdn", "/manage/upload", {
-          filename: file.name,
-          mime: compressed.type,
+        setError(`${channel.name}上传中 ${urls.length + 1}/${files.length}：${file.name}`);
+        const payload = channel.raw ? file : await compressImage(file);
+        const b64 = await readFileAsBase64(payload);
+        const r = await apiPluginCall<{ url?: string; error?: string }>(channel.id, "/manage/upload", {
+          filename: payload.name,
+          mime: payload.type,
           content_b64: b64,
         });
         if (r.error || !r.url) {
@@ -605,19 +632,31 @@ export function RichTextEditor({ value, onChange, placeholder, maxLength }: Rich
         <EditorContent editor={editor} />
       </div>
 
-      {/* 隐藏图片选择（本地批量 / CF图床批量，均 multiple） */}
+      {/* 隐藏图片选择（本地批量 + 各图床直传通道批量，均 multiple） */}
       <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => void handleImagePick(e)} />
-      <input ref={cfInputRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => void handleCfUpload(e)} />
+      {bedChannels.map((ch) => (
+        <input
+          key={ch.id}
+          ref={(el) => {
+            bedInputRefs.current[ch.id] = el;
+          }}
+          type="file"
+          accept="image/*"
+          multiple
+          className="hidden"
+          onChange={(e) => void handleBedUpload(ch, e)}
+        />
+      ))}
 
       {error && <p className="mt-1 text-xs text-like">{error}</p>}
 
       {/* 字数统计 */}
       <p className="mt-1 text-right text-xs text-ink-3">{charCount} / {maxLength}</p>
 
-      {/* 图片弹窗（本地上传 / CF图床直传 / 图库选择 / 外链 URL） */}
+      {/* 图片弹窗（本地上传 / 图床直传（数据驱动通道） / 图库选择 / 外链 URL） */}
       <Modal open={imageOpen} title="插入图片" onClose={() => { setImageOpen(false); setImageError(""); }} maxWidth="max-w-[420px]">
         <div className="space-y-4">
-          {/* 双通道上传：本地（进媒体库+图集）与 CF图床直传（仅正文引用） */}
+          {/* 上传通道：本地（进媒体库+图集）+ 各图床直传（仅正文引用；插件安装启用后自动出现） */}
           <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
@@ -629,16 +668,19 @@ export function RichTextEditor({ value, onChange, placeholder, maxLength }: Rich
               {uploading ? "上传中…" : "本地上传（多选）"}
               <span className="text-[10px] text-ink-3">进媒体库 · 可作图集</span>
             </button>
-            <button
-              type="button"
-              disabled={uploading}
-              onClick={() => cfInputRef.current?.click()}
-              className="flex h-20 w-full flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-line text-xs text-ink-3 transition-colors hover:border-accent hover:text-ink disabled:opacity-60"
-            >
-              <span className="text-lg" aria-hidden>☁</span>
-              {uploading ? "上传中…" : "CF图床上传（多选）"}
-              <span className="text-[10px] text-ink-3">直传 R2 · 仅正文引用</span>
-            </button>
+            {bedChannels.map((ch) => (
+              <button
+                key={ch.id}
+                type="button"
+                disabled={uploading}
+                onClick={() => bedInputRefs.current[ch.id]?.click()}
+                className="flex h-20 w-full flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-line text-xs text-ink-3 transition-colors hover:border-accent hover:text-ink disabled:opacity-60"
+              >
+                <span className="text-lg" aria-hidden>{ch.raw ? "✈" : "☁"}</span>
+                {uploading ? "上传中…" : `${ch.name}上传（多选）`}
+                <span className="text-[10px] text-ink-3">{ch.raw ? "原图直达 · 仅正文引用" : "图床直传 · 仅正文引用"}</span>
+              </button>
+            ))}
           </div>
           {(error || imageError) && <p className="text-xs text-like" role="status">{error || imageError}</p>}
 
@@ -649,8 +691,9 @@ export function RichTextEditor({ value, onChange, placeholder, maxLength }: Rich
             <span className="h-px flex-1 bg-line" />
           </div>
 
-          {/* CF图床图库选择（插件 running 时可用；选中插入正文） */}
+          {/* 图床图库选择（数据驱动：各图床插件 tab 切换；插件 running 时可用；选中插入正文） */}
           <ImageLibraryPicker
+            plugins={bedChannels.map((ch) => ({ id: ch.id, name: ch.name }))}
             onPick={(url) => {
               editor?.chain().focus().setImage({ src: url }).run();
               setImageOpen(false);
