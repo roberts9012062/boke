@@ -251,6 +251,8 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 	pageSvc := service.NewPageService(pageRepo)
 	// 接口开放服务（外部 API Key 生成与管理）
 	openAPISvc := service.NewOpenAPIService(openAPIKeyRepo)
+	// 插件开放目录聚合器（data/plugins/*/manifest.json 的 open_endpoints → 接口开放目录）
+	pluginOpenCatalog := service.NewPluginOpenCatalog(cfg.DataDir, logger)
 	// GitHub OAuth 服务（M3.5：连接 GitHub 拉取私有/加速清单；凭证未配置时入口隐藏）
 	oauthSvc := service.NewOAuthService(cfg.GitHubOAuthClientID, cfg.GitHubOAuthSecret, cfg.AIKeySecret, cfg.GitHubToken, settingRepo, ghClient)
 	oauthSvc.RestoreToken(ctx) // 启动恢复 OAuth token（有则优先于 .env 静态 token）
@@ -305,7 +307,10 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 		TTS:        handler.NewTTSHandler(pluginSvc),
 		Stats:      handler.NewStatsHandler(pluginSvc),
 		Page:       handler.NewPageHandler(pageSvc, logger),
-		OpenAPI:     handler.NewOpenAPIHandler(openAPISvc, aiSvc, authSvc, postSvc, logger),
+		// 插件开放目录聚合器（声明式开放端点：目录合并 + 网关鉴权索引 + 泛化转发）
+		PluginOpenGateway: handler.NewPluginOpenGatewayHandler(pluginSvc, pluginOpenCatalog),
+		PluginOpenCatalog: pluginOpenCatalog,
+		OpenAPI:     handler.NewOpenAPIHandler(openAPISvc, aiSvc, authSvc, postSvc, pluginOpenCatalog, logger),
 		OpenAPIKeys: openAPIKeyRepo,
 		Update:     handler.NewUpdateHandler(ghClient, cfg.DataDir),
 	}

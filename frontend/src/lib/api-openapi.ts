@@ -22,6 +22,8 @@ export interface CatalogEntry {
   name: string; // 接口名称（中文）
   description: string; // 功能描述
   params: CatalogParam[]; // 参数说明列表
+  source?: "host" | "plugin"; // 来源：host=宿主内置 | plugin=插件声明（随插件安装/升级自动增删）
+  plugin_name?: string; // 来源插件名（source=plugin 时展示）
 }
 
 // OpenAPIKey 凭证记录（列表展示）。

@@ -60,6 +60,15 @@ export function EndpointCatalog({
                     <code className="break-all rounded bg-muted px-1.5 py-0.5 text-xs text-ink-2">
                       {entry.path}
                     </code>
+                    {/* 来源徽标：插件声明的接口随插件安装/升级自动出现 */}
+                    {entry.source === "plugin" && (
+                      <span
+                        className="rounded border border-line px-1.5 py-0.5 text-[10px] text-ink-3"
+                        title={`由插件「${entry.plugin_name ?? "未知插件"}」声明，随插件安装/升级自动增删`}
+                      >
+                        插件 · {entry.plugin_name ?? ""}
+                      </span>
+                    )}
                   </div>
                   <p className="mt-0.5 text-xs text-ink-3">{entry.description}</p>
                   {/* 参数说明（有参数时折叠为一行摘要） */}

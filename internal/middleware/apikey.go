@@ -29,7 +29,10 @@ var catalogRouteIndex = model.CatalogIndex()
 
 // ApiKeyAuth 返回开放接口鉴权中间件。
 // keys 为凭证仓库；放行的请求以匿名视角复用现有公开 handler（私密帖不可见）。
-func ApiKeyAuth(keys *repository.OpenAPIKeyRepo) gin.HandlerFunc {
+// pluginRoutes 为插件声明的开放端点索引（「Method + 实际路径 → 接口标识」，
+// 泛化网关 /open/plugins/:id/*path 用——其 FullPath 是通配模板，须按实际路径匹配）；
+// 传 nil 表示无插件声明（聚合器未装配的降级场景）。
+func ApiKeyAuth(keys *repository.OpenAPIKeyRepo, pluginRoutes func() map[string]string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// ---------- 提取凭证 ----------
 		key := c.GetHeader(apiKeyHeader)
@@ -55,7 +58,12 @@ func ApiKeyAuth(keys *repository.OpenAPIKeyRepo) gin.HandlerFunc {
 		}
 
 		// ---------- 接口授权校验（路由模板反查目录 → Key 绑定集合包含判断） ----------
+		// 两级索引：静态目录按「Method + 路由模板」（FullPath，含 :id 参数段）；
+		// 插件声明按「Method + 实际请求路径」（泛化通配路由的 FullPath 无法静态索引）
 		endpoint, ok := catalogRouteIndex[c.Request.Method+" "+c.FullPath()]
+		if !ok && pluginRoutes != nil {
+			endpoint, ok = pluginRoutes()[c.Request.Method+" "+c.Request.URL.Path]
+		}
 		if !ok {
 			// 目录外的路由不应注册在开放组（防御性兜底）
 			resp.Fail(c, 404, errs.ErrNotFound)

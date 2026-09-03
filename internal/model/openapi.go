@@ -33,13 +33,21 @@ type CatalogParam struct {
 
 // CatalogEntry 开放接口目录项（一个可被授权给 Key 的接口）。
 type CatalogEntry struct {
-	Endpoint    string         `json:"endpoint"`    // 接口标识（唯一，Key 绑定用）
-	Method      string         `json:"method"`      // HTTP 方法（GET / POST）
-	Path        string         `json:"path"`        // 开放网关路径（/api/v1/open/...，含路由参数）
-	Name        string         `json:"name"`        // 接口名称（中文）
-	Description string         `json:"description"` // 功能描述
-	Params      []CatalogParam `json:"params"`      // 参数说明列表
+	Endpoint    string         `json:"endpoint"`             // 接口标识（唯一，Key 绑定用）
+	Method      string         `json:"method"`               // HTTP 方法（GET / POST）
+	Path        string         `json:"path"`                 // 开放网关路径（/api/v1/open/...，含路由参数）
+	Name        string         `json:"name"`                 // 接口名称（中文）
+	Description string         `json:"description"`          // 功能描述
+	Params      []CatalogParam `json:"params"`               // 参数说明列表
+	Source      string         `json:"source"`               // 来源：host=宿主内置 | plugin=插件声明（open_endpoints）
+	PluginName  string         `json:"plugin_name,omitempty"` // 来源插件名（source=plugin 时展示）
 }
+
+// 目录条目来源取值。
+const (
+	CatalogSourceHost   = "host"   // 宿主内置（model.OpenAPICatalog 静态目录）
+	CatalogSourcePlugin = "plugin" // 插件声明（data/plugins/{id}/manifest.json 的 open_endpoints 聚合）
+)
 
 // OpenAPICatalog 返回开放接口目录（纯函数；与 router.go 开放组的注册一一对应）。
 // 变更约束：增删接口须同步 ① router.go /open 组路由 ② 此目录 ③ 前端无需改动（读目录渲染）。

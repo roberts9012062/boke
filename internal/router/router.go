@@ -16,6 +16,7 @@ import (
 	"github.com/roberts9012062/boke/internal/middleware"
 	"github.com/roberts9012062/boke/internal/pluginshared"
 	"github.com/roberts9012062/boke/internal/repository"
+	"github.com/roberts9012062/boke/internal/service"
 	"github.com/roberts9012062/boke/pkg/resp"
 )
 
@@ -43,6 +44,8 @@ type Handlers struct {
 	Role     *handler.RoleHandler     // 角色权限控制器（M5）
 	Music    *handler.MusicHandler    // 音乐解析控制器（M7：QQ songmid→songid）
 	Nav      *handler.NavBridgeHandler // 精品导航桥接控制器（nav-links 插件访客/开放网关通道）
+	PluginOpenGateway *handler.PluginOpenGatewayHandler // 插件开放网关泛化转发（声明式开放端点）
+	PluginOpenCatalog *service.PluginOpenCatalog        // 插件开放目录聚合器（网关鉴权索引 + 目录合并）
 	Video    *handler.VideoHandler    // B站视频桥接控制器（bilibili-video 插件游客通道）
 	TTS      *handler.TTSHandler      // 朗读桥接控制器（tts-reader 插件游客通道）
 	Stats    *handler.StatsHandler    // 统计桥接控制器（stats-pro 插件访客上报通道）
@@ -250,9 +253,10 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager, e
 	// ---------- 开放接口网关（外部应用凭 X-Api-Key 调用；复用公开 handler，匿名视角） ----------
 	// 鉴权：组级 ApiKeyAuth 中间件按「Method + 路由模板」反查目录得到接口标识，
 	//       校验 Key 绑定的 endpoints 包含该标识后放行（未授权 403 / 无效或过期 401）。
-	// 变更约束：增删路由须同步 model.OpenAPICatalog() 目录数据。
+	//       插件声明的开放端点（泛化通配路由）按「Method + 实际路径」二级索引匹配。
+	// 变更约束：增删路由须同步 model.OpenAPICatalog() 目录数据（插件条目除外——随插件清单自动登记）。
 	openGroup := api.Group("/open")
-	openGroup.Use(middleware.ApiKeyAuth(handlers.OpenAPIKeys))
+	openGroup.Use(middleware.ApiKeyAuth(handlers.OpenAPIKeys, handlers.PluginOpenCatalog.RouteIndex))
 	openGroup.GET("/me", handlers.OpenAPI.Me)                          // 我的资料（me.profile，凭 Key 返回绑定用户）
 	openGroup.POST("/posts", handlers.OpenAPI.CreatePost)              // 发布文章（posts.create，凭 Key 绑定用户发帖）
 	openGroup.GET("/posts", handlers.Post.List)                        // 帖子列表（posts.list）
@@ -277,6 +281,9 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager, e
 	openGroup.POST("/nav/private/config", handlers.Nav.OpenPrivateConfigSave) // 私有访问设置写入（navlinks.private.save：模式/密码/文案）
 	openGroup.POST("/media", handlers.OpenAPI.MediaUpload)             // 媒体上传（media.upload：本地图凭 Key 落站点媒体库）
 	openGroup.POST("/ai/chat/stream", handlers.OpenAPI.GatewayAIChatStream) // AI 流式对话（ai.chat.stream：SSE 透传）
+	// 插件声明式开放端点泛化转发（open_endpoints 声明的接口经此直达插件进程；
+	// 白名单精确匹配 + System 身份——插件发版即可上新开放接口，主程序免发版）
+	openGroup.Any("/plugins/:id/*path", handlers.PluginOpenGateway.Gateway)
 
 		// ---------- 私信模块（M2） ----------
 		authed.GET("/conversations", handlers.Message.ListConversations)          // 会话列表（filter=all|unread）

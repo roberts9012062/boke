@@ -17,16 +17,17 @@ import (
 
 // OpenAPIHandler 接口开放控制器（连接器类）。
 type OpenAPIHandler struct {
-	openapi *service.OpenAPIService // 接口开放业务
-	ai      *service.AiService      // AI 业务（开放网关 ai.models / ai.chat 复用统一对话链路）
-	auth    *service.AuthService    // 认证业务（/open/me 凭 Key 返回绑定用户资料）
-	posts   *service.PostService    // 帖子业务（/open/posts 凭 Key 绑定用户发文章）
-	logger  *zap.Logger             // 错误日志（5xx 留痕）
+	openapi *service.OpenAPIService    // 接口开放业务
+	ai      *service.AiService         // AI 业务（开放网关 ai.models / ai.chat 复用统一对话链路）
+	auth    *service.AuthService       // 认证业务（/open/me 凭 Key 返回绑定用户资料）
+	posts   *service.PostService       // 帖子业务（/open/posts 凭 Key 绑定用户发文章）
+	catalog *service.PluginOpenCatalog // 插件开放目录聚合器（目录合并 source=plugin 条目；可空）
+	logger  *zap.Logger                // 错误日志（5xx 留痕）
 }
 
 // NewOpenAPIHandler 创建接口开放控制器。
-func NewOpenAPIHandler(openapi *service.OpenAPIService, ai *service.AiService, auth *service.AuthService, posts *service.PostService, logger *zap.Logger) *OpenAPIHandler {
-	return &OpenAPIHandler{openapi: openapi, ai: ai, auth: auth, posts: posts, logger: logger}
+func NewOpenAPIHandler(openapi *service.OpenAPIService, ai *service.AiService, auth *service.AuthService, posts *service.PostService, catalog *service.PluginOpenCatalog, logger *zap.Logger) *OpenAPIHandler {
+	return &OpenAPIHandler{openapi: openapi, ai: ai, auth: auth, posts: posts, catalog: catalog, logger: logger}
 }
 
 // failWithLog 失败响应：内部错误（6001）记录日志（含请求路径），其余直接返回。
@@ -43,8 +44,16 @@ func (h *OpenAPIHandler) failWithLog(c *gin.Context, err error) {
 
 // Catalog 处理开放接口目录（GET /api/v1/admin/open-api/catalog）。
 // 返回全部可开放的接口（标识/方法/路径/名称/描述/参数说明），供页面多选与手册生成。
+// 宿主静态目录 + 插件声明条目合并（source 字段区分来源；插件条目随插件安装/升级自动增删）。
 func (h *OpenAPIHandler) Catalog(c *gin.Context) {
-	resp.OK(c, gin.H{"items": model.OpenAPICatalog()})
+	items := model.OpenAPICatalog()
+	for i := range items {
+		items[i].Source = model.CatalogSourceHost
+	}
+	if h.catalog != nil {
+		items = append(items, h.catalog.Entries()...)
+	}
+	resp.OK(c, gin.H{"items": items})
 }
 
 // ListKeys 处理凭证列表（GET /api/v1/admin/open-api/keys，按创建时间倒序）。

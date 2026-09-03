@@ -33,13 +33,14 @@ import (
 
 // pluginManifest 插件仓库根目录清单（yueyan-plugin.json，作者侧；仅打包所需字段）。
 type pluginManifest struct {
-	ID           string   `json:"id"`                     // 插件 ID
-	Name         string   `json:"name"`                   // 名称
-	Version      string   `json:"version"`                // 版本
-	Description  string   `json:"description"`            // 描述
-	SDK          string   `json:"sdk"`                    // 兼容 SDK 范围
-	Capabilities []string `json:"capabilities,omitempty"` // 能力声明（P0 加固：写入包内 manifest，上传通道校验 + 运行时门控取交集）
-	Author       struct {
+	ID            string                 `json:"id"`                       // 插件 ID
+	Name          string                 `json:"name"`                     // 名称
+	Version       string                 `json:"version"`                  // 版本
+	Description   string                 `json:"description"`              // 描述
+	SDK           string                 `json:"sdk"`                      // 兼容 SDK 范围
+	Capabilities  []string               `json:"capabilities,omitempty"`   // 能力声明（P0 加固：写入包内 manifest，上传通道校验 + 运行时门控取交集）
+	OpenEndpoints []bpkg.OpenEndpointDecl `json:"open_endpoints,omitempty"` // 开放端点声明（声明式接口开放：安装后自动进「接口开放」目录）
+	Author        struct {
 		Name string `json:"name"` // 作者名
 	} `json:"author"`
 }
@@ -58,6 +59,10 @@ func pack(pluginPath string, binPath string, pubkeyPath string, frontendDir stri
 	}
 	if pm.ID == "" || pm.Name == "" {
 		return fmt.Errorf("清单缺少必填字段（id/name）")
+	}
+	// 开放端点声明命名空间校验（打包期拦截，避免安装期才发现）
+	if reason := bpkg.ValidateOpenEndpoints(pm.ID, pm.OpenEndpoints); reason != "" {
+		return fmt.Errorf("open_endpoints 声明不合法：%s", reason)
 	}
 	if version == "" {
 		version = pm.Version
@@ -107,7 +112,8 @@ func pack(pluginPath string, binPath string, pubkeyPath string, frontendDir stri
 	manifest := bpkg.Manifest{
 		ID: pm.ID, Name: pm.Name, Version: version,
 		Author: pm.Author.Name, Description: pm.Description, SDK: pm.SDK,
-		Capabilities: pm.Capabilities,
+		Capabilities:  pm.Capabilities,
+		OpenEndpoints: pm.OpenEndpoints,
 	}
 	var content []byte
 	if signer != nil {
