@@ -61,8 +61,9 @@ export function ArticleCard({ post }: { post: PostSummary }) {
         )}
       </p>
 
-      {/* 图集网格（文章图片：首图为主图，多图右侧小图；hover 微放大） */}
-      {post.media.length > 0 && (
+      {/* 图集网格（文章图片：首图为主图，多图右侧小图；hover 微放大）
+          media 空数组兜底（?.）：历史/缓存响应可能为 null，读 length 会崩整页 */}
+      {(post.media?.length ?? 0) > 0 && (
         <Link href={`/posts/${post.id}`} className="mt-3 block">
           <div className="group relative grid grid-cols-2 gap-1 overflow-hidden rounded-lg">
             {post.media.slice(0, 2).map((m) => (

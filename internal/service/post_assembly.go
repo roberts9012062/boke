@@ -152,8 +152,10 @@ func applyImageFallback(summary *model.PostSummary, content string) {
 		summary.ContentType = derivedImageType(summary.Media)
 		return
 	}
-	summary.Media = extractContentImages(content)
-	if len(summary.Media) > 0 {
+	// 仅在正文确有 <img> 时覆盖（extractContentImages 无匹配返回 nil，
+	// 直接赋值会把空数组 [] 变 nil → JSON null，前端文章卡片读 media.length 即崩——v1.5.3 事故）
+	if images := extractContentImages(content); len(images) > 0 {
+		summary.Media = images
 		summary.ContentType = "image"
 	}
 }

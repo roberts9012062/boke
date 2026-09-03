@@ -51,10 +51,10 @@ export function PostCard({ post }: { post: PostSummary }) {
       </p>
 
       {/* 媒体预览：图片按数量自适应（1 原图 / 2-4 横排 / 5-9 九宫格）*/}
-      {post.content_type === "image" && post.media.length > 0 && (
+      {post.content_type === "image" && (post.media?.length ?? 0) > 0 && (
         <MomentImageGrid media={post.media} postHref={`/posts/${post.id}`} />
       )}
-      {post.content_type === "audio" && post.media.length > 0 && (
+      {post.content_type === "audio" && (post.media?.length ?? 0) > 0 && (
         <div className="mt-3">
           <AudioPlayer src={post.media[0].url} duration={0} autoplay={settings.autoplayMedia} />
         </div>
@@ -103,7 +103,7 @@ export function PostCard({ post }: { post: PostSummary }) {
       )}
 
       {/* 视频预览（M2：内嵌播放器，点击卡片进详情页完整播放） */}
-      {post.content_type === "video" && post.media.length > 0 && (
+      {post.content_type === "video" && (post.media?.length ?? 0) > 0 && (
         <Link href={`/posts/${post.id}`} className="mt-3 block" aria-label="查看视频帖子">
           <video
             src={post.media[0].url}

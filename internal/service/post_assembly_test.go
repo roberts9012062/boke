@@ -51,6 +51,11 @@ func TestApplyImageFallback_PlainTextUntouched(t *testing.T) {
 	if summary.ContentType != "text" || len(summary.Media) != 0 {
 		t.Fatalf("期望纯文字帖不被改写，实际 content_type=%q media=%d", summary.ContentType, len(summary.Media))
 	}
+	// 回归（v1.5.3 事故）：无正文图片时不得把空数组覆盖成 nil——
+	// nil 序列化为 JSON null，前端 article-card 读 post.media.length 直接崩
+	if summary.Media == nil {
+		t.Fatal("期望 media 保持空数组（JSON []），被覆盖成了 nil（JSON null）")
+	}
 }
 
 func TestApplyImageFallback_AudioNotDerived(t *testing.T) {
