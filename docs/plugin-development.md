@@ -232,6 +232,12 @@ func (p *MyPlugin) RegisterAPI(api *sdk.APIMux) {
 包为 `{code:0,data}`；插件 `200+{"error"}` 转网关 400；插件 401/403 语义透传。
 白名单精确匹配（未声明子路径/方法不匹配一律 404）。参考实现：nav-links v1.3.16。
 
+> **声明位置（易踩坑）**：`open_endpoints` 须同时写在 **`yueyan-plugin.json`（包内清单源，
+> `bp pack -plugin` 从此文件写入包内 manifest——漏写则包内缺失、安装后目录不出现）**
+> 与市场清单 `plugin.json`（双清单同步维护，参考 nav-links）。另外发版时若先 `publish`
+> 后同步清单，Release tag 会指向旧 commit——发布完成后应把 `v{version}` tag 移至最新
+> main HEAD（升级链路按 tag 钉扎拉取）。
+
 ---
 
 ## 7. 前端扩展（槽位渲染 + 独立页面）
