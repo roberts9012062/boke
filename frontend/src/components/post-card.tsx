@@ -9,7 +9,7 @@
 import Link from "next/link";
 
 import { AudioPlayer } from "@/components/audio-player";
-import { GALLERY_STYLES } from "@/components/image-gallery";
+import { MomentImageGrid } from "@/components/moment-image-grid";
 import { MusicRefPlayer } from "@/components/music-ref-player";
 import { PluginBlock } from "@/components/plugin-block";
 import { PostActions } from "@/components/post-actions";
@@ -50,31 +50,9 @@ export function PostCard({ post }: { post: PostSummary }) {
         {post.summary}
       </p>
 
-      {/* 媒体预览：图片网格（列表首图）/ 音频播放条 */}
+      {/* 媒体预览：图片按数量自适应（1 原图 / 2-4 横排 / 5-9 九宫格）*/}
       {post.content_type === "image" && post.media.length > 0 && (
-        <Link href={`/posts/${post.id}`} className="mt-3 block">
-          {/* 首图为主图，多图右侧小图（设计稿图片帖网格）；hover 微放大 */}
-          <div className="group relative grid grid-cols-2 gap-1 overflow-hidden rounded-lg">
-            {post.media.slice(0, 2).map((m) => (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                key={m.id}
-                src={m.url}
-                alt=""
-                loading="lazy"
-                className={`aspect-[4/3] w-full object-cover transition-transform duration-[var(--yy-duration-slow)] ease-[var(--yy-ease-out)] group-hover:scale-[1.03] ${
-                  post.media.length === 1 ? "col-span-2" : ""
-                }`}
-              />
-            ))}
-            {/* 展示风格标签（非默认网格时显示） */}
-            {post.gallery_style && (
-              <span className="absolute bottom-1.5 right-1.5 rounded-md bg-black/55 px-1.5 py-0.5 text-[10px] font-medium text-white">
-                {GALLERY_STYLES.find((s) => s.key === post.gallery_style)?.label ?? post.gallery_style}
-              </span>
-            )}
-          </div>
-        </Link>
+        <MomentImageGrid media={post.media} postHref={`/posts/${post.id}`} />
       )}
       {post.content_type === "audio" && post.media.length > 0 && (
         <div className="mt-3">
