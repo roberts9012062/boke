@@ -249,10 +249,11 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 	musicSvc := service.NewQQMusicService()
 	// 自定义页面服务（后台创建独立页面，前台 /pages/{slug} 访问）
 	pageSvc := service.NewPageService(pageRepo)
-	// 接口开放服务（外部 API Key 生成与管理）
-	openAPISvc := service.NewOpenAPIService(openAPIKeyRepo)
 	// 插件开放目录聚合器（data/plugins/*/manifest.json 的 open_endpoints → 接口开放目录）
+	// ——先于接口开放服务构造：授权校验（normalizeEndpoints）聚合插件贡献端点
 	pluginOpenCatalog := service.NewPluginOpenCatalog(cfg.DataDir, logger)
+	// 接口开放服务（外部 API Key 生成与管理；授权校验含插件开放目录端点）
+	openAPISvc := service.NewOpenAPIService(openAPIKeyRepo, pluginOpenCatalog)
 	// GitHub OAuth 服务（M3.5：连接 GitHub 拉取私有/加速清单；凭证未配置时入口隐藏）
 	oauthSvc := service.NewOAuthService(cfg.GitHubOAuthClientID, cfg.GitHubOAuthSecret, cfg.AIKeySecret, cfg.GitHubToken, settingRepo, ghClient)
 	oauthSvc.RestoreToken(ctx) // 启动恢复 OAuth token（有则优先于 .env 静态 token）

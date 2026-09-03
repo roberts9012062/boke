@@ -25,12 +25,14 @@ const (
 
 // OpenAPIService 接口开放服务（连接器类）。
 type OpenAPIService struct {
-	keys *repository.OpenAPIKeyRepo // 凭证数据访问
+	keys          *repository.OpenAPIKeyRepo // 凭证数据访问
+	pluginCatalog *PluginOpenCatalog         // 插件开放目录聚合器（可空=仅静态目录）
 }
 
 // NewOpenAPIService 创建接口开放服务。
-func NewOpenAPIService(keys *repository.OpenAPIKeyRepo) *OpenAPIService {
-	return &OpenAPIService{keys: keys}
+// 参数：keys 凭证仓库；pluginCatalog 插件开放目录聚合器（可空=仅静态目录，测试/降级兼容）。
+func NewOpenAPIService(keys *repository.OpenAPIKeyRepo, pluginCatalog *PluginOpenCatalog) *OpenAPIService {
+	return &OpenAPIService{keys: keys, pluginCatalog: pluginCatalog}
 }
 
 // generateAPIKey 生成随机 Key：oa_ 前缀 + 32 字节随机数的 hex（64 字符；纯函数）。
@@ -42,13 +44,20 @@ func generateAPIKey() (string, error) {
 	return openAPIKeyPrefix + hex.EncodeToString(buf), nil
 }
 
-// normalizeEndpoints 校验并去重接口标识清单（纯函数；创建与权限设置共用）。
+// normalizeEndpoints 校验并去重接口标识清单（创建与权限设置共用）。
 // 规则：至少一个、全部在目录内（防绕过目录授权未开放接口）、保持原顺序去重。
-func normalizeEndpoints(endpoints []string) ([]string, error) {
+// 目录 = 宿主静态内置 ∪ 插件贡献（open_endpoints 声明，15s TTL 聚合）——
+// 修复 bug：此前仅静态目录校验，勾选插件端点（如 tg-image-bed.upload）保存即被拒。
+func (s *OpenAPIService) normalizeEndpoints(endpoints []string) ([]string, error) {
 	if len(endpoints) == 0 {
 		return nil, errs.New(errs.CodeBadRequest, "请至少选择一个接口")
 	}
 	valid := model.CatalogEndpoints()
+	if s.pluginCatalog != nil {
+		for _, entry := range s.pluginCatalog.Entries() {
+			valid[entry.Endpoint] = true
+		}
+	}
 	seen := make(map[string]bool, len(endpoints))
 	for _, ep := range endpoints {
 		if !valid[ep] {
@@ -75,7 +84,7 @@ func (s *OpenAPIService) CreateKey(ctx context.Context, req model.CreateOpenAPIK
 	if utf8.RuneCountInString(name) > openAPIKeyNameMaxLen {
 		return nil, errs.New(errs.CodeBadRequest, "备注名不能超过 100 字")
 	}
-	endpoints, err := normalizeEndpoints(req.Endpoints)
+	endpoints, err := s.normalizeEndpoints(req.Endpoints)
 	if err != nil {
 		return nil, err
 	}
@@ -126,7 +135,7 @@ func (s *OpenAPIService) DeleteKey(ctx context.Context, id int64) error {
 // UpdateKeyEndpoints 更新凭证的授权接口清单（后台「权限设置」：增/减可调用的接口）。
 // 校验与创建同规（目录内、≥1、去重）；返回更新后的完整凭证。
 func (s *OpenAPIService) UpdateKeyEndpoints(ctx context.Context, id int64, endpoints []string) (*model.OpenAPIKey, error) {
-	normalized, err := normalizeEndpoints(endpoints)
+	normalized, err := s.normalizeEndpoints(endpoints)
 	if err != nil {
 		return nil, err
 	}
