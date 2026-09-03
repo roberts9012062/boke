@@ -10,6 +10,7 @@ import {
   apiAdminAddSensitiveWords,
   apiAdminSaveSettings,
   apiAdminSettings,
+  apiInstalledPlugins,
 } from "@/lib/api";
 
 // AdminSettings 站点设置。
@@ -21,6 +22,8 @@ export default function AdminSettings() {
   const [theme, setTheme] = useState<string>("cool-moon");
   const [maintenanceMode, setMaintenanceMode] = useState<boolean>(false); // 维护开关（M2）
   const [sensitiveWords, setSensitiveWords] = useState<string>(""); // 敏感词（逗号分隔，设计稿）
+  const [mediaStorage, setMediaStorage] = useState<string>(""); // 图床接管插件（空=自动发现）
+  const [storageCandidates, setStorageCandidates] = useState<{ id: string; name: string }[]>([]); // 图床候选（已安装且声明 storage_provider）
   const [loaded, setLoaded] = useState<boolean>(false);
   const [saved, setSaved] = useState<boolean>(false);
   const [savedText, setSavedText] = useState<string>(""); // 敏感词添加成功提示
@@ -36,11 +39,24 @@ export default function AdminSettings() {
         setCommentOpen(s.comment_open !== "false");
         setTheme(s.theme ?? "cool-moon");
         setMaintenanceMode(s.maintenance_mode === "on");
+        setMediaStorage(s.media_storage_plugin ?? "");
       })
       .catch(() => {
         // 读取失败保持默认
       })
       .finally(() => setLoaded(true));
+    // 图床候选：已安装插件中声明 storage_provider 的（图床插件下拉数据源）
+    apiInstalledPlugins()
+      .then((r) => {
+        setStorageCandidates(
+          r.items
+            .filter((p) => p.storage_provider)
+            .map((p) => ({ id: p.plugin_id, name: p.name })),
+        );
+      })
+      .catch(() => {
+        // 候选拉取失败：下拉仅保留「自动」，不影响其余设置
+      });
   }, []);
 
   // 保存（站点设置 + 敏感词批量添加，设计稿「保存设置」按钮）
@@ -56,6 +72,7 @@ export default function AdminSettings() {
         comment_open: String(commentOpen),
         theme,
         maintenance_mode: maintenanceMode ? "on" : "off",
+        media_storage_plugin: mediaStorage,
       });
       // 敏感词（逗号分隔，支持中英文逗号）：批量添加为 forbidden 级别（设计稿字段）
       const words = sensitiveWords
@@ -220,6 +237,29 @@ export default function AdminSettings() {
               </button>
             ))}
           </div>
+        </div>
+
+        {/* 图床插件（media.storage seam 提供方选择：发帖插图直达外部图床存储） */}
+        <div>
+          <label htmlFor="media-storage" className="mb-1.5 block text-sm text-ink-2">
+            图床插件
+          </label>
+          <select
+            id="media-storage"
+            value={mediaStorage}
+            onChange={(e) => setMediaStorage(e.target.value)}
+            className="h-11 w-full rounded-lg border border-line bg-muted px-4 text-sm text-ink focus:border-accent focus:outline-none"
+          >
+            <option value="">自动（按安装情况接管）</option>
+            {storageCandidates.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}（{p.id}）
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-xs text-ink-3">
+            发帖插图上传直达所选图床插件；插件未运行时自动回退本地存储。候选为已安装的图床类插件。
+          </p>
         </div>
 
         {error && (

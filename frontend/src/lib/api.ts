@@ -766,6 +766,7 @@ export interface InstalledPlugin {
   created_at: string; // 安装时间
   nav?: PluginNav; // 侧栏入口声明（动态扩展）
   settings_schema?: PluginSettingField[]; // 设置项 schema
+  storage_provider?: boolean; // 图床声明（media.storage seam 候选；后台设置页图床插件下拉）
 }
 
 // 插件许可证状态（M3.5：Ed25519 签发/验签）。

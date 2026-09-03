@@ -53,6 +53,7 @@ func (s *AdminService) SaveSettings(ctx context.Context, updates map[string]stri
 		"theme": true, "maintenance_mode": true, // 维护开关（M2）
 		"plugin_source": true, // 插件源仓库（M3.1，owner/repo）
 		"plugin_proxy":  true, // GitHub 加速代理（国内网络直连失败时选择，空=直连）
+		"media_storage_plugin": true, // 图床接管插件（media.storage seam 提供方；空=自动发现，值=插件 ID）
 		"nav_links": true, // 头部导航配置（JSON 数组，前台头部导航自定义）
 	}
 	filtered := make(map[string]string, len(updates))

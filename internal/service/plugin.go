@@ -46,6 +46,7 @@ type InstalledPluginDTO struct {
 	CreatedAt time.Time `json:"created_at"`  // 安装时间
 	Nav       *PluginNav `json:"nav,omitempty"` // 侧栏入口声明（前端动态扩展）
 	SettingsSchema []PluginSettingField `json:"settings_schema,omitempty"` // 设置项 schema（设置页）
+	StorageProvider bool `json:"storage_provider,omitempty"` // 图床声明（media.storage seam 候选；后台设置页图床插件下拉）
 }
 
 // manifestCache/readmeCache 类型定义见 plugin_market.go（商城缓存）。
@@ -110,6 +111,7 @@ func (s *PluginService) ListInstalled(ctx context.Context) ([]InstalledPluginDTO
 			if info, ok := byID[items[i].PluginID]; ok {
 				items[i].Nav = info.Nav
 				items[i].SettingsSchema = info.SettingsSchema
+				items[i].StorageProvider = info.StorageProvider
 			}
 		}
 	}

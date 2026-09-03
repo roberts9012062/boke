@@ -1,6 +1,7 @@
 # TG 图床插件方案（tg-image-bed）
 
 > 状态：已拍板（2026-09-03）——形态 A1 独立图库（零宿主改动，实现 /storage/* 契约端点备用）；默认发送模式 document 原图（设置项可切 photo）；api_proxy 可选代理设置项
+> 追加（2026-09-03 晚）：**A2 落地**——宿主媒体存储 seam 提供方从硬编码 image-cdn 改为「设置项 `media_storage_plugin` 显式指定 → 市场清单 `storage_provider: true` 声明发现（running 校验，字典序稳定）→ 静态兜底 image-cdn」三级解析；每次上传即时解析（不走注册表缓存，切换设置即时生效；上传低频成本可控）；`InstalledPluginDTO` 透出 `storage_provider` 供后台设置页下拉候选。发帖插图（POST /api/v1/media → UploadMedia → seam）直达 TG，前端上传链路零改动。
 > 日期：2026-09-03
 > 参考：[x-dr/telegraph-Image](https://github.com/x-dr/telegraph-Image)（TG 渠道机制研究）、`marketplace-repo/image-cdn`（同架构先例：R2 图床 + Worker 反代）
 > 目标：把 telegraph-Image 的 **TG Bot API 渠道**（`TG_BOT_TOKEN` + `TG_CHAT_ID` 模式）做成月言博客插件；不做 telegra.ph 渠道、不做 58img/tencent/r2 等其他渠道。

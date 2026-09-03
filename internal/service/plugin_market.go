@@ -62,6 +62,7 @@ type PluginInfo struct {
 	Conflicts    []string `json:"conflicts"`    // 冲突插件 ID（不可同时安装，M3.2）
 	Platforms    []string `json:"platforms,omitempty"` // 支持平台（linux/darwin/windows，M3.4）
 	MusicProvider string   `json:"music_provider,omitempty"` // 音乐源声明（E7：provider 名如 qq/netease；宿主 /music/:provider/* 桥接动态发现）
+	StorageProvider bool  `json:"storage_provider,omitempty"` // 图床声明（media.storage seam 提供方候选：发帖上传直达外部存储；宿主按设置项/清单发现选取）
 	Assets       *PluginAssets `json:"assets,omitempty"` // Release 资产声明（M3.4）
 	Nav          *PluginNav `json:"nav,omitempty"` // 侧栏入口声明（安装启用后注册，前端扩展点）
 	SettingsSchema []PluginSettingField `json:"settings_schema,omitempty"` // 设置项 schema（schema 驱动设置页）
@@ -428,4 +429,28 @@ func (s *PluginService) MusicProviderPlugin(ctx context.Context, provider string
 		return "", nil
 	}
 	return pluginID, nil
+}
+
+// StorageProviderPlugins 返回全部图床声明插件中「已安装且 running」的插件 ID（字典序稳定）。
+// 供 media.storage seam 自动发现（多图床并存时取首个；管理员可用设置项 media_storage_plugin 显式指定）。
+// 清单拉取失败返回空列表（调用方回退静态兜底 image-cdn）。
+func (s *PluginService) StorageProviderPlugins(ctx context.Context) []string {
+	manifest, err := s.fetchManifest(ctx, "")
+	if err != nil {
+		return nil
+	}
+	ids := make([]string, 0, 2)
+	for i := range manifest.Plugins {
+		if !manifest.Plugins[i].StorageProvider {
+			continue
+		}
+		id := manifest.Plugins[i].ID
+		inst, err := s.plugs.FindByPluginID(ctx, id)
+		if err != nil || inst.State != PluginRunning {
+			continue
+		}
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
 }

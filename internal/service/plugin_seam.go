@@ -14,6 +14,7 @@ package service
 
 import (
 	"context"
+	"strings"
 
 	"github.com/roberts9012062/boke/internal/plugin"
 	"github.com/roberts9012062/boke/pkg/errs"
@@ -70,26 +71,54 @@ func (s *PluginService) discoverMusicPluginID(ctx context.Context, provider stri
 	return musicFallbackProviders[provider], nil // 静态兜底（未命中为空串）
 }
 
-// mediaStorageProviderID media.storage seam 的固定提供方插件（图床类插件；
-// 单实例键无需 provider 发现——运行即接管，停用即回退本地存储）。
+// mediaStorageProviderID media.storage seam 的静态兜底提供方（图床类插件；
+// 管理员未配置且清单发现未命中时使用——运行即接管，停用即回退本地存储）。
 const mediaStorageProviderID = "image-cdn"
 
+// mediaStorageSettingKey 图床接管插件设置键（settings 表；值=插件 ID，空=自动发现）。
+const mediaStorageSettingKey = "media_storage_plugin"
+
 // MediaStorageSeam 返回媒体存储 seam 查找闭包（PostService 上传链路注入——
-// 构造时闭包捕获 s，调用时才查注册表/实例状态，规避装配顺序耦合）。
-// 语义：图床插件 running 且已注册（或此刻懒注册成功）→ 返回适配器与 true；
-// 未安装/未运行 → false（调用方走本地磁盘存储）。
+// 构造时闭包捕获 s，调用时才解析提供方，规避装配顺序耦合）。
+// 语义：解析出 running 的图床插件 → 返回适配器与 true；未安装/未运行 → false（走本地磁盘）。
+// 提供方解析三级（每次上传即时解析——切换设置/启停插件即时生效，不走注册表缓存；
+// 上传为低频操作，一次设置读取 + 一次实例查询的成本可接受）：
+//  1. 宿主设置 media_storage_plugin 显式指定（最高优先；非 running 忽略）
+//  2. 市场清单 storage_provider 声明且 running（字典序取第一——多图床自动模式）
+//  3. 静态兜底 image-cdn（历史行为兼容）
 func (s *PluginService) MediaStorageSeam() func() (plugin.MediaStorage, bool) {
 	return func() (plugin.MediaStorage, bool) {
-		key := plugin.MediaStorageKey()
-		if st, ok := plugin.LookupService[plugin.MediaStorage](s.seamRegistry(), key); ok {
-			return st, true
+		if id := s.resolveMediaStoragePluginID(); id != "" {
+			return plugin.NewMediaStorageAdapter(id, s.CallAPI, seamSystemCaller), true
 		}
-		inst, err := s.plugs.FindByPluginID(context.Background(), mediaStorageProviderID)
-		if err != nil || inst.State != PluginRunning {
-			return nil, false
-		}
-		adapter := plugin.NewMediaStorageAdapter(mediaStorageProviderID, s.CallAPI, seamSystemCaller)
-		s.seamRegistry().Register(key, mediaStorageProviderID, adapter)
-		return adapter, true
+		return nil, false
 	}
+}
+
+// resolveMediaStoragePluginID 解析当前应接管的图床插件 ID（无可用返回空串）。
+func (s *PluginService) resolveMediaStoragePluginID() string {
+	// 1) 管理员显式指定（读取失败按未配置处理，不阻断上传）
+	if s.settings != nil {
+		if pinned, ok, err := s.settings.Get(context.Background(), mediaStorageSettingKey); err == nil && ok {
+			pinned = strings.TrimSpace(pinned)
+			if pinned != "" && s.pluginRunning(pinned) {
+				return pinned
+			}
+		}
+	}
+	// 2) 清单 storage_provider 声明发现（多图床自动：字典序第一）
+	if candidates := s.StorageProviderPlugins(context.Background()); len(candidates) > 0 {
+		return candidates[0]
+	}
+	// 3) 静态兜底（image-cdn，行为与历史版本一致）
+	if s.pluginRunning(mediaStorageProviderID) {
+		return mediaStorageProviderID
+	}
+	return ""
+}
+
+// pluginRunning 插件是否已安装且 running（查询失败视为未运行）。
+func (s *PluginService) pluginRunning(pluginID string) bool {
+	inst, err := s.plugs.FindByPluginID(context.Background(), pluginID)
+	return err == nil && inst.State == PluginRunning
 }
