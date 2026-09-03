@@ -115,6 +115,7 @@ yueyan-plugins/                  # 插件源仓库（默认 roberts9012062/yueya
 | `repo_url` | string | 源码仓库（Release 资产发布源） |
 | `nav` | object | 后台侧栏入口（`{href, label, icon}`） |
 | `settings_schema` | object[] | 设置项声明（`{key,label,type,default,options}`；type: text/switch/select） |
+| `open_endpoints` | object[] | **声明式开放端点**（宿主 v1.4.1+，见 6.4 节）：声明插件对外暴露的开放接口，安装/升级后自动进后台「接口开放」目录，经泛化网关 `/api/v1/open/plugins/{id}/…` 转发到插件进程——插件上新开放接口无需主程序发版 |
 
 > **约定**：`README.md` 为商城「详情」弹窗展示内容（渲染 Markdown，支持表格/列表/代码块），应包含功能特性、安装方式、配置说明与 FAQ；缺少该文件时详情页提示「暂无介绍」。
 
@@ -203,6 +204,33 @@ func (p *MyPlugin) RegisterAPI(api *sdk.APIMux) {
     })
 }
 ```
+
+### 6.4 声明式开放端点（对外部应用开放，宿主 v1.4.1+）
+
+自定义 API 默认需登录才能调用；想让**外部应用**（如月言浏览器插件）凭 API Key 调用，
+在 `plugin.json` 声明 `open_endpoints` 即可——安装/升级后自动出现在后台「接口开放」目录，
+站长给 Key 勾选授权后，经泛化网关 `/api/v1/open/plugins/{插件ID}/…` 以 System 身份转发到
+插件进程（**插件上新开放接口无需主程序发版**）：
+
+```json
+"open_endpoints": [
+  {
+    "endpoint": "my-plugin.stats",              // 必须以 {插件ID}. 前缀
+    "method": "GET",                             // 对外方法（GET/POST）
+    "plugin_method": "POST",                     // 可选：插件端方法（缺省=method；对外 GET 调插件 POST）
+    "path": "/api/v1/open/plugins/my-plugin/stats", // 必须位于该命名空间下；去前缀即插件端路径
+    "name": "统计数据",                           // 必填：目录展示名
+    "description": "返回站点统计摘要",
+    "params": [{"name":"days","type":"integer","location":"query","required":false,"description":"统计天数"}],
+    "trusted_body": { "admin": true }            // 可选：受信 body 注入（覆盖外部同名键，防伪造身份字段）
+  }
+]
+```
+
+**校验链**：打包期（`bp pack` 拒绝违规声明）→ 安装期（解析 manifest 校验）→ 运行期
+（聚合目录防御性复校 + 与宿主内置目录标识冲突跳过）。**响应语义**：插件 200 数据被网关
+包为 `{code:0,data}`；插件 `200+{"error"}` 转网关 400；插件 401/403 语义透传。
+白名单精确匹配（未声明子路径/方法不匹配一律 404）。参考实现：nav-links v1.3.16。
 
 ---
 
