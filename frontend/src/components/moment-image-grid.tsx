@@ -32,10 +32,10 @@ export function MomentImageGrid({ media, postHref }: { media: MediaDTO[]; postHr
   return (
     <Link href={postHref} className="mt-3 block">
       <div className={`group relative overflow-hidden rounded-lg ${gridClassFor(images.length)}`}>
-        {images.map((m) => (
+        {images.map((m, i) => (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            key={m.id}
+            key={`${m.id}-${i}`}
             src={m.url}
             alt=""
             loading="lazy"

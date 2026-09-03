@@ -57,6 +57,11 @@ func (s *PostService) assembleSummaries(ctx context.Context, posts []model.Post,
 		if err := s.fillMedia(ctx, &summary, post.MediaIDs); err != nil {
 			return nil, err
 		}
+		// 形态兜底（列表读路径）：
+		//   1) content_type=text 但媒体库关联了图片（插件早期发布硬编码 text）→ 归一为 image；
+		//   2) media 为空但正文内嵌 <img>（TG 图床通道：图片直链进正文、不关联媒体库）
+		//      → 提取正文图片填入 media，时间线网格才能显示。
+		applyImageFallback(&summary, post.Content)
 		summaries = append(summaries, summary)
 	}
 	// 批量补齐收藏数（M1.7 技术债修复：一次查询填充全部摘要，替代逐条 N+1）
@@ -129,6 +134,58 @@ func (s *PostService) fillMedia(ctx context.Context, summary *model.PostSummary,
 		})
 	}
 	return nil
+}
+
+// ---------- 列表形态兜底（图片说说归一 + 正文图片提取） ----------
+
+// 正文 <img> 的 src 属性（插件发布序列化固定双引号；src 在前在后均可命中）。
+var imgSrcRe = regexp.MustCompile(`<img[^>]+src="([^"]+)"`)
+
+// applyImageFallback 列表摘要形态兜底（仅 text 帖，不覆盖显式 audio/video）：
+//   - 媒体库已关联图片 → content_type 归一为 image（插件早期发布带图说说硬编码 text 的历史修复）；
+//   - 媒体库为空但正文内嵌 <img>（TG 图床通道）→ 提取正文图片合成 media 并归一 image。
+func applyImageFallback(summary *model.PostSummary, content string) {
+	if summary.ContentType != "text" {
+		return
+	}
+	if len(summary.Media) > 0 {
+		summary.ContentType = derivedImageType(summary.Media)
+		return
+	}
+	summary.Media = extractContentImages(content)
+	if len(summary.Media) > 0 {
+		summary.ContentType = "image"
+	}
+}
+
+// derivedImageType 媒体全为图片时返回 image，否则保持 text（纯函数；
+// 混合媒体不推导——音频帖误传 text 的场景维持原形态）。
+func derivedImageType(media []model.MediaDTO) string {
+	for _, m := range media {
+		if m.Type != "image" {
+			return "text"
+		}
+	}
+	return "image"
+}
+
+// extractContentImages 从正文 HTML 提取 <img> 图片列表（纯函数，合成 MediaDTO 供时间线网格渲染；
+// 与 extractMusicEmbed/extractBilibiliEmbed 同构：正文嵌入提取 → 列表卡片渲染。
+// ID 置 0（不在媒体库），URL 反转义实体（正文序列化 & → &amp;，同音乐嵌入处理）。
+func extractContentImages(content string) []model.MediaDTO {
+	matches := imgSrcRe.FindAllStringSubmatch(content, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	images := make([]model.MediaDTO, 0, len(matches))
+	for _, m := range matches {
+		images = append(images, model.MediaDTO{
+			ID:   0,
+			Type: "image",
+			URL:  html.UnescapeString(m[1]),
+		})
+	}
+	return images
 }
 
 // GetAdminDetail 后台编辑详情（设计稿《后台编辑》四画板：编辑区/发布信息/互动数据/操作）。
