@@ -98,6 +98,25 @@ cp .env.example .env   # 填写数据库连接与 JWT_SECRET
 
 配置文件位于 `docker/searxng/settings.yml`（默认开启 JSON API、关闭限流——内网专用形态，按需自行调整聚合源）。
 
+## 🌙 配套生态：月言浏览器插件
+
+**[月言博客助手（yueyan-browser-extension）](https://github.com/roberts9012062/yueyan-browser-extension)** —— 本项目的官方浏览器侧边栏插件，**同时支持 Google Chrome 与 Microsoft Edge**（Chromium / Manifest V3，最低版本 110），一套代码、一份产物。
+
+凭站点 URL + API Key 连接（站点后台「接口开放」生成），所有数据只保存在浏览器本地：
+
+| 模块 | 能力 |
+|---|---|
+| 🏠 首页 | 站点动态时间线、底部快捷写说说（文字/图/视频/音乐/链接） |
+| 🤖 AI 助手 | 多模型对话（流式）、联网搜索、AI 生图、网页总结、区域截图识图、「生成文章」一键润色发布 |
+| 🔖 书签夹 | 本地书签树（拖拽/搜索/查重/失效检测）、导入浏览器书签、站点导航同步、AI 识别添加 |
+| 🖱️ 右键菜单 | 总结本页发布博客、收藏本页（AI 自动分类）、发说说草稿篮、截图 AI 分析 |
+| 🌙 悬浮球 | 可拖动月亮桌宠：悬停快捷菜单、右键任务执行框 |
+| 🛏️ 发布图床 | 文章与说说图片可选 站点服务器 / [TG 图床](https://github.com/roberts9012062/yueyan-plugins/tree/main/tg-image-bed) / CF 图床 三通道 |
+
+**传送门**：[插件源码与开发手册](https://github.com/roberts9012062/yueyan-browser-extension) · [安装包下载（Releases）](https://github.com/roberts9012062/yueyan-browser-extension/releases)
+
+> 站点侧插件生态（TG图床、音乐、B站视频、导航、SEO 等 13+ 插件）见 [月言插件库（yueyan-plugins）](https://github.com/roberts9012062/yueyan-plugins)，站点后台「插件市场」可一键安装。
+
 ## 📁 目录结构
 
 ```
