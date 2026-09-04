@@ -284,6 +284,13 @@ export default function register(ctx) {
 ```
 页面模块默认导出 `registerPage(ctx)`（`ctx: { container, api, user, params }`），访问路径 `/admin/plugin-pages/{插件ID}/{route}`（后台权限守卫 + 插件 running 校验）。完整示例见第 18 章。
 
+**插件页面同源调用宿主 REST**（先例：tg-image-bed v0.4.0 图片体检页）——非沙箱 ESM 页面与主站
+同源，可直接 `fetch('/api/v1/...')`（`credentials: "same-origin"`）调用宿主 REST 接口：
+登录态自动携带、权限由宿主服务端校验兜底（插件不获得任何越权能力）。适合「插件页面需要读
+站点数据（如帖子正文）又不必扩 SDK `data.read`」的场景；端到端参考 `tg-image-bed` 源码
+（检测正文图片 → 转存 TG → `PUT /admin/posts/:id` 回写正文）。注意：沙箱（`sandbox: true`）
+页面在 iframe 内不同源，不适用此方式。
+
 **前台公开页面**（`pages[].scope: "site"`，site.page 能力）——插件声明自己的前台页面，访客可访问：
 ```json
 { "pages": [
