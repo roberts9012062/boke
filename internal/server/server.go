@@ -251,7 +251,7 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 	// 自定义页面服务（后台创建独立页面，前台 /pages/{slug} 访问）
 	pageSvc := service.NewPageService(pageRepo)
 	// 中继站对接服务（大世界：配置 / 连接测试 / 发布出口；出站方向唯一）
-	relaySvc := service.NewRelayService(relayRepo, postRepo, tagRepo, mediaRepo, cfg, logger)
+	relaySvc := service.NewRelayService(relayRepo, postRepo, tagRepo, mediaRepo, settingRepo, cfg, logger)
 	// 发帖成功后异步推送中继站（失败仅日志；幂等键 origin_id=帖子 ID）
 	postSvc.SetRelayHook(relaySvc.PublishPostAsync)
 	// 订阅任务管理器（监视配置变化启停 worker，保存后 ≤5s 生效）

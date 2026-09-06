@@ -25,20 +25,21 @@ const relayHTTPTimeout = 15 * time.Second
 
 // RelayService 中继站配置与发布出口。
 type RelayService struct {
-	relay   *repository.RelayRepo
-	posts   *repository.PostRepo
-	tags    *repository.TagRepo
-	media   *repository.MediaRepo
-	cfg     config.Config
-	log     *zap.Logger
-	client  *http.Client
+	relay    *repository.RelayRepo
+	posts    *repository.PostRepo
+	tags     *repository.TagRepo
+	media    *repository.MediaRepo
+	settings *repository.SettingRepo // 站点设置（握手上报站名取 site_name）
+	cfg      config.Config
+	log      *zap.Logger
+	client   *http.Client
 }
 
 // NewRelayService 构造中继站服务。
 func NewRelayService(relay *repository.RelayRepo, posts *repository.PostRepo, tags *repository.TagRepo,
-	media *repository.MediaRepo, cfg config.Config, log *zap.Logger) *RelayService {
+	media *repository.MediaRepo, settings *repository.SettingRepo, cfg config.Config, log *zap.Logger) *RelayService {
 	return &RelayService{
-		relay: relay, posts: posts, tags: tags, media: media, cfg: cfg, log: log,
+		relay: relay, posts: posts, tags: tags, media: media, settings: settings, cfg: cfg, log: log,
 		client: &http.Client{Timeout: relayHTTPTimeout},
 	}
 }
@@ -108,11 +109,17 @@ func (s *RelayService) TestConnection(ctx context.Context, url string, siteKey s
 	return resp, nil
 }
 
-// siteBrief 本站概要（握手上报用）：M0 从简——站名取 host，头像留空由中继站后台维护。
+// siteBrief 本站概要（握手上报用）：站名取站点设置的 site_name（缺省回退 host），头像留空。
 func (s *RelayService) siteBrief() (string, string) {
 	host := s.cfg.SiteBaseURL
 	host = strings.TrimPrefix(strings.TrimPrefix(host, "https://"), "http://")
-	return host, ""
+	name := host
+	if s.settings != nil {
+		if v, found, err := s.settings.Get(context.Background(), "site_name"); err == nil && found && v != "" {
+			name = v
+		}
+	}
+	return name, ""
 }
 
 // PublishPostAsync 发布出口：帖子发布成功后异步推送中继站（失败仅日志，不打断发帖；
