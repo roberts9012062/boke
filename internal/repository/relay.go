@@ -82,12 +82,12 @@ func (r *RelayRepo) UpsertCache(ctx context.Context, item model.RelayCacheItem, 
 	}
 	_, err = r.pool.Exec(ctx, `
 		INSERT INTO relay_content_cache (content_id, payload_json, published_at, fetched_at, expires_at)
-		VALUES ($1, $2, $3, now(), now() + ($4 || ' days')::interval)
+		VALUES ($1, $2, $3, now(), now() + ($4 * interval '1 day'))
 		ON CONFLICT (content_id) DO UPDATE SET
 			payload_json = EXCLUDED.payload_json,
 			published_at = EXCLUDED.published_at,
 			fetched_at = now(),
-			expires_at = now() + ($4 || ' days')::interval`,
+			expires_at = now() + ($4 * interval '1 day')`,
 		item.ContentID, payloadJSON, item.PublishedAt, retentionDays)
 	return err
 }
