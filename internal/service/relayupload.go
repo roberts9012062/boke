@@ -75,7 +75,7 @@ func (s *RelayService) uploadMediaToRelay(ctx context.Context, rc model.RelayCon
 	if err := json.Unmarshal(respBody, &envelope); err != nil {
 		return "", fmt.Errorf("中继站响应异常（HTTP %d）", resp.StatusCode)
 	}
-	if resp.StatusCode != 200 || envelope.Code != 0 {
+	if resp.StatusCode != 200 || !relayCodeOK(envelope.Code) {
 		return "", fmt.Errorf("中继站错误 [%v] %s", envelope.Code, envelope.Message)
 	}
 	return envelope.Data.MediaURL, nil

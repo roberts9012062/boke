@@ -257,6 +257,15 @@ func (s *RelayService) postTags(ctx context.Context, postID int64) []string {
 	return names
 }
 
+// relayCodeOK 判断中继站统一响应包的 code 是否为成功（0）。
+// code 在 JSON 中解析为 any：数字 0 是 float64(0)，与 int 0 直接比较恒不等（类型不同）。
+func relayCodeOK(code any) bool {
+	if n, ok := code.(float64); ok {
+		return n == 0
+	}
+	return code == nil
+}
+
 // baseURL 本站对外基础 URL（握手上报 base_url 用）。
 func (s *RelayService) baseURL() string { return s.cfg.SiteBaseURL }
 
@@ -281,7 +290,7 @@ func (s *RelayService) getJSON(ctx context.Context, url string, siteKey string, 
 	if err := json.Unmarshal(respBody, &envelope); err != nil {
 		return fmt.Errorf("中继站响应异常（HTTP %d）", resp.StatusCode)
 	}
-	if resp.StatusCode != 200 || envelope.Code != 0 {
+	if resp.StatusCode != 200 || !relayCodeOK(envelope.Code) {
 		return fmt.Errorf("中继站错误 [%v] %s", envelope.Code, envelope.Message)
 	}
 	if out != nil && len(envelope.Data) > 0 {
@@ -316,7 +325,7 @@ func (s *RelayService) postJSON(ctx context.Context, url string, siteKey string,
 	if err := json.Unmarshal(respBody, &envelope); err != nil {
 		return fmt.Errorf("中继站响应异常（HTTP %d）", resp.StatusCode)
 	}
-	if resp.StatusCode != 200 || envelope.Code != 0 {
+	if resp.StatusCode != 200 || !relayCodeOK(envelope.Code) {
 		return fmt.Errorf("中继站错误 [%v] %s", envelope.Code, envelope.Message)
 	}
 	if out != nil && len(envelope.Data) > 0 {
