@@ -52,6 +52,7 @@ type Handlers struct {
 	OpenAPI     *handler.OpenAPIHandler       // 接口开放控制器（目录与凭证管理）
 	OpenAPIKeys *repository.OpenAPIKeyRepo   // 开放网关鉴权依赖（ApiKeyAuth 中间件查询凭证用）
 	Update    *handler.UpdateHandler   // 站点更新控制器（版本检查/触发/进度）
+	Relay     *handler.RelayHandler    // 中继站控制器（大世界：后台配置 + 前台列表）
 }
 
 // Register 注册全部路由并返回 Gin 引擎。
@@ -247,6 +248,10 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager, e
 	// ---------- 站点元信息（M1.7：改从 settings 表实时读取） ----------
 	api.GET("/meta", handlers.Site.GetMeta)
 
+	// ---------- 大世界（中继站聚合流，公开：读本地缓存） ----------
+	api.GET("/relay/status", handlers.Relay.WorldStatus)
+	api.GET("/relay/contents", handlers.Relay.ListWorld)
+
 	// ---------- 自定义页面（公开：仅已发布页面，草稿视同不存在） ----------
 	api.GET("/pages/:slug", handlers.Page.GetBySlug)
 
@@ -362,6 +367,11 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager, e
 		settings := adminGroup.Group("/settings", perm(casbin.DomainSettings))
 		settings.GET("", handlers.Admin.GetSettings)
 		settings.PUT("", handlers.Admin.SaveSettings)
+		// 中继站对接域（大世界）：配置回显 / 连接测试 / 保存即重启订阅
+		relay := adminGroup.Group("/relay", perm(casbin.DomainRelay))
+		relay.GET("", handlers.Relay.GetConfig)
+		relay.POST("/test", handlers.Relay.TestConnection)
+		relay.PUT("", handlers.Relay.SaveConfig)
 		// 角色权限域（M5，设计稿《后台角色》）
 		roles := adminGroup.Group("/roles", perm(casbin.DomainRoles))
 		roles.GET("", handlers.Role.Matrix)

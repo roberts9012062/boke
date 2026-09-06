@@ -43,6 +43,7 @@ const MAIN_ITEMS: NavItem[] = [
   { href: "/admin/reports", label: "数据报表", icon: "report", available: true }, // M4-报表 激活
   { href: "/admin/backup", label: "备份导出", icon: "backup", available: true }, // M4-报表 激活
   { href: "/admin/open-api", label: "接口开放", icon: "apikey", available: true }, // 外部 API Key 管理
+  { href: "/admin/relay", label: "中继站", icon: "settings", available: true }, // 大世界对接（B-1'）
 ];
 
 // 插件二级子菜单（插件为一级菜单，子项：插件商城 / 我的插件 / 开发文档；M3.1 激活）

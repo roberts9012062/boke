@@ -41,6 +41,7 @@ const (
 	DomainReports    = "reports"    // 数据报表
 	DomainBackups    = "backups"    // 备份导出
 	DomainOpenAPI    = "openapi"    // 接口开放（外部 API Key 管理与开放网关）
+	DomainRelay      = "relay"      // 中继站对接（大世界）
 )
 
 // AllDomains 全部资源域（superadmin 通配矩阵用）。
@@ -48,6 +49,7 @@ var AllDomains = []string{
 	DomainDashboard, DomainPosts, DomainPages, DomainComments, DomainUsers,
 	DomainMedia, DomainTags, DomainSettings, DomainRoles, DomainModeration,
 	DomainPlugins, DomainSeo, DomainAi, DomainReports, DomainBackups, DomainOpenAPI,
+	DomainRelay,
 }
 
 // defaultMatrix 默认权限矩阵（角色 → 可访问域；设计稿权限范围对齐）。
@@ -55,7 +57,7 @@ var defaultMatrix = map[string][]string{
 	RoleSuperAdmin: AllDomains, // 全部权限
 	RoleEditor: { // 内容·评论·媒体·审核 + 自定义页面
 		DomainDashboard, DomainPosts, DomainPages, DomainComments, DomainMedia,
-		DomainTags, DomainModeration, DomainSeo, DomainAi, DomainReports,
+		DomainTags, DomainModeration, DomainSeo, DomainAi, DomainReports, DomainRelay,
 	},
 	RoleAuthor: { // 发布·媒体上传（posts 域仅本人内容，service 层数据隔离）
 		DomainDashboard, DomainPosts, DomainMedia,

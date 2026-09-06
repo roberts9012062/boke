@@ -15,9 +15,11 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 
-# 源码与编译（-trimpath 去除本机路径）
+# 源码与编译（-trimpath 去除本机路径；附带迁移与种子工具供容器初始化用）
 COPY . .
-RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o /out/server ./cmd/server
+RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o /out/server ./cmd/server \
+ && CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o /out/dbmigrate ./cmd/dbmigrate \
+ && CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o /out/seedadmin ./cmd/seedadmin
 
 # ---------- 运行阶段 ----------
 FROM alpine:3.20
@@ -26,6 +28,8 @@ RUN apk add --no-cache ca-certificates tzdata
 
 WORKDIR /app
 COPY --from=build /out/server /app/server
+COPY --from=build /out/dbmigrate /app/dbmigrate
+COPY --from=build /out/seedadmin /app/seedadmin
 
 # 媒体上传与插件子进程需要；安装向导写入 data/install.lock、data/setup.env
 RUN mkdir -p /app/data /app/logs

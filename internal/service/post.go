@@ -50,7 +50,11 @@ type PostService struct {
 	hooks       plugin.Dispatcher                  // 插件钩子调度器（M3.2 扩展框架）
 	seo         *repository.SeoRepo                // SEO 元数据（M4.1 插件通道：发帖/编辑落库）
 	storageSeam func() (plugin.MediaStorage, bool) // 媒体存储 seam（图床插件接管上传；可空=始终本地）
+	relayHook   func(postID int64)                 // 中继站发布钩子（大世界推送；可空=未启用）
 }
+
+// SetRelayHook 注入中继站发布钩子（装配期调用；发帖成功后异步推送大世界）。
+func (s *PostService) SetRelayHook(fn func(postID int64)) { s.relayHook = fn }
 
 // NewPostService 创建帖子服务。
 // 参数：storageSeam 媒体存储 seam 查找闭包（可空——图床插件运行时上传直达外部对象存储）。
@@ -141,6 +145,10 @@ func (s *PostService) Create(ctx context.Context, userID int64, req model.Create
 	// ---------- 处理标签（查/建/关联/计数） ----------
 	if err := s.syncTags(ctx, postID, req.Tags); err != nil {
 		return 0, err
+	}
+	// ---------- 中继站（大世界）：公开发布成功后异步推送（失败仅日志，幂等可重试） ----------
+	if s.relayHook != nil && post.Status == "published" && post.Visibility == "public" {
+		s.relayHook(postID)
 	}
 	return postID, nil
 }

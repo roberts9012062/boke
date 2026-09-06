@@ -66,7 +66,9 @@ const nextConfig: NextConfig = {
               "style-src 'self' 'unsafe-inline'",
               // img-src 放行 https 外链：正文插图来自任意图床/CDN（CF图床 imgs.* 等）；
               // 图片为无脚本执行的被动资源，风险低于 script/connect（M7/M8 音乐域已含于 https:）
-              "img-src 'self' data: blob: https:",
+              // 大世界（中继站聚合流）：测试环境的中继站可能无 TLS，经 ALLOW_HTTP_IMAGES
+              // 构建开关追加 http: 外链（生产保持严格 https-only）。
+              `img-src 'self' data: blob: ${process.env.ALLOW_HTTP_IMAGES === "true" ? "http: https:" : "https:"}`,
               // media-src 含 blob:：插件 MSE 播放器（B站 DASH 1080P）经 objectURL 装载媒体；
               // bilivideo 域群：B 站视频浏览器直连播放（mp4 durl，视频流量不经服务器中转）
               "media-src 'self' blob: https://*.music.126.net https://*.qq.com https://*.tc.qq.com https://*.bilivideo.com https://*.bilivideo.cn https://*.akamaized.net https://*.mcdn.bilivideo.cn",

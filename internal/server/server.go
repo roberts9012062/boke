@@ -158,6 +158,7 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 	licenseRepo := repository.NewLicenseRepo(conn)       // 插件许可证（M3.5）
 	orderRepo := repository.NewPluginOrderRepo(conn)     // 插件购买订单（M3.9 支付渠道）
 	openAPIKeyRepo := repository.NewOpenAPIKeyRepo(conn) // 接口开放凭证（/open 网关鉴权）
+	relayRepo := repository.NewRelayRepo(conn)           // 中继站对接（大世界配置 + 缓存）
 
 	// ---------- 业务层 ----------
 	limiter := redis.NewRateLimiter(redisClient)
@@ -249,6 +250,12 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 	musicSvc := service.NewQQMusicService()
 	// 自定义页面服务（后台创建独立页面，前台 /pages/{slug} 访问）
 	pageSvc := service.NewPageService(pageRepo)
+	// 中继站对接服务（大世界：配置 / 连接测试 / 发布出口；出站方向唯一）
+	relaySvc := service.NewRelayService(relayRepo, postRepo, tagRepo, mediaRepo, cfg, logger)
+	// 发帖成功后异步推送中继站（失败仅日志；幂等键 origin_id=帖子 ID）
+	postSvc.SetRelayHook(relaySvc.PublishPostAsync)
+	// 订阅任务管理器（监视配置变化启停 worker，保存后 ≤5s 生效）
+	_ = service.NewRelayClientManager(relaySvc, relayRepo, logger)
 	// 插件开放目录聚合器（data/plugins/*/manifest.json 的 open_endpoints → 接口开放目录）
 	// ——先于接口开放服务构造：授权校验（normalizeEndpoints）聚合插件贡献端点
 	pluginOpenCatalog := service.NewPluginOpenCatalog(cfg.DataDir, logger)
@@ -314,6 +321,7 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 		OpenAPI:     handler.NewOpenAPIHandler(openAPISvc, aiSvc, authSvc, postSvc, pluginOpenCatalog, logger),
 		OpenAPIKeys: openAPIKeyRepo,
 		Update:     handler.NewUpdateHandler(ghClient, cfg.DataDir),
+		Relay:      handler.NewRelayHandler(relaySvc),
 	}
 	return handlers, jwtMgr, enforcer, cleanup, nil
 }

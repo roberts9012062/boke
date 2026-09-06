@@ -20,7 +20,7 @@ interface TabItem {
 
 const TABS: readonly TabItem[] = [
   { href: "/", label: "首页", icon: "⌂" },
-  { href: "/search", label: "搜索", icon: "🔍" },
+  { href: "/world", label: "大世界", icon: "🌐" },
   { href: "/compose", label: "发帖", icon: "＋", primary: true },
   { href: "/notifications", label: "通知", icon: "🔔" },
   { href: "/me", label: "我的", icon: "👤" },

@@ -125,7 +125,17 @@ export default function HomePage() {
         {/* 中栏：时间线 */}
         <section className="min-w-0 flex-1">
           <div className="mb-4 flex items-center justify-between">
-            <h1 className="font-display text-xl font-semibold text-ink">时间线</h1>
+            <div className="flex items-center gap-3">
+              <h1 className="font-display text-xl font-semibold text-ink">时间线</h1>
+              {/* 大世界入口（中继站聚合流，B-4'） */}
+              <a
+                href="/world"
+                className="text-sm text-ink-2 transition-colors hover:text-glow"
+                title="跨站聚合流"
+              >
+                🌐 大世界
+              </a>
+            </div>
             {/* 推荐/关注 切换（设计稿关注流） */}
             <div className="flex gap-1 rounded-full border border-line p-0.5">
               {[
