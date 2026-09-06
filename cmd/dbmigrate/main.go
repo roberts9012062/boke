@@ -4,20 +4,24 @@
 // 用途：开发流程文档第 5 章「数据库开发流程」——增量变更一律新增
 //      db/migrations/00N_描述.sql，由本工具统一执行（幂等，可重复运行）。
 // 由 scripts/migrate.sh 调用，配置从环境变量读取。
+// 迁移 SQL 从 db.MigrationsFS（go:embed）读取（v1.5.6 起二进制自包含）：
+//   容器内无需携带 db/ 目录即可执行（update-agent 部署后自动迁移依赖此特性），
+//   且与安装向导（internal/setup）使用同一份嵌入资源，杜绝双来源漂移。
 // 注意：本工具绝不打印密码明文。
 package main
 
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
-	"path/filepath"
+	"path"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/roberts9012062/boke/db"
 	"github.com/roberts9012062/boke/pkg/dbcfg"
 )
 
@@ -39,24 +43,34 @@ func connect(ctx context.Context, connString string) (*pgx.Conn, error) {
 	return pgx.ConnectConfig(ctx, config)
 }
 
-// listMigrationFiles 列出 db/migrations/ 下全部 .sql 文件（按文件名升序）。
-// 返回：迁移文件绝对路径列表；目录不存在时返回错误。
-func listMigrationFiles(dir string) ([]string, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, fmt.Errorf("读取迁移目录失败：%w", err)
-	}
+// migrationName 从嵌入路径（migrations/xxx.sql）提取纯文件名。
+// schema_migrations 历史记录均为纯文件名，必须保持同名语义（换名会触发唯一键冲突）。
+func migrationName(embedPath string) string {
+	return path.Base(embedPath)
+}
 
-	files := make([]string, 0)
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sql") {
-			continue
-		}
-		files = append(files, filepath.Join(dir, entry.Name()))
+// listMigrationNames 列出嵌入的全部迁移文件名（按文件名升序，纯文件名）。
+func listMigrationNames() ([]string, error) {
+	embedPaths, err := fs.Glob(db.MigrationsFS, "migrations/*.sql")
+	if err != nil {
+		return nil, fmt.Errorf("枚举嵌入迁移失败：%w", err)
+	}
+	names := make([]string, 0, len(embedPaths))
+	for _, p := range embedPaths {
+		names = append(names, migrationName(p))
 	}
 	// 按文件名升序（迁移顺序即文件名字典序：001 → 002 → …）
-	sort.Strings(files)
-	return files, nil
+	sort.Strings(names)
+	return names, nil
+}
+
+// readMigrationSQL 读取指定迁移文件的 SQL 内容（嵌入资源）。
+func readMigrationSQL(name string) (string, error) {
+	raw, err := fs.ReadFile(db.MigrationsFS, "migrations/"+name)
+	if err != nil {
+		return "", fmt.Errorf("读取迁移文件失败（%s）：%w", name, err)
+	}
+	return string(raw), nil
 }
 
 // listApplied 查询已执行的迁移文件名集合。
@@ -80,13 +94,7 @@ func listApplied(ctx context.Context, conn *pgx.Conn) (map[string]bool, error) {
 
 // applyMigration 在单个事务中执行迁移 SQL 并记录迁移文件名。
 // 任一步失败则整体回滚，保证迁移原子性。
-func applyMigration(ctx context.Context, conn *pgx.Conn, filename string) error {
-	// 读取迁移文件内容
-	sqlBytes, err := os.ReadFile(filename)
-	if err != nil {
-		return fmt.Errorf("读取迁移文件失败（%s）：%w", filename, err)
-	}
-
+func applyMigration(ctx context.Context, conn *pgx.Conn, name string, sqlText string) error {
 	// 开启事务
 	tx, err := conn.Begin(ctx)
 	if err != nil {
@@ -95,13 +103,13 @@ func applyMigration(ctx context.Context, conn *pgx.Conn, filename string) error 
 	defer tx.Rollback(ctx) //nolint:errcheck // 提交成功后回滚无副作用
 
 	// 执行迁移 SQL
-	if _, err := tx.Exec(ctx, string(sqlBytes)); err != nil {
-		return fmt.Errorf("执行迁移失败（%s）：%w", filepath.Base(filename), err)
+	if _, err := tx.Exec(ctx, sqlText); err != nil {
+		return fmt.Errorf("执行迁移失败（%s）：%w", name, err)
 	}
 	// 记录已执行的迁移文件名
 	if _, err := tx.Exec(ctx,
-		"INSERT INTO schema_migrations (filename) VALUES ($1)", filepath.Base(filename)); err != nil {
-		return fmt.Errorf("记录迁移状态失败（%s）：%w", filepath.Base(filename), err)
+		"INSERT INTO schema_migrations (filename) VALUES ($1)", name); err != nil {
+		return fmt.Errorf("记录迁移状态失败（%s）：%w", name, err)
 	}
 
 	// 提交事务
@@ -127,7 +135,7 @@ func runMigrations(ctx context.Context, cfg dbcfg.Config) (int, error) {
 	}
 
 	// 列出全部迁移文件与已执行集合
-	files, err := listMigrationFiles("db/migrations")
+	names, err := listMigrationNames()
 	if err != nil {
 		return 0, err
 	}
@@ -138,14 +146,17 @@ func runMigrations(ctx context.Context, cfg dbcfg.Config) (int, error) {
 
 	// 逐个执行未应用的迁移
 	appliedCount := 0
-	for _, file := range files {
-		name := filepath.Base(file)
+	for _, name := range names {
 		if applied[name] {
 			fmt.Printf("[跳过] %s（已执行）\n", name)
 			continue
 		}
+		sqlText, err := readMigrationSQL(name)
+		if err != nil {
+			return appliedCount, err
+		}
 		fmt.Printf("[执行] %s ...\n", name)
-		if err := applyMigration(ctx, conn, file); err != nil {
+		if err := applyMigration(ctx, conn, name, sqlText); err != nil {
 			return appliedCount, err
 		}
 		appliedCount++

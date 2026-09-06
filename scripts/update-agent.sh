@@ -114,7 +114,16 @@ if ! compose up -d backend frontend >> "$LOG_FILE" 2>&1; then
   rm -f "$TASK_FILE"; exit 1
 fi
 
-# ---------- 阶段 5：完成（100%，写版本文件，清任务）----------
+# ---------- 阶段 5：数据库迁移（93%，幂等；v1.5.6 起容器自带嵌入迁移）----------
+# dbmigrate 的迁移 SQL 已 go:embed 进二进制，容器内自包含；schema_migrations
+# 记录保证幂等（已应用的自动跳过）。迁移失败视为更新失败，避免新代码跑在旧表结构上。
+write_status running "正在执行数据库迁移" 93 "$VERSION"
+if ! compose exec -T backend /app/dbmigrate >> "$LOG_FILE" 2>&1; then
+  write_status failed "数据库迁移失败（详见 logs/update-agent 日志）" 93 "$VERSION"
+  rm -f "$TASK_FILE"; exit 1
+fi
+
+# ---------- 阶段 6：完成（100%，写版本文件，清任务）----------
 echo "$VERSION" > "$VERSION_FILE"
 write_status done "已更新到 $VERSION" 100 "$VERSION"
 rm -f "$TASK_FILE"
