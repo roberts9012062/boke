@@ -18,6 +18,9 @@ FROM node:22-alpine AS build
 
 ARG BACKEND_URL=http://localhost:8080
 ENV BACKEND_URL=${BACKEND_URL}
+# 大世界（中继站聚合流）测试开关：中继站无 TLS 时放行 http: 图片外链（生产保持 https-only）
+ARG ALLOW_HTTP_IMAGES=false
+ENV ALLOW_HTTP_IMAGES=${ALLOW_HTTP_IMAGES}
 WORKDIR /src/frontend
 COPY --from=deps /src/frontend/node_modules ./node_modules
 COPY frontend/ .
