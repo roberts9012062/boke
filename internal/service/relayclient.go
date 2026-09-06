@@ -51,11 +51,8 @@ func (m *RelayClientManager) watch(ctx context.Context) {
 			if err != nil {
 				continue
 			}
-			needRestart := !rc.UpdatedAt.Equal(lastUpdated) && !lastUpdated.IsZero() || lastUpdated.IsZero()
-			if lastUpdated.IsZero() {
-				needRestart = true // 进程启动首轮：按当前配置决定是否拉起
-			}
-			if !needRestart {
+			// updated_at 变化（含进程启动首轮零值）即重启 worker
+			if rc.UpdatedAt.Equal(lastUpdated) {
 				continue
 			}
 			if runningCancel != nil {
@@ -158,7 +155,9 @@ func (m *RelayClientManager) pollOnce(ctx context.Context) error {
 	}
 	for _, env := range out.Envelopes {
 		if err := m.applyEnvelope(ctx, env, rc.LocalRetentionDays); err != nil {
-			m.log.Warn("信封处理失败", zap.String("type", env.Type), zap.Error(err))
+			// 有失败即不推进游标：下一轮重拉本区间（at-least-once，修复后自动补齐）
+			m.log.Warn("信封处理失败（游标暂不推进，下轮重试）", zap.String("type", env.Type), zap.Error(err))
+			return nil
 		}
 	}
 	if out.LatestSeq > rc.LastSeq {
