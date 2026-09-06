@@ -25,10 +25,10 @@ func NewRelayRepo(pool *pgxpool.Pool) *RelayRepo {
 func (r *RelayRepo) Config(ctx context.Context) (model.RelayConfig, error) {
 	var c model.RelayConfig
 	err := r.pool.QueryRow(ctx, `
-		SELECT enabled, url, site_key, mode, default_category,
+		SELECT enabled, url, site_key, mode, default_category, claim_token,
 		       local_retention_days, relay_meta_json, last_seq, updated_at
 		FROM relay_config WHERE id = 1`).Scan(
-		&c.Enabled, &c.URL, &c.SiteKey, &c.Mode, &c.DefaultCategory,
+		&c.Enabled, &c.URL, &c.SiteKey, &c.Mode, &c.DefaultCategory, &c.ClaimToken,
 		&c.LocalRetentionDays, &c.RelayMetaJSON, &c.LastSeq, &c.UpdatedAt)
 	return c, err
 }
@@ -51,6 +51,24 @@ func (r *RelayRepo) SaveConfig(ctx context.Context, p SaveConfigParams) error {
 			default_category = $5, local_retention_days = $6, updated_at = now()
 		WHERE id = 1`,
 		p.Enabled, p.URL, p.SiteKey, p.Mode, p.DefaultCategory, p.LocalRetentionDays)
+	return err
+}
+
+// SaveClaim 保存申请凭据（审核制 v1.4）：等待中继站审批，期间 key 为空、订阅关闭。
+func (r *RelayRepo) SaveClaim(ctx context.Context, url string, mode string, claimToken string, category string) error {
+	_, err := r.pool.Exec(ctx, `
+		UPDATE relay_config SET
+			enabled = false, url = $1, mode = $2, site_key = '', claim_token = $3,
+			default_category = $4, updated_at = now()
+		WHERE id = 1`, url, mode, claimToken, category)
+	return err
+}
+
+// SaveClaimedKey 凭据兑现：审批通过领取 key 后保存并清空凭据（key 隐藏保管）。
+func (r *RelayRepo) SaveClaimedKey(ctx context.Context, siteKey string) error {
+	_, err := r.pool.Exec(ctx, `
+		UPDATE relay_config SET site_key = $1, claim_token = '', updated_at = now()
+		WHERE id = 1`, siteKey)
 	return err
 }
 

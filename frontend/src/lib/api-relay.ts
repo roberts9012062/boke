@@ -11,6 +11,7 @@ export interface RelayConfig {
   default_category: string;
   local_retention_days: number;
   has_key: boolean;
+  claim_pending?: boolean;
   relay_meta_json: string | null;
   last_seq: number;
   updated_at: string;
@@ -62,8 +63,9 @@ export function apiRelayConfig(): Promise<RelayConfig> {
   return get<RelayConfig>("/admin/relay");
 }
 
-// RelayApplyResult 申请结果（key 由后端隐藏保存，不回传）。
+// RelayApplyResult 申请结果（自动通过时 key 由后端隐藏保存；待审核时为审核中状态）。
 export interface RelayApplyResult {
+  status: "approved" | "pending" | "rejected" | "idle" | string;
   relay_name: string;
   categories: string[];
 }
@@ -71,6 +73,11 @@ export interface RelayApplyResult {
 // apiRelayApply 自助申请对接许可（后端代理调中继站 /api/v1/apply）。
 export function apiRelayApply(body: { url: string; mode: string }): Promise<RelayApplyResult> {
   return post<RelayApplyResult>("/admin/relay/apply", body);
+}
+
+// apiRelayClaim 轮询申请审批结果（通过即自动领 key 隐藏保存）。
+export function apiRelayClaim(): Promise<RelayApplyResult> {
+  return get<RelayApplyResult>("/admin/relay/claim");
 }
 
 // apiRelaySave 保存配置（保存后订阅任务自动重启；site_key 传空表示沿用隐藏保管的 key）。

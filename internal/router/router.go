@@ -371,6 +371,7 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager, e
 		relay := adminGroup.Group("/relay", perm(casbin.DomainRelay))
 		relay.GET("", handlers.Relay.GetConfig)
 		relay.POST("/apply", handlers.Relay.Apply)
+		relay.GET("/claim", handlers.Relay.Claim)
 		relay.POST("/test", handlers.Relay.TestConnection)
 		relay.PUT("", handlers.Relay.SaveConfig)
 		// 角色权限域（M5，设计稿《后台角色》）

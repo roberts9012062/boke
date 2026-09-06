@@ -25,6 +25,7 @@ type RelayConfig struct {
 	Mode               string     `json:"mode"`                 // public / bridged
 	DefaultCategory    string     `json:"default_category"`     // 发布默认分类
 	LocalRetentionDays int        `json:"local_retention_days"` // 本地缓存天数（1~30）
+	ClaimToken         string     `json:"claim_token"`          // 申请凭据（审核中暂存；通过后兑现并清空）
 	RelayMetaJSON      *string    `json:"relay_meta_json"`      // 握手元信息快照
 	LastSeq            int64      `json:"last_seq"`             // 订阅游标
 	UpdatedAt          time.Time  `json:"updated_at"`
@@ -51,11 +52,19 @@ type RelayHandshakeResp struct {
 // RelayApplyResp POST /apply 响应（协议 v1.3：自助申请自动领取 key）。
 type RelayApplyResp struct {
 	SiteID     int64    `json:"site_id"`
-	SiteKey    string   `json:"site_key"`
+	Status     string   `json:"status"`      // approved / pending（v1.4 审核制）
+	SiteKey    string   `json:"site_key,omitempty"`
+	ClaimToken string   `json:"claim_token,omitempty"`
 	RelayName  string   `json:"relay_name"`
 	MaxSites   int      `json:"max_sites"`
 	SiteCount  int      `json:"site_count"`
 	Categories []string `json:"categories"`
+}
+
+// RelayClaimResp POST /apply/claim 响应（v1.4 审核结果轮询 / 凭据兑现）。
+type RelayClaimResp struct {
+	Status  string `json:"status"`             // pending / approved / rejected
+	SiteKey string `json:"site_key,omitempty"` // approved：凭据兑现领取的 key
 }
 
 // RelayQuota 握手响应的配额段。

@@ -36,6 +36,7 @@ func (h *RelayHandler) GetConfig(c *gin.Context) {
 		"default_category":     cfg.DefaultCategory,
 		"local_retention_days": cfg.LocalRetentionDays,
 		"has_key":              cfg.SiteKey != "",
+		"claim_pending":        cfg.ClaimToken != "",
 		"relay_meta_json":      cfg.RelayMetaJSON,
 		"last_seq":             cfg.LastSeq,
 		"updated_at":           cfg.UpdatedAt,
@@ -56,6 +57,16 @@ func (h *RelayHandler) Apply(c *gin.Context) {
 		return
 	}
 	out, err := h.svc.ApplyForJoin(c.Request.Context(), req.URL, req.Mode)
+	if err != nil {
+		resp.FailFrom(c, err)
+		return
+	}
+	resp.OK(c, out)
+}
+
+// Claim GET /api/v1/admin/relay/claim —— 轮询申请审批结果（审核中每 5 秒调用；通过即自动领 key）。
+func (h *RelayHandler) Claim(c *gin.Context) {
+	out, err := h.svc.PollClaim(c.Request.Context())
 	if err != nil {
 		resp.FailFrom(c, err)
 		return

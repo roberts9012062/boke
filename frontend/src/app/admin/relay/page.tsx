@@ -8,7 +8,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { RelayRitual } from "@/components/relay-ritual";
 import { ApiError } from "@/lib/api";
-import { apiRelayApply, apiRelayConfig, apiRelaySave } from "@/lib/api-relay";
+import { apiRelayApply, apiRelayClaim, apiRelayConfig, apiRelaySave } from "@/lib/api-relay";
 
 // PageState 表单状态。
 interface PageState {
@@ -18,8 +18,8 @@ interface PageState {
   retentionDays: number;
 }
 
-// ConnStatus 连接状态（由配置派生）。
-type ConnStatus = "idle" | "licensed" | "connected";
+// ConnStatus 连接状态（由配置派生）：未连接 → 审核中 → 已获证 → 已对接。
+type ConnStatus = "idle" | "reviewing" | "licensed" | "connected";
 
 // emptyState 空表单。
 const emptyState: PageState = { url: "", mode: "public", category: "", retentionDays: 7 };
@@ -74,7 +74,8 @@ export default function RelayAdminPage() {
           retentionDays: cfg.local_retention_days || 7,
         });
         setRelayName(safeMetaName(cfg.relay_meta_json));
-        setStatus(cfg.enabled ? "connected" : cfg.has_key ? "licensed" : "idle");
+        const pending = (cfg as { claim_pending?: boolean }).claim_pending;
+        setStatus(cfg.enabled ? "connected" : cfg.has_key ? "licensed" : pending ? "reviewing" : "idle");
         setLoaded(true);
         return cfg;
       })
@@ -85,7 +86,28 @@ export default function RelayAdminPage() {
     void reload();
   }, [reload]);
 
-  // doApply 自助申请：后端代理调中继站 /apply，key 落库隐藏保管
+  // claimPoll 审核中轮询：中继站运营方通过后自动领取许可（每 5 秒）
+  useEffect(() => {
+    if (status !== "reviewing") {
+      return;
+    }
+    const timer = setInterval(() => {
+      apiRelayClaim()
+        .then((d) => {
+          if (d.status === "approved") {
+            setStatus("licensed");
+            setMessage(`申请已通过——${d.relay_name || relayName || "中继站"} 的许可已自动领取并隐藏保管，可点火对接`);
+          } else if (d.status === "rejected") {
+            setStatus("idle");
+            setMessage("申请被中继站拒绝，可修改后重新申请");
+          }
+        })
+        .catch(() => undefined);
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [status, relayName]);
+
+  // doApply 自助申请：自动通过则直接获证；手动审核进入"审核中"（v1.4 审核制）
   const doApply = useCallback(() => {
     setBusy("apply");
     setMessage("");
@@ -95,8 +117,13 @@ export default function RelayAdminPage() {
         if (!form.category && d.categories?.length) {
           setForm((f) => ({ ...f, category: d.categories[0] }));
         }
-        setStatus("licensed");
-        setMessage(`已获得 ${d.relay_name} 的对接许可，key 已隐藏保管`);
+        if (d.status === "pending") {
+          setStatus("reviewing");
+          setMessage(`申请已提交 ${d.relay_name}，等待运营方审核…（本页自动检测通过结果）`);
+        } else {
+          setStatus("licensed");
+          setMessage(`已获得 ${d.relay_name} 的对接许可，key 已隐藏保管`);
+        }
       })
       .catch((err) => setMessage(err instanceof ApiError ? err.message : "申请失败"))
       .finally(() => setBusy(""));
@@ -146,6 +173,15 @@ export default function RelayAdminPage() {
 
       {/* 状态卡（三态） */}
       {status === "idle" && <BrokenLink />}
+      {status === "reviewing" && (
+        <div className="rounded-xl border border-line bg-card p-4 text-center">
+          <p className="text-2xl animate-pulse">📡</p>
+          <p className="mt-1 text-sm font-medium text-ink">
+            申请已提交 {relayName || "中继站"}，等待运营方审核
+          </p>
+          <p className="mt-1 text-xs text-ink-3">本页每 5 秒自动检测 · 审核通过后将自动领取许可，届时可点火对接</p>
+        </div>
+      )}
       {status === "licensed" && (
         <div className="rounded-xl border border-line bg-card p-4 text-center">
           <p className="text-2xl">🔐</p>
