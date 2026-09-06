@@ -1,15 +1,17 @@
 // src/components/feed-tabs.tsx
-// 时间线过滤 Tab（设计稿 D/冷月/首页 中栏顶部）：全部 / 文 / 图 / 音 / 影。
+// 时间线过滤 Tab（设计稿 D/冷月/首页 中栏顶部）：大世界 / 全部 / 文 / 图 / 音 / 影。
 // 文 = 文章形态（kind=article），其余为媒体形态（type 过滤）；
 // key 由首页统一解释（article → kind 参数，其余 → type 参数）。
+// 大世界（world）= 中继站聚合流：切换后中栏直接渲染跨站内容（不再跳独立页面）。
 // M1.3：选中 Tab 即触发时间线过滤（受控组件，由父页面管理状态）。
 // 动效：胶囊指示器绝对定位，选中切换时以 left/top/width 过渡滑动到目标项（丝滑切换）。
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-// Tab 配置（文案与设计稿一致；影 = 视频，M2 后生效）
+// Tab 配置（大世界在最左；影 = 视频，M2 后生效）
 const TABS = [
+  { key: "world", label: "🌐 大世界" },
   { key: "", label: "全部" },
   { key: "article", label: "文" },
   { key: "image", label: "图" },
