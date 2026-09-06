@@ -60,10 +60,11 @@ type SaveConfigParams struct {
 }
 
 // SaveConfig 保存配置并重启订阅任务；从关闭切到开启时游标重置（首屏重新回填）。
+// key 隐藏保管：SiteKey 传空表示沿用已保存的 key（申请制下发后前端不再持有明文）。
 func (s *RelayService) SaveConfig(ctx context.Context, p SaveConfigParams) error {
 	if p.Enabled {
-		if !strings.HasPrefix(p.URL, "http") || p.SiteKey == "" {
-			return errs.New(errs.CodeValidation, "中继站 URL 与 key 不能为空")
+		if !strings.HasPrefix(p.URL, "http") {
+			return errs.New(errs.CodeValidation, "中继站 URL 不能为空")
 		}
 		if p.Mode != "public" && p.Mode != "bridged" {
 			return errs.New(errs.CodeValidation, "站点模式必须为 public 或 bridged")
@@ -75,6 +76,24 @@ func (s *RelayService) SaveConfig(ctx context.Context, p SaveConfigParams) error
 	old, err := s.relay.Config(ctx)
 	if err != nil {
 		return err
+	}
+	if p.SiteKey == "" {
+		p.SiteKey = old.SiteKey // 未显式提供时保留已隐藏保管的 key
+	}
+	if p.Enabled && p.SiteKey == "" {
+		return errs.New(errs.CodeValidation, "尚未获得对接许可，请先申请")
+	}
+	if p.URL == "" {
+		p.URL = old.URL
+	}
+	if p.DefaultCategory == "" {
+		p.DefaultCategory = old.DefaultCategory
+	}
+	if p.LocalRetentionDays == 0 {
+		p.LocalRetentionDays = old.LocalRetentionDays
+		if p.LocalRetentionDays == 0 {
+			p.LocalRetentionDays = 7
+		}
 	}
 	if err := s.relay.SaveConfig(ctx, repository.SaveConfigParams{
 		Enabled: p.Enabled, URL: strings.TrimRight(p.URL, "/"), SiteKey: p.SiteKey,
@@ -90,6 +109,49 @@ func (s *RelayService) SaveConfig(ctx context.Context, p SaveConfigParams) error
 	}
 	// 订阅管理器监视 updated_at，保存后 ≤5s 自动生效
 	return nil
+}
+
+// ApplyForJoinResult 申请结果（key 由后端隐藏保存，绝不回传前端）。
+type ApplyForJoinResult struct {
+	RelayName  string   `json:"relay_name"`  // 中继站名称（仪式与状态卡展示）
+	Categories []string `json:"categories"`  // 中继站分类（默认分类预选第一个）
+}
+
+// ApplyForJoin 自助申请（协议 v1.3）：调中继站 POST /api/v1/apply 自动领取对接 key，
+// 成功后 key 落库隐藏保管（enabled=false，等待站长"点火对接"），返回中继站信息。
+func (s *RelayService) ApplyForJoin(ctx context.Context, url string, mode string) (ApplyForJoinResult, error) {
+	if !strings.HasPrefix(url, "http") || (mode != "public" && mode != "bridged") {
+		return ApplyForJoinResult{}, errs.New(errs.CodeValidation, "请填写中继站地址并选择站点模式")
+	}
+	name, avatar := s.siteBrief()
+	reqBody := map[string]any{
+		"proto_ver": 1, "mode": mode, "base_url": s.baseURL(),
+		"site_name": name, "avatar": avatar,
+	}
+	var resp model.RelayApplyResp
+	if err := s.postJSON(ctx, strings.TrimRight(url, "/")+"/api/v1/apply", "", reqBody, &resp); err != nil {
+		return ApplyForJoinResult{}, err
+	}
+	// key 隐藏落库（enabled=false：已获证未对接，等待点火仪式）
+	old, err := s.relay.Config(ctx)
+	if err != nil {
+		return ApplyForJoinResult{}, err
+	}
+	retention := old.LocalRetentionDays
+	if retention < 1 || retention > 30 {
+		retention = 7
+	}
+	category := old.DefaultCategory
+	if category == "" && len(resp.Categories) > 0 {
+		category = resp.Categories[0]
+	}
+	if err := s.relay.SaveConfig(ctx, repository.SaveConfigParams{
+		Enabled: false, URL: strings.TrimRight(url, "/"), SiteKey: resp.SiteKey,
+		Mode: mode, DefaultCategory: category, LocalRetentionDays: retention,
+	}); err != nil {
+		return ApplyForJoinResult{}, err
+	}
+	return ApplyForJoinResult{RelayName: resp.RelayName, Categories: resp.Categories}, nil
 }
 
 // TestConnection 连接测试：实时调中继站 handshake，返回元信息与配额回显（不落库）。

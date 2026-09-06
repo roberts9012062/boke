@@ -3,14 +3,14 @@
 // 复用 api.ts 的 get/put/post 便捷函数（统一携带凭证与响应解析）。
 import { get, post, put } from "./api";
 
-// RelayConfig 对接配置（GET /admin/relay）。
+// RelayConfig 对接配置（GET /admin/relay）。key 隐藏保管：只回 has_key，明文永不回前端。
 export interface RelayConfig {
   enabled: boolean;
   url: string;
-  site_key: string;
   mode: "public" | "bridged" | string;
   default_category: string;
   local_retention_days: number;
+  has_key: boolean;
   relay_meta_json: string | null;
   last_seq: number;
   updated_at: string;
@@ -62,12 +62,18 @@ export function apiRelayConfig(): Promise<RelayConfig> {
   return get<RelayConfig>("/admin/relay");
 }
 
-// apiRelayTest 连接测试（实时握手）。
-export function apiRelayTest(body: { url: string; site_key: string; mode: string }): Promise<RelayHandshakeResp> {
-  return post<RelayHandshakeResp>("/admin/relay/test", body);
+// RelayApplyResult 申请结果（key 由后端隐藏保存，不回传）。
+export interface RelayApplyResult {
+  relay_name: string;
+  categories: string[];
 }
 
-// apiRelaySave 保存配置（保存后订阅任务自动重启）。
+// apiRelayApply 自助申请对接许可（后端代理调中继站 /api/v1/apply）。
+export function apiRelayApply(body: { url: string; mode: string }): Promise<RelayApplyResult> {
+  return post<RelayApplyResult>("/admin/relay/apply", body);
+}
+
+// apiRelaySave 保存配置（保存后订阅任务自动重启；site_key 传空表示沿用隐藏保管的 key）。
 export function apiRelaySave(body: {
   enabled: boolean; url: string; site_key: string; mode: string;
   default_category: string; local_retention_days: number;

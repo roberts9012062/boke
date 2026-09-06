@@ -22,14 +22,45 @@ func NewRelayHandler(svc *service.RelayService) *RelayHandler {
 	return &RelayHandler{svc: svc}
 }
 
-// GetConfig GET /api/v1/admin/relay —— 对接配置回显。
+// GetConfig GET /api/v1/admin/relay —— 对接配置回显（key 隐藏保管：只回 has_key，不回明文）。
 func (h *RelayHandler) GetConfig(c *gin.Context) {
 	cfg, err := h.svc.GetConfig(c.Request.Context())
 	if err != nil {
 		resp.FailFrom(c, err)
 		return
 	}
-	resp.OK(c, cfg)
+	resp.OK(c, gin.H{
+		"enabled":              cfg.Enabled,
+		"url":                  cfg.URL,
+		"mode":                 cfg.Mode,
+		"default_category":     cfg.DefaultCategory,
+		"local_retention_days": cfg.LocalRetentionDays,
+		"has_key":              cfg.SiteKey != "",
+		"relay_meta_json":      cfg.RelayMetaJSON,
+		"last_seq":             cfg.LastSeq,
+		"updated_at":           cfg.UpdatedAt,
+	})
+}
+
+// ApplyReq 自助申请请求体。
+type ApplyReq struct {
+	URL  string `json:"url"`
+	Mode string `json:"mode"`
+}
+
+// Apply POST /api/v1/admin/relay/apply —— 向中继站申请对接许可（key 由后端隐藏保存）。
+func (h *RelayHandler) Apply(c *gin.Context) {
+	var req ApplyReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Fail(c, 400, errs.ErrBadRequest)
+		return
+	}
+	out, err := h.svc.ApplyForJoin(c.Request.Context(), req.URL, req.Mode)
+	if err != nil {
+		resp.FailFrom(c, err)
+		return
+	}
+	resp.OK(c, out)
 }
 
 // TestConnectionReq 连接测试请求体。

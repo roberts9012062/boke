@@ -48,6 +48,16 @@ type RelayHandshakeResp struct {
 	ServerTime int64              `json:"server_time"`
 }
 
+// RelayApplyResp POST /apply 响应（协议 v1.3：自助申请自动领取 key）。
+type RelayApplyResp struct {
+	SiteID     int64    `json:"site_id"`
+	SiteKey    string   `json:"site_key"`
+	RelayName  string   `json:"relay_name"`
+	MaxSites   int      `json:"max_sites"`
+	SiteCount  int      `json:"site_count"`
+	Categories []string `json:"categories"`
+}
+
 // RelayQuota 握手响应的配额段。
 type RelayQuota struct {
 	DailyMoments  int              `json:"daily_moments"`

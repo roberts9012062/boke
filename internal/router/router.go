@@ -367,9 +367,10 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager, e
 		settings := adminGroup.Group("/settings", perm(casbin.DomainSettings))
 		settings.GET("", handlers.Admin.GetSettings)
 		settings.PUT("", handlers.Admin.SaveSettings)
-		// 中继站对接域（大世界）：配置回显 / 连接测试 / 保存即重启订阅
+		// 中继站对接域（大世界）：配置回显 / 自助申请 / 连接测试 / 保存即重启订阅
 		relay := adminGroup.Group("/relay", perm(casbin.DomainRelay))
 		relay.GET("", handlers.Relay.GetConfig)
+		relay.POST("/apply", handlers.Relay.Apply)
 		relay.POST("/test", handlers.Relay.TestConnection)
 		relay.PUT("", handlers.Relay.SaveConfig)
 		// 角色权限域（M5，设计稿《后台角色》）
