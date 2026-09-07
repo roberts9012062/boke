@@ -170,7 +170,7 @@ export default function RelayAdminPage() {
     })
       .then(() => {
         setStatus("licensed");
-        setMessage("已断开（许可仍隐藏保管，可重新点火）");
+        setMessage("已断开（许可仍隐藏保管，可重新通讯连接）");
       })
       .catch((err) => setMessage(err instanceof ApiError ? err.message : "操作失败"));
   }, [form]);
@@ -205,7 +205,7 @@ export default function RelayAdminPage() {
           <p className="mt-1 text-sm font-medium text-ink">
             已获得 {relayName || "中继站"} 的对接许可
           </p>
-          <p className="mt-1 text-xs text-ink-3">许可证已隐藏保管（key 不在页面显示）· 点火后正式对接</p>
+          <p className="mt-1 text-xs text-ink-3">许可证已隐藏保管（key 不在页面显示）· 通讯连接后正式对接</p>
         </div>
       )}
       {status === "connected" && (
