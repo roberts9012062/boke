@@ -329,7 +329,7 @@ export default function RelayAdminPage() {
               onClick={() => { setMessage(""); setRitual(true); }}
               className="rounded-lg bg-glow px-6 py-2.5 text-sm font-medium text-white shadow-lg transition-opacity hover:opacity-90"
             >
-              🚀 点火对接
+              📡 通讯连接
             </button>
           )}
           {status === "connected" && (
