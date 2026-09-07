@@ -97,7 +97,13 @@ func (m *RelayClientManager) runWorker(ctx context.Context, rc model.RelayConfig
 	}
 }
 
-// handshakeOnce 握手并把元信息快照落库（配置页回显与发布预检的数据源）。
+// relayMetaStore 元信息快照落库结构：meta 平铺 + 配额（对接后页面展示每日限制）。
+type relayMetaStore struct {
+	model.RelayHandshakeMeta
+	Quota *model.RelayQuota `json:"quota,omitempty"`
+}
+
+// handshakeOnce 握手并把元信息快照（含配额）落库（配置页回显与发布预检的数据源）。
 func (m *RelayClientManager) handshakeOnce(ctx context.Context, rc model.RelayConfig) error {
 	name, avatar := m.svc.siteBrief()
 	reqBody := map[string]any{
@@ -108,7 +114,7 @@ func (m *RelayClientManager) handshakeOnce(ctx context.Context, rc model.RelayCo
 	if err := m.svc.postJSON(ctx, rc.URL+"/api/v1/handshake", rc.SiteKey, reqBody, &resp); err != nil {
 		return err
 	}
-	metaJSON, err := json.Marshal(resp.Meta)
+	metaJSON, err := json.Marshal(relayMetaStore{RelayHandshakeMeta: resp.Meta, Quota: &resp.Quota})
 	if err != nil {
 		return err
 	}
@@ -192,7 +198,15 @@ func (m *RelayClientManager) applyEnvelope(ctx context.Context, env model.RelayE
 		if err := json.Unmarshal(env.Data, &data); err != nil {
 			return err
 		}
-		metaJSON, err := json.Marshal(data.Meta)
+		// config.update 只带 meta：保留已缓存的配额段（握手时写入），仅刷新展示字段
+		store := relayMetaStore{RelayHandshakeMeta: data.Meta}
+		if rc, err := m.relay.Config(ctx); err == nil && rc.RelayMetaJSON != nil {
+			var old relayMetaStore
+			if json.Unmarshal([]byte(*rc.RelayMetaJSON), &old) == nil && old.Quota != nil {
+				store.Quota = old.Quota
+			}
+		}
+		metaJSON, err := json.Marshal(store)
 		if err != nil {
 			return err
 		}

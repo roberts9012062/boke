@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { RelayRitual } from "@/components/relay-ritual";
+import { Markdown } from "@/components/markdown";
 import { ApiError } from "@/lib/api";
 import { apiRelayApply, apiRelayClaim, apiRelayConfig, apiRelaySave } from "@/lib/api-relay";
 
@@ -38,28 +39,43 @@ function BrokenLink() {
         <line x1="230" y1="29" x2="238" y2="29" stroke="#94a3b8" strokeWidth="1.2" />
         <circle cx="120" cy="42" r="1.6" fill="#f59e0b" className="blink" />
       </svg>
-      <p className="mt-1 text-xs text-ink-3">卫星通讯未建立 —— 申请中继站许可后点火对接</p>
+      <p className="mt-1 text-xs text-ink-3">卫星通讯未建立 —— 申请中继站许可后对接中继卫星</p>
       <style>{`@keyframes bl{0%,100%{opacity:1}50%{opacity:.25}}.blink{animation:bl 1.6s ease-in-out infinite}`}</style>
     </div>
   );
 }
 
-// safeMetaName 从元信息 JSON 提取中继站名（容错）。
-function safeMetaName(metaJSON: string | null | undefined): string {
+// RelayMeta 解析后的元信息快照（含配额；旧缓存可能缺 quota/rules）。
+interface RelayMeta {
+  name: string;
+  rules_md: string;
+  quota?: { daily_moments: number; daily_articles: number; media: { per_item_bytes: number; daily_items: number; daily_bytes: number } };
+}
+
+// parseMeta 从元信息 JSON 提取（容错：结构不全时返回空字段）。
+function parseMeta(metaJSON: string | null | undefined): RelayMeta {
   if (!metaJSON) {
-    return "";
+    return { name: "", rules_md: "" };
   }
   try {
-    return JSON.parse(metaJSON).name ?? "";
+    const d = JSON.parse(metaJSON);
+    return { name: d.name ?? "", rules_md: d.rules_md ?? "", quota: d.quota };
   } catch {
-    return "";
+    return { name: "", rules_md: "" };
   }
+}
+
+// safeMetaName 从元信息 JSON 提取中继站名（容错）。
+function safeMetaName(metaJSON: string | null | undefined): string {
+  return parseMeta(metaJSON).name;
 }
 
 export default function RelayAdminPage() {
   const [form, setForm] = useState<PageState>(emptyState);
   const [status, setStatus] = useState<ConnStatus>("idle");
   const [relayName, setRelayName] = useState("");
+  const [meta, setMeta] = useState<RelayMeta>({ name: "", rules_md: "" });
+  const [announcement, setAnnouncement] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
@@ -74,6 +90,7 @@ export default function RelayAdminPage() {
           retentionDays: cfg.local_retention_days || 7,
         });
         setRelayName(safeMetaName(cfg.relay_meta_json));
+        setMeta(parseMeta(cfg.relay_meta_json));
         const pending = (cfg as { claim_pending?: boolean }).claim_pending;
         setStatus(cfg.enabled ? "connected" : cfg.has_key ? "licensed" : pending ? "reviewing" : "idle");
         setLoaded(true);
@@ -96,7 +113,7 @@ export default function RelayAdminPage() {
         .then((d) => {
           if (d.status === "approved") {
             setStatus("licensed");
-            setMessage(`申请已通过——${d.relay_name || relayName || "中继站"} 的许可已自动领取并隐藏保管，可点火对接`);
+            setMessage(`申请已通过——${d.relay_name || relayName || "中继站"} 的许可已自动领取并隐藏保管，可通讯连接`);
           } else if (d.status === "rejected") {
             setStatus("idle");
             setMessage("申请被中继站拒绝，可修改后重新申请");
@@ -167,7 +184,7 @@ export default function RelayAdminPage() {
       <header>
         <h1 className="font-display text-2xl font-semibold text-ink">中继站 · 大世界</h1>
         <p className="mt-1 text-sm text-ink-2">
-          申请许可 → 点火对接 → 你的博客加入星系：内容广播到每一颗星球，首页呈现跨站「大世界」。
+          申请许可 → 通讯连接 → 你的博客加入星系：内容广播到每一颗星球，首页呈现跨站「大世界」。
         </p>
       </header>
 
@@ -179,7 +196,7 @@ export default function RelayAdminPage() {
           <p className="mt-1 text-sm font-medium text-ink">
             申请已提交 {relayName || "中继站"}，等待运营方审核
           </p>
-          <p className="mt-1 text-xs text-ink-3">本页每 5 秒自动检测 · 审核通过后将自动领取许可，届时可点火对接</p>
+          <p className="mt-1 text-xs text-ink-3">本页每 5 秒自动检测 · 审核通过后将自动领取许可，届时可通讯连接</p>
         </div>
       )}
       {status === "licensed" && (
@@ -196,15 +213,58 @@ export default function RelayAdminPage() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-ink">🛰️ 已对接 {relayName || "中继站"}</p>
-              <p className="mt-1 text-xs text-ink-3">订阅运行中 · key 隐藏保管 · 断开后可随时重新点火</p>
+              <p className="mt-1 text-xs text-ink-3">订阅运行中 · key 隐藏保管 · 断开后可随时重新通讯连接</p>
             </div>
-            <button
-              type="button"
-              onClick={doDisconnect}
-              className="rounded-lg border border-line px-4 py-1.5 text-xs text-ink-2 transition-colors hover:bg-muted"
-            >
-              断开对接
-            </button>
+            <div className="flex gap-2">
+              {meta.rules_md && (
+                <button
+                  type="button"
+                  onClick={() => setAnnouncement(true)}
+                  className="rounded-lg bg-accent-soft px-4 py-1.5 text-xs font-medium text-glow transition-opacity hover:opacity-85"
+                >
+                  📜 中继站公告
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={doDisconnect}
+                className="rounded-lg border border-line px-4 py-1.5 text-xs text-ink-2 transition-colors hover:bg-muted"
+              >
+                断开对接
+              </button>
+            </div>
+          </div>
+          {/* 每日信息限制（握手缓存的配额，运营方调整后经 config.update/握手刷新） */}
+          {meta.quota && (
+            <div className="mt-3 flex flex-wrap gap-2 border-t border-line pt-3 text-xs">
+              <span className="rounded-full bg-muted px-3 py-1 text-ink-2">每日说说 {meta.quota.daily_moments} 条</span>
+              <span className="rounded-full bg-muted px-3 py-1 text-ink-2">每日文章 {meta.quota.daily_articles} 篇</span>
+              <span className="rounded-full bg-muted px-3 py-1 text-ink-2">
+                媒体 ≤{Math.round(meta.quota.media.per_item_bytes / 1024)}KB · 每日 {meta.quota.media.daily_items} 张
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 公告悬浮面板（中继站规则 Markdown 渲染） */}
+      {announcement && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4" onClick={() => setAnnouncement(false)}>
+          <div
+            className="max-h-[76vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-line bg-elevated p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="font-display text-lg font-semibold text-ink">📜 {relayName || "中继站"} · 公告规则</h3>
+              <button
+                type="button"
+                onClick={() => setAnnouncement(false)}
+                className="rounded-full border border-line px-3 py-1 text-xs text-ink-2 transition-colors hover:bg-muted"
+              >
+                关闭
+              </button>
+            </div>
+            <Markdown content={meta.rules_md} />
           </div>
         </div>
       )}
