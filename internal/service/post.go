@@ -51,10 +51,14 @@ type PostService struct {
 	seo         *repository.SeoRepo                // SEO 元数据（M4.1 插件通道：发帖/编辑落库）
 	storageSeam func() (plugin.MediaStorage, bool) // 媒体存储 seam（图床插件接管上传；可空=始终本地）
 	relayHook   func(postID int64)                 // 中继站发布钩子（大世界推送；可空=未启用）
+	relayDeleteHook func(postID int64)             // 中继站删除钩子（删帖下架；可空=未启用）
 }
 
 // SetRelayHook 注入中继站发布钩子（装配期调用；发帖成功后异步推送大世界）。
 func (s *PostService) SetRelayHook(fn func(postID int64)) { s.relayHook = fn }
+
+// SetRelayDeleteHook 注入中继站删除钩子（装配期调用；删帖后异步下架大世界内容）。
+func (s *PostService) SetRelayDeleteHook(fn func(postID int64)) { s.relayDeleteHook = fn }
 
 // NewPostService 创建帖子服务。
 // 参数：storageSeam 媒体存储 seam 查找闭包（可空——图床插件运行时上传直达外部对象存储）。
@@ -266,7 +270,14 @@ func (s *PostService) Delete(ctx context.Context, userID int64, postID int64) er
 	if post.Status == model.PostStatusDeleted {
 		return errs.ErrNotFound
 	}
-	return s.posts.SetStatus(ctx, postID, model.PostStatusDeleted, nil)
+	if err := s.posts.SetStatus(ctx, postID, model.PostStatusDeleted, nil); err != nil {
+		return err
+	}
+	// 中继站（大世界）：曾公开发布的帖子删除后同步下架（失败仅日志，不影响本地删除）
+	if s.relayDeleteHook != nil && post.Status == model.PostStatusPublished && post.Visibility == "public" {
+		s.relayDeleteHook(postID)
+	}
+	return nil
 }
 
 // ---------- 时间线 / 草稿箱 ----------
