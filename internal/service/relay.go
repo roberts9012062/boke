@@ -7,8 +7,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -302,7 +304,7 @@ func (s *RelayService) buildPublishBody(ctx context.Context, rc model.RelayConfi
 	}
 	if kind == "article" {
 		article := map[string]any{
-			"title": post.Title, "summary": post.Summary,
+			"title": post.Title, "summary": plainForWorld(post.Summary),
 			"origin_url": fmt.Sprintf("%s/post/%d", s.cfg.SiteBaseURL, post.ID),
 		}
 		if len(images) > 0 {
@@ -310,7 +312,7 @@ func (s *RelayService) buildPublishBody(ctx context.Context, rc model.RelayConfi
 		}
 		body["article"] = article
 		if rc.Mode == "bridged" {
-			full := post.Content
+			full := plainForWorld(post.Content)
 			if len([]rune(full)) > 8000 {
 				full = string([]rune(full)[:8000])
 			}
@@ -318,7 +320,7 @@ func (s *RelayService) buildPublishBody(ctx context.Context, rc model.RelayConfi
 		}
 		return body, nil
 	}
-	moment := map[string]any{"text": post.Content, "images": images}
+	moment := map[string]any{"text": plainForWorld(post.Content), "images": images}
 	if post.ContentType == "audio" || post.ContentType == "video" {
 		// 音视频不托管：以本站可播 URL 直传信封（协议 §3.2；bridged 站外站不可达为已知边界）
 		mediaList, _ := s.media.FindByIDs(ctx, post.MediaIDs)
@@ -467,4 +469,17 @@ func (s *RelayService) ListWorld(ctx context.Context, category string, before ti
 // CacheCount 本地缓存条数（后台展示）。
 func (s *RelayService) CacheCount(ctx context.Context) (int, error) {
 	return s.relay.CacheCount(ctx)
+}
+
+// htmlTagPattern HTML 标签匹配（发布出口剥离；大世界为纯文本广场，渲染层另有转义兜底）。
+var htmlTagPattern = regexp.MustCompile(`<[^>]*>`)
+
+// plainForWorld 大世界纯文本化：html 格式内容剥标签并还原实体；markdown 原样（成员站按文本渲染）。
+func plainForWorld(content string) string {
+	if !strings.Contains(content, "<") {
+		return content
+	}
+	plain := htmlTagPattern.ReplaceAllString(content, "")
+	plain = html.UnescapeString(plain)
+	return strings.Join(strings.Fields(plain), " ")
 }
