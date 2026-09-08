@@ -1,16 +1,13 @@
-// 中继站对接服务：配置管理、连接测试（handshake）、发布出口（说说/文章打包推送）。
+// 中继站对接服务：配置管理、连接测试（handshake）、申请流、发布出口。
+// 拆分件：传输层 relaytransport.go / 纯文本化 relayplain.go / 删帖联动 relaydelete.go。
 // 出站方向是唯一方向（ADR-1）：本服务只向中继站发起 HTTP 请求。
 package service
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"html"
-	"io"
 	"net/http"
-	"regexp"
 	"strings"
 	"time"
 
@@ -384,84 +381,10 @@ func (s *RelayService) postTags(ctx context.Context, postID int64) []string {
 	return names
 }
 
-// relayCodeOK 判断中继站统一响应包的 code 是否为成功（0）。
-// code 在 JSON 中解析为 any：数字 0 是 float64(0)，与 int 0 直接比较恒不等（类型不同）。
-func relayCodeOK(code any) bool {
-	if n, ok := code.(float64); ok {
-		return n == 0
-	}
-	return code == nil
-}
-
 // baseURL 本站对外基础 URL（握手上报 base_url 用）。
 func (s *RelayService) baseURL() string { return s.cfg.SiteBaseURL }
 
 // getJSON 统一出站 GET：Bearer key 认证、JSON 解码、协议错误码透传（轮询用，限读 8MB）。
-func (s *RelayService) getJSON(ctx context.Context, url string, siteKey string, out any) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Authorization", "Bearer "+siteKey)
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("中继站不可达: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
-	var envelope struct {
-		Code    any             `json:"code"`
-		Message string          `json:"message"`
-		Data    json.RawMessage `json:"data"`
-	}
-	if err := json.Unmarshal(respBody, &envelope); err != nil {
-		return fmt.Errorf("中继站响应异常（HTTP %d）", resp.StatusCode)
-	}
-	if resp.StatusCode != 200 || !relayCodeOK(envelope.Code) {
-		return fmt.Errorf("中继站错误 [%v] %s", envelope.Code, envelope.Message)
-	}
-	if out != nil && len(envelope.Data) > 0 {
-		return json.Unmarshal(envelope.Data, out)
-	}
-	return nil
-}
-
-// postJSON 统一出站 POST：Bearer key 认证、JSON 编解码、协议错误码透传。
-func (s *RelayService) postJSON(ctx context.Context, url string, siteKey string, reqBody any, out any) error {
-	raw, err := json.Marshal(reqBody)
-	if err != nil {
-		return err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(raw))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+siteKey)
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("中继站不可达: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	var envelope struct {
-		Code    any             `json:"code"`
-		Message string          `json:"message"`
-		Data    json.RawMessage `json:"data"`
-	}
-	if err := json.Unmarshal(respBody, &envelope); err != nil {
-		return fmt.Errorf("中继站响应异常（HTTP %d）", resp.StatusCode)
-	}
-	if resp.StatusCode != 200 || !relayCodeOK(envelope.Code) {
-		return fmt.Errorf("中继站错误 [%v] %s", envelope.Code, envelope.Message)
-	}
-	if out != nil && len(envelope.Data) > 0 {
-		return json.Unmarshal(envelope.Data, out)
-	}
-	return nil
-}
-
-// ListWorld 大世界前台列表（读本地缓存，分页 + 分类过滤）。
 func (s *RelayService) ListWorld(ctx context.Context, category string, before time.Time, limit int) ([]model.RelayCacheItem, error) {
 	return s.relay.ListCache(ctx, category, before, limit)
 }
@@ -471,76 +394,3 @@ func (s *RelayService) CacheCount(ctx context.Context) (int, error) {
 	return s.relay.CacheCount(ctx)
 }
 
-// htmlTagPattern HTML 标签匹配（发布出口剥离；大世界为纯文本广场，渲染层另有转义兜底）。
-var htmlTagPattern = regexp.MustCompile(`<[^>]*>`)
-
-// 内嵌媒体提取（剥离前转 markdown 引用，防 html 内容里的媒体被丢弃）。
-var (
-	htmlImgPattern   = regexp.MustCompile(`<img[^>]*src=["']([^"']+)["'][^>]*>`)
-	htmlVideoPattern = regexp.MustCompile(`<video[^>]*src=["']([^"']+)["'][^>]*>`)
-	htmlAudioPattern = regexp.MustCompile(`<audio[^>]*src=["']([^"']+)["'][^>]*>`)
-)
-
-// plainForWorld 大世界纯文本化：html 内容先保留媒体引用（图转 markdown、音视频转链接文本），
-// 再剥标签并还原实体；markdown 原样（成员站按受限渲染器呈现，纯文本层自动转义）。
-func plainForWorld(content string) string {
-	if !strings.Contains(content, "<") {
-		return content
-	}
-	kept := htmlImgPattern.ReplaceAllString(content, "\n![图片]($1)\n")
-	kept = htmlVideoPattern.ReplaceAllString(kept, "[视频]($1)")
-	kept = htmlAudioPattern.ReplaceAllString(kept, "[音频]($1)")
-	plain := htmlTagPattern.ReplaceAllString(kept, "")
-	plain = html.UnescapeString(plain)
-	return strings.TrimSpace(strings.Join(strings.Fields(plain), " "))
-}
-
-// DeleteOnRelayAsync 删帖下架：异步调中继站 DELETE /contents/:post:{postID}（己站 origin 形式，
-// 中继站按请求方站点校验归属）；失败仅日志（本地删除已完成，中继内容随 TTL 兜底清理）。
-func (s *RelayService) DeleteOnRelayAsync(postID int64) {
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		if err := s.deleteOnRelay(ctx, postID); err != nil {
-			s.log.Warn("中继站内容下架失败", zap.Int64("post_id", postID), zap.Error(err))
-		}
-	}()
-}
-
-// deleteOnRelay 删除单条己站内容（协议 §4.3 的 origin 简写形式）。
-func (s *RelayService) deleteOnRelay(ctx context.Context, postID int64) error {
-	rc, err := s.relay.Config(ctx)
-	if err != nil {
-		return err
-	}
-	if !rc.Enabled || rc.URL == "" || rc.SiteKey == "" {
-		return nil // 未启用：静默跳过
-	}
-	contentID := fmt.Sprintf(":post:%d", postID) // 空站点段：由中继站按请求方填充
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, rc.URL+"/api/v1/contents/"+contentID, nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Authorization", "Bearer "+rc.SiteKey)
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("中继站不可达: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	var envelope struct {
-		Code    any    `json:"code"`
-		Message string `json:"message"`
-	}
-	if err := json.Unmarshal(respBody, &envelope); err != nil {
-		return fmt.Errorf("中继站响应异常（HTTP %d）", resp.StatusCode)
-	}
-	if resp.StatusCode == 404 || (resp.StatusCode == 400 && envelope.Code == "CONTENT_NOT_FOUND") {
-		return nil // 中继侧本就不存在（未推送过/已过期）：视为成功
-	}
-	if resp.StatusCode != 200 || !relayCodeOK(envelope.Code) {
-		return fmt.Errorf("中继站错误 [%v] %s", envelope.Code, envelope.Message)
-	}
-	s.log.Info("中继站内容已下架", zap.Int64("post_id", postID))
-	return nil
-}
