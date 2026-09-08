@@ -254,6 +254,8 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 	relaySvc := service.NewRelayService(relayRepo, postRepo, tagRepo, mediaRepo, settingRepo, cfg, logger)
 	// 发帖成功后异步推送中继站（失败仅日志；幂等键 origin_id=帖子 ID）
 	postSvc.SetRelayHook(relaySvc.PublishPostAsync)
+	// 删帖后异步下架大世界（协议 §4.3 己站 origin 简写形式）
+	postSvc.SetRelayDeleteHook(relaySvc.DeleteOnRelayAsync)
 	// 订阅任务管理器（监视配置变化启停 worker，保存后 ≤5s 生效）
 	_ = service.NewRelayClientManager(relaySvc, relayRepo, logger)
 	// 插件开放目录聚合器（data/plugins/*/manifest.json 的 open_endpoints → 接口开放目录）
