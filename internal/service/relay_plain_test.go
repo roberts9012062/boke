@@ -16,6 +16,8 @@ func TestPlainForWorld(t *testing.T) {
 		{"标签内实体随剥离还原", "<p>a &amp; b</p>", "a & b"},
 		{"脚本全剥", "<script>alert(1)</script>正文", "alert(1)正文"},
 		{"无左尖括号快速返回", "plain text", "plain text"},
+		{"内嵌图转markdown", `看图<img src="https://a.com/x.png" alt="图">完毕`, `看图 ![图片](https://a.com/x.png) 完毕`},
+		{"内嵌音视频转链接", `<video src="https://a.com/v.mp4" controls></video><audio src="https://a.com/a.mp3"></audio>`, `[视频](https://a.com/v.mp4)[音频](https://a.com/a.mp3)`},
 	}
 	for _, tc := range cases {
 		if got := plainForWorld(tc.in); got != tc.want {
