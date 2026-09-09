@@ -2,6 +2,7 @@
 package handler
 
 import (
+	"net/http"
 	"strconv"
 	"time"
 
@@ -154,4 +155,17 @@ func (h *RelayHandler) WorldStatus(c *gin.Context) {
 		return
 	}
 	resp.OK(c, gin.H{"enabled": cfg.Enabled})
+}
+
+// Probe GET /api/v1/relay/probe?nonce= —— 申请质询探测端点（公开，协议 §4.12，v1.5）。
+// 中继站申请时同步回调：nonce 为本站签发且未过期 → 回 boke 指纹与版本并原样回显；
+// 否则 404（伪装成无此端点——探测者无从区分"不是 boke"与"nonce 不对"）。
+func (h *RelayHandler) Probe(c *gin.Context) {
+	nonce := c.Query("nonce")
+	ok, version, echo := h.svc.ProbeAnswer(nonce)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "not found", "data": nil})
+		return
+	}
+	resp.OK(c, gin.H{"boke": true, "version": version, "nonce": echo})
 }

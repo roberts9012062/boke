@@ -5,7 +5,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -32,14 +31,18 @@ type RelayService struct {
 	cfg      config.Config
 	log      *zap.Logger
 	client   *http.Client
+	nonces   *ProbeNonceStore // 申请质询随机数（v1.5，探测应答用）
+	version  string           // 本站部署版本（探测应答回显；update.CurrentVersion）
 }
 
-// NewRelayService 构造中继站服务。
+// NewRelayService 构造中继站服务（version 为部署版本，探测质询应答回显用）。
 func NewRelayService(relay *repository.RelayRepo, posts *repository.PostRepo, tags *repository.TagRepo,
-	media *repository.MediaRepo, settings *repository.SettingRepo, cfg config.Config, log *zap.Logger) *RelayService {
+	media *repository.MediaRepo, settings *repository.SettingRepo, cfg config.Config,
+	log *zap.Logger, version string) *RelayService {
 	return &RelayService{
 		relay: relay, posts: posts, tags: tags, media: media, settings: settings, cfg: cfg, log: log,
 		client: &http.Client{Timeout: relayHTTPTimeout},
+		nonces: NewProbeNonceStore(), version: version,
 	}
 }
 
@@ -110,104 +113,6 @@ func (s *RelayService) SaveConfig(ctx context.Context, p SaveConfigParams) error
 	return nil
 }
 
-// ApplyForJoinResult 申请结果（自动通过时 key 由后端隐藏保存；待审核时返回审核中状态）。
-type ApplyForJoinResult struct {
-	Status     string   `json:"status"`      // approved（已获许可）/ pending（审核中，v1.4）
-	RelayName  string   `json:"relay_name"`  // 中继站名称（仪式与状态卡展示）
-	Categories []string `json:"categories"`  // 中继站分类（默认分类预选第一个）
-}
-
-// ApplyForJoin 自助申请（协议 v1.4 审核制）：调中继站 POST /api/v1/apply。
-// 自动通过：key 直接落库隐藏保管；手动审核：保存申请凭据，等待运营方通过后领取。
-func (s *RelayService) ApplyForJoin(ctx context.Context, url string, mode string) (ApplyForJoinResult, error) {
-	if !strings.HasPrefix(url, "http") || (mode != "public" && mode != "bridged") {
-		return ApplyForJoinResult{}, errs.New(errs.CodeValidation, "请填写中继站地址并选择站点模式")
-	}
-	name, avatar := s.siteBrief()
-	reqBody := map[string]any{
-		"proto_ver": 1, "mode": mode, "base_url": s.baseURL(),
-		"site_name": name, "avatar": avatar,
-	}
-	var resp model.RelayApplyResp
-	if err := s.postJSON(ctx, strings.TrimRight(url, "/")+"/api/v1/apply", "", reqBody, &resp); err != nil {
-		return ApplyForJoinResult{}, err
-	}
-	old, err := s.relay.Config(ctx)
-	if err != nil {
-		return ApplyForJoinResult{}, err
-	}
-	retention := old.LocalRetentionDays
-	if retention < 1 || retention > 30 {
-		retention = 7
-	}
-	category := old.DefaultCategory
-	if category == "" && len(resp.Categories) > 0 {
-		category = resp.Categories[0]
-	}
-	if resp.Status == "pending" {
-		// 手动审核：仅保存申请凭据，等待中继站通过（前端轮询 PollClaim）
-		if err := s.relay.SaveClaim(ctx, strings.TrimRight(url, "/"), mode, resp.ClaimToken, category); err != nil {
-			return ApplyForJoinResult{}, err
-		}
-		s.log.Info("申请已提交，等待中继站审核")
-		return ApplyForJoinResult{Status: "pending", RelayName: resp.RelayName, Categories: resp.Categories}, nil
-	}
-	// 自动通过（或已通过站点找回）：key 直接隐藏落库
-	if err := s.relay.SaveConfig(ctx, repository.SaveConfigParams{
-		Enabled: false, URL: strings.TrimRight(url, "/"), SiteKey: resp.SiteKey,
-		Mode: mode, DefaultCategory: category, LocalRetentionDays: retention,
-	}); err != nil {
-		return ApplyForJoinResult{}, err
-	}
-	return ApplyForJoinResult{Status: "approved", RelayName: resp.RelayName, Categories: resp.Categories}, nil
-}
-
-// PollClaim 轮询申请审批结果（前端每 5 秒调用）：通过则领取 key 隐藏保存并清空凭据。
-func (s *RelayService) PollClaim(ctx context.Context) (ApplyForJoinResult, error) {
-	rc, err := s.relay.Config(ctx)
-	if err != nil {
-		return ApplyForJoinResult{}, err
-	}
-	if rc.ClaimToken == "" {
-		// 无待审凭据：按是否已持有 key 返回当前状态
-		if rc.SiteKey != "" {
-			return ApplyForJoinResult{Status: "approved", RelayName: metaName(rc.RelayMetaJSON)}, nil
-		}
-		return ApplyForJoinResult{Status: "idle"}, nil
-	}
-	var resp model.RelayClaimResp
-	if err := s.postJSON(ctx, strings.TrimRight(rc.URL, "/")+"/api/v1/apply/claim", "",
-		map[string]any{"claim_token": rc.ClaimToken}, &resp); err != nil {
-		return ApplyForJoinResult{Status: "pending"}, nil // 网络抖动视为仍在审核
-	}
-	switch resp.Status {
-	case "approved":
-		if err := s.relay.SaveClaimedKey(ctx, resp.SiteKey); err != nil {
-			return ApplyForJoinResult{}, err
-		}
-		s.log.Info("申请已通过，许可已隐藏保管")
-		return ApplyForJoinResult{Status: "approved", RelayName: metaName(rc.RelayMetaJSON)}, nil
-	case "rejected":
-		_ = s.relay.SaveClaim(ctx, rc.URL, rc.Mode, "", rc.DefaultCategory) // 清空凭据
-		return ApplyForJoinResult{Status: "rejected"}, nil
-	default:
-		return ApplyForJoinResult{Status: "pending"}, nil
-	}
-}
-
-// metaName 从元信息 JSON 提取中继站名（容错）。
-func metaName(metaJSON *string) string {
-	if metaJSON == nil || *metaJSON == "" {
-		return ""
-	}
-	var probe struct {
-		Name string `json:"name"`
-	}
-	if err := json.Unmarshal([]byte(*metaJSON), &probe); err != nil {
-		return ""
-	}
-	return probe.Name
-}
 
 // TestConnection 连接测试：实时调中继站 handshake，返回元信息与配额回显（不落库）。
 func (s *RelayService) TestConnection(ctx context.Context, url string, siteKey string, mode string) (model.RelayHandshakeResp, error) {
