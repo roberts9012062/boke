@@ -31,7 +31,13 @@ type AdminService struct {
 	hooks    plugin.Dispatcher         // 插件钩子调度器（M3.2 扩展框架）
 	audit    *repository.AuditRepo     // 审计日志（M5：角色变更留痕）
 	reports  *repository.ReportRepo    // 举报工单（仪表盘待处理块，走查纠偏补）
+	// 中继站删除钩子（后台删帖下架大世界；可空=未启用）。后台路径不走 PostService.Delete，
+	// 曾因缺失该钩子导致后台删帖后中继站内容残留、大世界旧卡指向已删文章 404。
+	relayDeleteHook func(postID int64)
 }
+
+// SetRelayDeleteHook 注入中继站删除钩子（装配期调用；后台删帖后异步下架大世界）。
+func (s *AdminService) SetRelayDeleteHook(fn func(postID int64)) { s.relayDeleteHook = fn }
 
 // NewAdminService 创建后台服务。
 func NewAdminService(admin *repository.AdminRepo, posts *repository.PostRepo, comments *repository.CommentRepo, settings *repository.SettingRepo, enforcer *casbin.Enforcer, bans *repository.BanRepo, users *repository.UserRepo, postSvc *PostService, medias *repository.MediaRepo, tags *repository.TagRepo, store *media.Store, hooks plugin.Dispatcher, audit *repository.AuditRepo, reports *repository.ReportRepo) *AdminService {
@@ -169,7 +175,19 @@ func (s *AdminService) DeletePost(ctx context.Context, postID int64, actorID int
 	if err := s.checkPostOwner(ctx, postID, actorID, role); err != nil {
 		return err
 	}
-	return s.posts.SetStatus(ctx, postID, model.PostStatusDeleted, nil)
+	post, err := s.posts.FindByID(ctx, postID)
+	if err != nil {
+		return errs.ErrNotFound
+	}
+	if err := s.posts.SetStatus(ctx, postID, model.PostStatusDeleted, nil); err != nil {
+		return err
+	}
+	// 中继站（大世界）：曾公开发布的帖子删除后同步下架（与用户侧 PostService.Delete 同型；
+	// 失败仅日志，不影响本地删除，中继内容随 TTL 兜底清理）
+	if s.relayDeleteHook != nil && post.Status == model.PostStatusPublished && post.Visibility == "public" {
+		s.relayDeleteHook(postID)
+	}
+	return nil
 }
 
 // GetPostDetail 后台编辑详情（author 仅能查看自己帖子）。
