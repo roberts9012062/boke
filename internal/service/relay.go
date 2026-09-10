@@ -207,7 +207,8 @@ func (s *RelayService) buildPublishBody(ctx context.Context, rc model.RelayConfi
 	if kind == "article" {
 		article := map[string]any{
 			"title": post.Title, "summary": plainForWorld(post.Summary),
-			"origin_url": fmt.Sprintf("%s/post/%d", s.cfg.SiteBaseURL, post.ID),
+			// 前端文章详情路由为 /posts/{id}（复数，协议 §4.2 示例同形），单数拼法曾致 404
+			"origin_url": fmt.Sprintf("%s/posts/%d", s.cfg.SiteBaseURL, post.ID),
 		}
 		if len(images) > 0 {
 			article["cover"] = images[0]
