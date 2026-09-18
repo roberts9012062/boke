@@ -20,9 +20,10 @@ import { PostCard } from "@/components/post-card";
 import { PostCardSkeletonList } from "@/components/post-card-skeleton";
 import { UserCard } from "@/components/user-card";
 import { WorldCard } from "@/components/world-cards";
+import { WorldFilters } from "@/components/world-filters";
 import { useAuth } from "@/lib/auth";
 import { apiFollowingFeed, apiTimeline } from "@/lib/api";
-import { apiWorldContents, type RelayCacheItem } from "@/lib/api-relay";
+import { apiRelayTaxonomy, apiWorldContents, type RelayCacheItem, type RelayPublishOptions } from "@/lib/api-relay";
 import type { PageResult, PostSummary } from "@/types/api";
 
 // worldFilterKey 大世界 Tab 的 filter 值（占据原"全部"左侧的首个位置）。
@@ -48,6 +49,10 @@ export default function HomePage() {
   const [worldLoading, setWorldLoading] = useState<boolean>(false);
   const [worldDone, setWorldDone] = useState<boolean>(false);
   const worldLoadingMoreRef = useRef<boolean>(false);
+  // 大世界筛选状态（空 = 全部）与规范（分类 + 分类→规范标签；公开接口，游客可用）
+  const [worldCategory, setWorldCategory] = useState<string>("");
+  const [worldTag, setWorldTag] = useState<string>("");
+  const [worldTaxonomy, setWorldTaxonomy] = useState<RelayPublishOptions | null>(null);
   // 同步加载守卫：scroll 事件快速连续触发时，state 守卫是异步的，需 ref 立即阻断并发重复请求
   const loadingMoreRef = useRef<boolean>(false);
 
@@ -95,7 +100,8 @@ export default function HomePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [feed, filter, user]);
 
-  // 大世界：首屏加载 + 30s 轮询刷新（M0 轮询模式；只刷新首屏不打断浏览位置）
+  // 大世界：首屏加载 + 30s 轮询刷新（M0 轮询模式；只刷新首屏不打断浏览位置；
+  // 筛选变化时重新加载，分类/标签为服务端过滤）
   useEffect(() => {
     if (!inWorld) {
       return;
@@ -103,7 +109,7 @@ export default function HomePage() {
     let cancelled = false;
     const load = () => {
       setWorldLoading(true);
-      apiWorldContents({ limit: worldPageLimit })
+      apiWorldContents({ limit: worldPageLimit, category: worldCategory, tag: worldTag })
         .then((d) => {
           if (cancelled) return;
           setWorldItems(d.items ?? []);
@@ -122,9 +128,25 @@ export default function HomePage() {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [inWorld]);
+  }, [inWorld, worldCategory, worldTag]);
 
-  // 大世界加载更多：before = 当前最旧一条的发布时间（游标分页，按 id 去重）
+  // 大世界筛选规范（进入大世界时按需加载一次；失败静默隐藏筛选区）
+  useEffect(() => {
+    if (!inWorld || worldTaxonomy !== null) {
+      return;
+    }
+    let cancelled = false;
+    apiRelayTaxonomy()
+      .then((d) => {
+        if (!cancelled) setWorldTaxonomy(d);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [inWorld, worldTaxonomy]);
+
+  // 大世界加载更多：before = 当前最旧一条的发布时间（游标分页，按 id 去重；携带当前筛选）
   const loadMoreWorld = async () => {
     if (worldLoadingMoreRef.current || worldDone || worldItems.length === 0) {
       return;
@@ -133,7 +155,12 @@ export default function HomePage() {
     setLoadingMore(true);
     try {
       const oldest = worldItems[worldItems.length - 1];
-      const d = await apiWorldContents({ before: Math.floor(new Date(oldest.published_at).getTime() / 1000), limit: worldPageLimit });
+      const d = await apiWorldContents({
+        before: Math.floor(new Date(oldest.published_at).getTime() / 1000),
+        limit: worldPageLimit,
+        category: worldCategory,
+        tag: worldTag,
+      });
       const fresh = (d.items ?? []).filter((it) => !worldItems.some((prev) => prev.content_id === it.content_id));
       if (fresh.length < worldPageLimit) {
         setWorldDone(true);
@@ -237,6 +264,24 @@ export default function HomePage() {
           {/* 过滤 Tab：大世界 / 全部 / 文 / 图 / 音 / 影（选中即过滤） */}
           <FeedTabs active={filter} onChange={setFilter} />
 
+          {/* 大世界分类/标签筛选（规范加载成功时显示；服务端过滤） */}
+          {inWorld && worldTaxonomy && (
+            <div className="mt-3">
+              <WorldFilters
+                categories={worldTaxonomy.categories}
+                taxonomy={worldTaxonomy.taxonomy}
+                category={worldCategory}
+                tag={worldTag}
+                onCategoryChange={(c) => {
+                  // 切换分类时清空标签（标签筛选归属分类）
+                  setWorldCategory(c);
+                  setWorldTag("");
+                }}
+                onTagChange={setWorldTag}
+              />
+            </div>
+          )}
+
           {/* 关注流未登录提示 */}
           {feedError && (
             <p className="mt-4 rounded-md bg-like/10 px-3 py-2 text-sm text-like">{feedError}</p>
@@ -259,9 +304,13 @@ export default function HomePage() {
               )}
               {!worldLoading && worldItems.length === 0 && (
                 <div className="rounded-lg border border-line bg-elevated py-16 text-center">
-                  <p className="font-display text-lg text-ink">大世界还很安静</p>
+                  <p className="font-display text-lg text-ink">
+                    {worldCategory !== "" || worldTag !== "" ? "该筛选条件下暂无内容" : "大世界还很安静"}
+                  </p>
                   <p className="mt-2 text-sm text-ink-2">
-                    站长尚未开启「大世界」或暂无跨站内容，发布一条试试
+                    {worldCategory !== "" || worldTag !== ""
+                      ? "换个分类或标签试试"
+                      : "站长尚未开启「大世界」或暂无跨站内容，发布一条试试"}
                   </p>
                 </div>
               )}

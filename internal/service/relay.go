@@ -157,20 +157,24 @@ func (s *RelayService) PublishPostAsync(postID int64) {
 }
 
 // publishPost 打包并推送单条帖子（说说 / 文章）。
+// 推送前提：中继站已启用 + 用户发帖时勾选了公开发送（relay_publish）+ 帖子公开已发布。
 func (s *RelayService) publishPost(ctx context.Context, postID int64) error {
 	rc, err := s.relay.Config(ctx)
 	if err != nil {
 		return err
 	}
-	if !rc.Enabled || rc.URL == "" || rc.SiteKey == "" || rc.DefaultCategory == "" {
-		return nil // 未启用或未选分类：静默跳过
+	if !rc.Enabled || rc.URL == "" || rc.SiteKey == "" {
+		return nil // 未启用：静默跳过
 	}
 	post, err := s.posts.FindByID(ctx, postID)
 	if err != nil {
 		return err
 	}
-	if post.Status != "published" || post.Visibility != "public" {
-		return nil // 仅公开已发布内容进大世界
+	if !post.RelayPublish || post.Status != "published" || post.Visibility != "public" {
+		return nil // 用户未选择公开发送，或非公开已发布内容：跳过
+	}
+	if post.RelayCategory == "" {
+		return nil // 防御：勾选发送但分类缺失（发帖链路已强校验必填）
 	}
 	body, err := s.buildPublishBody(ctx, rc, post)
 	if err != nil {
@@ -190,13 +194,13 @@ func (s *RelayService) publishPost(ctx context.Context, postID int64) error {
 
 // buildPublishBody 组装协议 §4.2 请求体（按站点模式处理图片与全文）。
 func (s *RelayService) buildPublishBody(ctx context.Context, rc model.RelayConfig, post model.Post) (map[string]any, error) {
-	tags := s.postTags(ctx, post.ID)
+	tags := s.relayTagsFor(ctx, post)
 	kind := post.PostKind
 	if kind == "" {
 		kind = "moment"
 	}
 	body := map[string]any{
-		"kind": kind, "category": rc.DefaultCategory, "tags": tags,
+		"kind": kind, "category": post.RelayCategory, "tags": tags,
 		"origin_id":    fmt.Sprintf("%d", post.ID),
 		"published_at": post.CreatedAt.Unix(),
 	}
@@ -286,13 +290,12 @@ func (s *RelayService) postTags(ctx context.Context, postID int64) []string {
 	}
 	return names
 }
-
 // baseURL 本站对外基础 URL（握手上报 base_url 用）。
 func (s *RelayService) baseURL() string { return s.cfg.SiteBaseURL }
 
-// getJSON 统一出站 GET：Bearer key 认证、JSON 解码、协议错误码透传（轮询用，限读 8MB）。
-func (s *RelayService) ListWorld(ctx context.Context, category string, before time.Time, limit int) ([]model.RelayCacheItem, error) {
-	return s.relay.ListCache(ctx, category, before, limit)
+// ListWorld 大世界列表（本地缓存分页；可选分类/标签过滤）。
+func (s *RelayService) ListWorld(ctx context.Context, category string, tag string, before time.Time, limit int) ([]model.RelayCacheItem, error) {
+	return s.relay.ListCache(ctx, category, tag, before, limit)
 }
 
 // CacheCount 本地缓存条数（后台展示）。

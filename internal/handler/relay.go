@@ -125,7 +125,7 @@ func (h *RelayHandler) SaveConfig(c *gin.Context) {
 	resp.OK(c, gin.H{"saved": true})
 }
 
-// ListWorld GET /api/v1/relay/contents —— 大世界前台列表（本地缓存分页）。
+// ListWorld GET /api/v1/relay/contents —— 大世界前台列表（本地缓存分页；category/tag 可选过滤）。
 func (h *RelayHandler) ListWorld(c *gin.Context) {
 	before := time.Now()
 	if raw := c.Query("before"); raw != "" {
@@ -139,12 +139,33 @@ func (h *RelayHandler) ListWorld(c *gin.Context) {
 			limit = n
 		}
 	}
-	items, err := h.svc.ListWorld(c.Request.Context(), c.Query("category"), before, limit)
+	items, err := h.svc.ListWorld(c.Request.Context(), c.Query("category"), c.Query("tag"), before, limit)
 	if err != nil {
 		resp.FailFrom(c, err)
 		return
 	}
 	resp.OK(c, gin.H{"items": items})
+}
+
+// PublishOptions GET /api/v1/relay/publish-options —— 发帖表单的中继站发布选项
+// （登录用户；enabled/categories/taxonomy/default_category，供「是否公开发送 + 分类 + 标签」渲染）。
+func (h *RelayHandler) PublishOptions(c *gin.Context) {
+	out, err := h.svc.PublishOptions(c.Request.Context())
+	if err != nil {
+		resp.FailFrom(c, err)
+		return
+	}
+	resp.OK(c, out)
+}
+
+// Taxonomy GET /api/v1/relay/taxonomy —— 分类/标签规范（公开：大世界筛选用）。
+func (h *RelayHandler) Taxonomy(c *gin.Context) {
+	out, err := h.svc.Taxonomy(c.Request.Context())
+	if err != nil {
+		resp.FailFrom(c, err)
+		return
+	}
+	resp.OK(c, out)
 }
 
 // WorldStatus GET /api/v1/relay/status —— 前台判断大世界板块是否可见。

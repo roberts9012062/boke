@@ -205,6 +205,7 @@ export interface PostDetail extends PostSummary {
   is_author: boolean; // 是否作者本人
   can_view: boolean; // 是否有权查看
   seo?: PostSeoOutput; // SEO 输出（M4.1 插件通道：robots 收录策略等）
+  relay: RelayPublishInput; // 中继站发布选择（编辑回填）
 }
 
 // 发帖/存草稿请求
@@ -220,6 +221,14 @@ export interface CreatePostReq {
   visibility: "public" | "followers" | "private"; // 可见性（followers=仅关注者 M2）
   status: "draft" | "published"; // draft 草稿 / published 发布
   seo?: PostSeoInput; // SEO 输入（M4.1 插件通道：发帖 SEO 面板提交）
+  relay?: RelayPublishInput; // 中继站发布选择（是否公开发送到大世界 + 分类 + 标签）
+}
+
+// RelayPublishInput 发帖/编辑时的中继站发布选择。
+export interface RelayPublishInput {
+  publish: boolean; // 是否公开发送到中继站（大世界）
+  category: string; // 中继站分类（publish=true 时必填）
+  tags: string[]; // 中继站标签（≤5 个，按分类规范表）
 }
 
 // PostSeoInput 发帖/编辑时 SEO 输入（插件面板渲染，值随请求提交）。

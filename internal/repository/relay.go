@@ -117,14 +117,16 @@ func (r *RelayRepo) DeleteCache(ctx context.Context, contentID string) error {
 	return err
 }
 
-// ListCache 大世界列表（分页，按发布时间倒序；可选分类过滤）。
-func (r *RelayRepo) ListCache(ctx context.Context, category string, before time.Time, limit int) ([]model.RelayCacheItem, error) {
+// ListCache 大世界列表（分页，按发布时间倒序；可选分类/标签过滤）。
+// 标签过滤：payload_json->'tags' 为 JSONB 字符串数组，@> to_jsonb($tag) 判包含该字符串元素。
+func (r *RelayRepo) ListCache(ctx context.Context, category string, tag string, before time.Time, limit int) ([]model.RelayCacheItem, error) {
 	rows, err := r.pool.Query(ctx, `
 		SELECT content_id, payload_json, published_at
 		FROM relay_content_cache
 		WHERE published_at < $1
 		  AND ($2 = '' OR payload_json->>'category' = $2)
-		ORDER BY published_at DESC LIMIT $3`, before, category, limit)
+		  AND ($3 = '' OR payload_json->'tags' @> to_jsonb($4::text))
+		ORDER BY published_at DESC LIMIT $5`, before, category, tag, tag, limit)
 	if err != nil {
 		return nil, err
 	}

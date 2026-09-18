@@ -251,6 +251,10 @@ func registerV1(api *gin.RouterGroup, handlers Handlers, jwtMgr *auth.Manager, e
 	// ---------- 大世界（中继站聚合流，公开：读本地缓存） ----------
 	api.GET("/relay/status", handlers.Relay.WorldStatus)
 	api.GET("/relay/contents", handlers.Relay.ListWorld)
+	// 分类/标签规范（公开：大世界筛选渲染）
+	api.GET("/relay/taxonomy", handlers.Relay.Taxonomy)
+	// 发帖表单的中继站发布选项（登录：分类/标签规范表与启用状态）
+	authed.GET("/relay/publish-options", handlers.Relay.PublishOptions)
 	// 申请质询探测端点（公开：中继站申请时回调，nonce 核对，协议 §4.12）
 	api.GET("/relay/probe", handlers.Relay.Probe)
 

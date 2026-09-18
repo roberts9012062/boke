@@ -24,6 +24,7 @@ import type {
   PostReactionState,
   PostSeoInput,
   PostSummary,
+  RelayPublishInput,
   SearchResult,
   TopicDTO,
   UploadResult,
@@ -266,7 +267,7 @@ export function apiCreatePost(req: CreatePostReq): Promise<{ id: number }> {
 // 更新帖子（走查纠偏：编辑已发布帖子 / 草稿继续编辑；后端 PUT /posts/:id，类型不可变）。
 export function apiUpdatePost(
   postId: number,
-  req: { title?: string; content?: string; content_format?: string; tags?: string[]; media_ids?: number[]; gallery_style?: string; visibility?: string; seo?: PostSeoInput },
+  req: { title?: string; content?: string; content_format?: string; tags?: string[]; media_ids?: number[]; gallery_style?: string; visibility?: string; seo?: PostSeoInput; relay?: RelayPublishInput },
 ): Promise<{ id: number }> {
   return put<{ id: number }>(`/posts/${postId}`, req);
 }

@@ -19,6 +19,7 @@ import {
 } from "@/components/compose/config";
 import { GalleryStylePicker } from "@/components/compose/gallery-style-picker";
 import { ImageUploader } from "@/components/compose/image-uploader";
+import { RelayPublishSelect } from "@/components/compose/relay-publish-select";
 import { RichTextEditor } from "@/components/compose/rich-text-editor";
 import { TagInput } from "@/components/compose/tag-input";
 import { VideoUploader } from "@/components/compose/video-uploader";
@@ -28,7 +29,8 @@ import { DesktopNav } from "@/components/desktop-nav";
 import { MobileTabbar } from "@/components/mobile-tabbar";
 import PluginSlot from "@/components/plugin-slot";
 import { apiCreatePost, apiPostDetail, apiUpdatePost, ApiError } from "@/lib/api";
-import type { PostKind, PostSeoInput } from "@/types/api";
+import { apiRelayPublishOptions, type RelayPublishOptions } from "@/lib/api-relay";
+import type { PostKind, PostSeoInput, RelayPublishInput } from "@/types/api";
 import { htmlToText } from "@/lib/rich-text";
 import { useAuth } from "@/lib/auth";
 import type { MediaDTO, PostContentType } from "@/types/api";
@@ -75,6 +77,19 @@ function ComposeContent() {
   const [editLoaded, setEditLoaded] = useState<boolean>(!editing);
   // 是否有插件订阅 compose.seo（有插件时桌面切换为左内容 + 右插件两栏布局）
   const [hasSeoPlugin, setHasSeoPlugin] = useState<boolean>(false);
+  // 中继站发布选择（是否公开发送到大世界 + 分类 + 标签）；options 为 null=未启用/加载失败时隐藏选择区
+  const [relay, setRelay] = useState<RelayPublishInput>({ publish: false, category: "", tags: [] });
+  const [relayOptions, setRelayOptions] = useState<RelayPublishOptions | null>(null);
+
+  // 中继站发布选项（登录后加载一次：启用状态 + 分类 + 分类→规范标签）
+  useEffect(() => {
+    if (!user || relayOptions !== null) {
+      return;
+    }
+    apiRelayPublishOptions()
+      .then((d) => setRelayOptions(d))
+      .catch(() => setRelayOptions(null)); // 加载失败静默隐藏（不影响正常发帖）
+  }, [user, relayOptions]);
 
   // 编辑模式：加载帖子详情填充表单（草稿继续编辑与编辑已发布共用）
   useEffect(() => {
@@ -108,6 +123,8 @@ function ComposeContent() {
             robots: d.seo.robots,
           });
         }
+        // 中继站发布选择回填（编辑：保留用户此前的是否发送 + 分类 + 标签）
+        setRelay(d.relay ?? { publish: false, category: "", tags: [] });
       })
       .catch((err) => setError(err instanceof ApiError ? err.message : "加载失败，无法编辑"))
       .finally(() => setEditLoaded(true));
@@ -143,6 +160,11 @@ function ComposeContent() {
       setError("正文不能为空");
       return;
     }
+    // 中继站发布校验：勾选公开发送时分类必选（后端同步校验；仅中继站启用时提交）
+    if (relayOptions?.enabled && relay.publish && relay.category === "") {
+      setError("公开发送到中继站须选择一个分类");
+      return;
+    }
     setSubmitting(status);
     try {
       // SEO 输入（M4.1 插件通道：SEO 面板提交；无内容时省略）
@@ -167,6 +189,7 @@ function ComposeContent() {
           gallery_style: galleryStyle,
           visibility,
           ...(seoPayload ? { seo: seoPayload } : {}),
+          ...(relayOptions?.enabled ? { relay } : {}),
         });
         router.push(`/posts/${editId}`);
       } else {
@@ -184,6 +207,7 @@ function ComposeContent() {
           visibility,
           status: createStatus,
           ...(seoPayload ? { seo: seoPayload } : {}),
+          ...(relayOptions?.enabled ? { relay } : {}),
         });
         // 发布成功 → 发布成功页；草稿 → 草稿箱提示回首页
         if (createStatus === "published") {
@@ -330,6 +354,18 @@ function ComposeContent() {
         <div className="mt-6">
           <VisibilitySelect value={visibility} onChange={setVisibility} />
         </div>
+
+        {/* 中继站发布选择（站长开启大世界后显示：是否公开发送 + 分类 + 标签；非公开帖置灰） */}
+        {relayOptions?.enabled && (
+          <div className="mt-4">
+            <RelayPublishSelect
+              value={relay}
+              onChange={setRelay}
+              options={relayOptions}
+              disabled={visibility !== "public"}
+            />
+          </div>
+        )}
 
         {/* 错误提示 */}
         {error && (

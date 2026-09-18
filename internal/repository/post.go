@@ -28,17 +28,32 @@ func NewPostRepo(pool *pgxpool.Pool) *PostRepo {
 
 // postColumns 帖子查询列清单（不含 media_ids，单独扫描）。
 // 注意：列顺序必须与 scanPost / scanFavoritePost 的扫描顺序严格一致（多处共用）。
-const postColumns = `id, author_id, title, summary, content, content_format, content_type, post_kind, status, visibility, cover_url, gallery_style, view_count, like_count, comment_count, published_at, created_at, updated_at`
+const postColumns = `id, author_id, title, summary, content, content_format, content_type, post_kind, status, visibility, cover_url, gallery_style, view_count, like_count, comment_count, published_at, created_at, updated_at, relay_publish, relay_category, relay_tags`
+
+// scanRelayTags 解析中继站标签 JSONB（[]byte → []string；空串返回 nil）。
+func scanRelayTags(raw []byte) ([]string, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var tags []string
+	if err := json.Unmarshal(raw, &tags); err != nil {
+		return nil, fmt.Errorf("解析中继站标签失败：%w", err)
+	}
+	return tags, nil
+}
 
 // scanPost 将查询行扫描为 Post 实体（media_ids 需单独处理）。
 func scanPost(row pgx.Row) (model.Post, error) {
 	var p model.Post
 	var mediaIDs []byte
+	var relayTagsRaw []byte
 	err := row.Scan(
 		&p.ID, &p.AuthorID, &p.Title, &p.Summary, &p.Content, &p.ContentFormat,
 		&p.ContentType, &p.PostKind, &p.Status, &p.Visibility, &p.CoverURL, &p.GalleryStyle,
 		&p.ViewCount, &p.LikeCount, &p.CommentCount,
-		&p.PublishedAt, &p.CreatedAt, &p.UpdatedAt, &mediaIDs,
+		&p.PublishedAt, &p.CreatedAt, &p.UpdatedAt,
+		&p.RelayPublish, &p.RelayCategory, &relayTagsRaw,
+		&mediaIDs,
 	)
 	if err != nil {
 		return model.Post{}, wrapNotFound(err)
@@ -49,6 +64,9 @@ func scanPost(row pgx.Row) (model.Post, error) {
 			return model.Post{}, fmt.Errorf("解析媒体 ID 失败：%w", err)
 		}
 	}
+	if p.RelayTags, err = scanRelayTags(relayTagsRaw); err != nil {
+		return model.Post{}, err
+	}
 	return p, nil
 }
 
@@ -56,12 +74,15 @@ func scanPost(row pgx.Row) (model.Post, error) {
 func scanFavoritePost(row pgx.Row) (FavoritePostRow, error) {
 	var p model.Post
 	var mediaIDs []byte
+	var relayTagsRaw []byte
 	var favoritedAt time.Time
 	err := row.Scan(
 		&p.ID, &p.AuthorID, &p.Title, &p.Summary, &p.Content, &p.ContentFormat,
 		&p.ContentType, &p.PostKind, &p.Status, &p.Visibility, &p.CoverURL, &p.GalleryStyle,
 		&p.ViewCount, &p.LikeCount, &p.CommentCount,
-		&p.PublishedAt, &p.CreatedAt, &p.UpdatedAt, &mediaIDs,
+		&p.PublishedAt, &p.CreatedAt, &p.UpdatedAt,
+		&p.RelayPublish, &p.RelayCategory, &relayTagsRaw,
+		&mediaIDs,
 		&favoritedAt,
 	)
 	if err != nil {
@@ -72,6 +93,9 @@ func scanFavoritePost(row pgx.Row) (FavoritePostRow, error) {
 		if err := json.Unmarshal(mediaIDs, &p.MediaIDs); err != nil {
 			return FavoritePostRow{}, fmt.Errorf("解析媒体 ID 失败：%w", err)
 		}
+	}
+	if p.RelayTags, err = scanRelayTags(relayTagsRaw); err != nil {
+		return FavoritePostRow{}, err
 	}
 	return FavoritePostRow{Post: p, FavoritedAt: favoritedAt}, nil
 }
@@ -85,13 +109,18 @@ func (r *PostRepo) Create(ctx context.Context, p model.Post) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
+	relayTagsJSON, err := marshalRelayTags(p.RelayTags)
+	if err != nil {
+		return 0, err
+	}
 	var id int64
 	err = r.pool.QueryRow(ctx, `
-		INSERT INTO posts (author_id, title, summary, content, content_format, content_type, post_kind, status, visibility, cover_url, gallery_style, media_ids, published_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		INSERT INTO posts (author_id, title, summary, content, content_format, content_type, post_kind, status, visibility, cover_url, gallery_style, media_ids, published_at, relay_publish, relay_category, relay_tags)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 		RETURNING id`,
 		p.AuthorID, p.Title, p.Summary, p.Content, p.ContentFormat, p.ContentType, p.PostKind,
 		p.Status, p.Visibility, p.CoverURL, p.GalleryStyle, mediaJSON, p.PublishedAt,
+		p.RelayPublish, p.RelayCategory, relayTagsJSON,
 	).Scan(&id)
 	return id, err
 }
@@ -109,13 +138,19 @@ func (r *PostRepo) Update(ctx context.Context, p model.Post) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	relayTagsJSON, err := marshalRelayTags(p.RelayTags)
+	if err != nil {
+		return false, err
+	}
 	tag, err := r.pool.Exec(ctx, `
 		UPDATE posts SET
 			title = $2, summary = $3, content = $4, content_format = $5, content_type = $6,
-			visibility = $7, cover_url = $8, gallery_style = $9, media_ids = $10, updated_at = now()
+			visibility = $7, cover_url = $8, gallery_style = $9, media_ids = $10,
+			relay_publish = $11, relay_category = $12, relay_tags = $13, updated_at = now()
 		WHERE id = $1`,
 		p.ID, p.Title, p.Summary, p.Content, p.ContentFormat, p.ContentType,
 		p.Visibility, p.CoverURL, p.GalleryStyle, mediaJSON,
+		p.RelayPublish, p.RelayCategory, relayTagsJSON,
 	)
 	if err != nil {
 		return false, err
@@ -131,6 +166,18 @@ func marshalMediaIDs(ids []int64) (string, error) {
 	data, err := json.Marshal(ids)
 	if err != nil {
 		return "", fmt.Errorf("序列化媒体 ID 失败：%w", err)
+	}
+	return string(data), nil
+}
+
+// marshalRelayTags 序列化中继站标签数组为 JSON 文本（nil → "[]"，避免 JSON null）。
+func marshalRelayTags(tags []string) (string, error) {
+	if tags == nil {
+		return "[]", nil
+	}
+	data, err := json.Marshal(tags)
+	if err != nil {
+		return "", fmt.Errorf("序列化中继站标签失败：%w", err)
 	}
 	return string(data), nil
 }

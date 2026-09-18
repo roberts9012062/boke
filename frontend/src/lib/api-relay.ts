@@ -93,10 +93,29 @@ export function apiWorldStatus(): Promise<{ enabled: boolean }> {
   return get<{ enabled: boolean }>("/relay/status");
 }
 
-// apiWorldContents 大世界聚合流（本地缓存分页）。
-export function apiWorldContents(params: { category?: string; before?: number; limit?: number }): Promise<{ items: RelayCacheItem[] }> {
+// RelayPublishOptions 发帖表单的中继站发布选项（GET /relay/publish-options）。
+export interface RelayPublishOptions {
+  enabled: boolean; // 中继站是否启用（未启用时表单隐藏发送选择区）
+  categories: string[]; // 可选分类（握手快照为权威，缺省回退本地规范表）
+  taxonomy: Record<string, string[]>; // 分类 → 规范标签
+  default_category: string; // 预选分类（后台意向分类）
+}
+
+// apiRelayPublishOptions 拉取发帖表单的中继站发布选项（需登录）。
+export function apiRelayPublishOptions(): Promise<RelayPublishOptions> {
+  return get<RelayPublishOptions>("/relay/publish-options");
+}
+
+// apiRelayTaxonomy 拉取分类/标签规范（公开：大世界筛选渲染；enabled/默认分类无意义）。
+export function apiRelayTaxonomy(): Promise<RelayPublishOptions> {
+  return get<RelayPublishOptions>("/relay/taxonomy");
+}
+
+// apiWorldContents 大世界聚合流（本地缓存分页；category/tag 可选过滤）。
+export function apiWorldContents(params: { category?: string; tag?: string; before?: number; limit?: number }): Promise<{ items: RelayCacheItem[] }> {
   const qs = new URLSearchParams();
   if (params.category) qs.set("category", params.category);
+  if (params.tag) qs.set("tag", params.tag);
   if (params.before) qs.set("before", String(params.before));
   if (params.limit) qs.set("limit", String(params.limit));
   const suffix = qs.toString() ? `?${qs.toString()}` : "";

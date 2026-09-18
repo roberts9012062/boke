@@ -256,6 +256,8 @@ func buildHandlers(ctx context.Context, cfg config.Config, logger *zap.Logger) (
 	relaySvc := service.NewRelayService(relayRepo, postRepo, tagRepo, mediaRepo, settingRepo, cfg, logger, update.CurrentVersion(cfg.DataDir))
 	// 发帖成功后异步推送中继站（失败仅日志；幂等键 origin_id=帖子 ID）
 	postSvc.SetRelayHook(relaySvc.PublishPostAsync)
+	// 发帖/编辑时校验中继站发布选择（勾选发送：分类必填 + 标签规范表白名单）
+	postSvc.SetRelayChoiceCheck(relaySvc.ValidatePublishChoice)
 	// 删帖后异步下架大世界（协议 §4.3 己站 origin 简写形式）
 	postSvc.SetRelayDeleteHook(relaySvc.DeleteOnRelayAsync)
 	// 后台删帖同样联动下架（后台路径不走 PostService.Delete，曾漏挂导致中继站残留）

@@ -54,6 +54,9 @@ type Post struct {
 	CoverURL      string     `json:"cover_url"`      // 封面图
 	GalleryStyle  string     `json:"gallery_style"`  // 图片展示风格（grid/carousel/flip/stack/masonry/polaroid；空=网格）
 	MediaIDs      []int64    `json:"media_ids"`      // 关联媒体 ID
+	RelayPublish  bool       `json:"relay_publish"`  // 是否公开发送到中继站（用户发帖时显式选择）
+	RelayCategory string     `json:"relay_category"` // 中继站发布分类（relay_publish=true 时必填）
+	RelayTags     []string   `json:"relay_tags"`     // 中继站发布标签（≤5 个，按分类规范表）
 	ViewCount     int64      `json:"view_count"`     // 浏览量
 	LikeCount     int64      `json:"like_count"`     // 点赞数
 	CommentCount  int64      `json:"comment_count"`  // 评论数
@@ -73,31 +76,40 @@ type PostSeoInput struct {
 	Robots         string `json:"robots"`          // 收录策略（index,follow 等；空=跟随全局）
 }
 
+// RelayPublishInput 发帖/编辑时的中继站发布选择（嵌套结构，避免平铺数据泥团）。
+type RelayPublishInput struct {
+	Publish  bool     `json:"publish"`  // 是否公开发送到中继站（大世界）
+	Category string   `json:"category"` // 中继站分类（publish=true 时必填）
+	Tags     []string `json:"tags"`     // 中继站标签（≤5 个，按分类规范表校验）
+}
+
 // CreatePostReq 发帖/存草稿请求（需求 3.4）。
 type CreatePostReq struct {
-	ContentType   string        `json:"content_type"`   // 内容类型：text/image/audio（video M2 置灰）
-	PostKind      string        `json:"post_kind"`      // 帖子形态：moment=说说 / article=文章（空=moment；创建后不可变）
-	Title         string        `json:"title"`          // 标题（说说可选；文章必填）
-	Content       string        `json:"content"`        // 正文（说说 ≤2000 字 / 文章 ≤20000 字）
-	ContentFormat string        `json:"content_format"` // 正文格式：markdown / html（空=markdown）
-	Tags          []string      `json:"tags"`           // 标签（≤5 个，每个 ≤20 字符）
-	MediaIDs      []int64       `json:"media_ids"`      // 关联媒体 ID（图片多张有序/音频一张）
-	GalleryStyle  string        `json:"gallery_style"`  // 图片展示风格（空=默认网格）
-	Visibility    string        `json:"visibility"`     // 可见性：public/private
-	Status        string        `json:"status"`         // draft=存草稿 / published=发布
-	Seo           *PostSeoInput `json:"seo,omitempty"`  // SEO 输入（插件面板提交；nil=不写 seo_meta）
+	ContentType   string             `json:"content_type"`   // 内容类型：text/image/audio（video M2 置灰）
+	PostKind      string             `json:"post_kind"`      // 帖子形态：moment=说说 / article=文章（空=moment；创建后不可变）
+	Title         string             `json:"title"`          // 标题（说说可选；文章必填）
+	Content       string             `json:"content"`        // 正文（说说 ≤2000 字 / 文章 ≤20000 字）
+	ContentFormat string             `json:"content_format"` // 正文格式：markdown / html（空=markdown）
+	Tags          []string           `json:"tags"`           // 标签（≤5 个，每个 ≤20 字符）
+	MediaIDs      []int64            `json:"media_ids"`      // 关联媒体 ID（图片多张有序/音频一张）
+	GalleryStyle  string             `json:"gallery_style"`  // 图片展示风格（空=默认网格）
+	Visibility    string             `json:"visibility"`     // 可见性：public/private
+	Status        string             `json:"status"`         // draft=存草稿 / published=发布
+	Seo           *PostSeoInput       `json:"seo,omitempty"`  // SEO 输入（插件面板提交；nil=不写 seo_meta）
+	Relay         *RelayPublishInput `json:"relay,omitempty"` // 中继站发布选择（nil=不发送）
 }
 
 // UpdatePostReq 更新帖子请求（草稿继续编辑/已发布编辑）。
 type UpdatePostReq struct {
-	Title         *string       `json:"title"`          // 标题（nil 表示不修改）
-	Content       *string       `json:"content"`        // 正文
-	ContentFormat *string       `json:"content_format"` // 正文格式（nil=不修改）
-	Tags          []string      `json:"tags"`           // 标签（空数组=清空，nil=不修改）
-	MediaIDs      []int64       `json:"media_ids"`      // 媒体（空数组=清空，nil=不修改）
-	GalleryStyle  *string       `json:"gallery_style"`  // 图片展示风格（nil=不修改）
-	Visibility    *string       `json:"visibility"`     // 可见性
-	Seo           *PostSeoInput `json:"seo,omitempty"`  // SEO 输入（插件面板提交；nil=不更新 seo_meta）
+	Title         *string            `json:"title"`          // 标题（nil 表示不修改）
+	Content       *string            `json:"content"`        // 正文
+	ContentFormat *string            `json:"content_format"` // 正文格式（nil=不修改）
+	Tags          []string           `json:"tags"`           // 标签（空数组=清空，nil=不修改）
+	MediaIDs      []int64            `json:"media_ids"`      // 媒体（空数组=清空，nil=不修改）
+	GalleryStyle  *string            `json:"gallery_style"`  // 图片展示风格（nil=不修改）
+	Visibility    *string            `json:"visibility"`     // 可见性
+	Seo           *PostSeoInput       `json:"seo,omitempty"`  // SEO 输入（插件面板提交；nil=不更新 seo_meta）
+	Relay         *RelayPublishInput `json:"relay,omitempty"` // 中继站发布选择（nil=不修改）
 }
 
 // TagDTO 标签信息（列表/详情展示）。
@@ -164,11 +176,12 @@ type PostSummary struct {
 // PostDetail 帖子详情（详情页）。
 type PostDetail struct {
 	PostSummary
-	Content       string         `json:"content"`        // 完整正文
-	ContentFormat string         `json:"content_format"` // 正文格式：markdown / html
-	IsAuthor      bool           `json:"is_author"`      // 是否作者本人（编辑/删除权限）
-	CanView       bool           `json:"can_view"`       // 当前用户是否有权查看（私密帖校验）
-	Seo           *PostSeoOutput `json:"seo,omitempty"`  // SEO 输出（M4.1 插件通道：标题/描述/收录策略）
+	Content       string             `json:"content"`        // 完整正文
+	ContentFormat string             `json:"content_format"` // 正文格式：markdown / html
+	IsAuthor      bool               `json:"is_author"`      // 是否作者本人（编辑/删除权限）
+	CanView       bool               `json:"can_view"`       // 当前用户是否有权查看（私密帖校验）
+	Seo           *PostSeoOutput     `json:"seo,omitempty"`  // SEO 输出（M4.1 插件通道：标题/描述/收录策略）
+	Relay         RelayPublishInput  `json:"relay"`          // 中继站发布选择（编辑回填）
 }
 
 // PostSeoOutput 详情页 SEO 输出（robots 收录策略 / 自定义标题描述；无记录为 nil）。
