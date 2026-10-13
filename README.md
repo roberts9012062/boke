@@ -4,6 +4,25 @@
 
 「月言」是一个**短文 + 多媒体的轻博客社区**：以短句（≤2000 字）与图片、音频、视频为载体的安静社区。氛围关键词：安静、夜色、月光、慢节奏。设计依据 `boke.pen` 设计稿（294 画板，双主题 × 双端），全量走查纠偏完成。
 
+## 🖼 图片展示
+
+> 线上实例：**[00b.top](https://00b.top/)**（以下为冷月主题实截）
+
+<table>
+  <tr>
+    <td align="center"><strong>首页 · 时间线（冷月主题）</strong><br/><img src="docs/images/home-dark.png" alt="首页时间线" /></td>
+    <td align="center"><strong>帖子详情 · 评论</strong><br/><img src="docs/images/post-detail.png" alt="帖子详情" /></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>创作页 · 文/图/音/影 + AI 辅助</strong><br/><img src="docs/images/compose.png" alt="创作页" /></td>
+    <td align="center"><strong>后台仪表盘 · 趋势与待处理</strong><br/><img src="docs/images/admin-dashboard.png" alt="后台仪表盘" /></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>插件商城 · GitHub 驱动</strong><br/><img src="docs/images/admin-plugin-market.png" alt="插件商城" /></td>
+    <td align="center"><strong>移动端适配（390px）</strong><br/><img src="docs/images/mobile-home.png" alt="移动端首页" width="360" /></td>
+  </tr>
+</table>
+
 ## ✨ 功能全景
 
 ### 前台（访客 / 注册用户）
@@ -168,3 +187,9 @@ boke/
 ## 📄 License
 
 [MIT](LICENSE) — 自由使用与修改，保留署名。
+
+## 🌐 社区
+
+本项目已链接认可 [LINUX DO](https://linux.do) 社区。
+
+**LINUX DO —— 真实、友善、纯粹的交流社区**

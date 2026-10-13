@@ -44,6 +44,8 @@ export.zip
 docs/*
 !docs/plugin-development.md
 !docs/browser-extension-guide.md
+# README 图片展示截图（随仓库分发，供 GitHub 渲染）
+!docs/images/
 
 # 备份导出产物（data/backup/，M4-报表）
 data/backup/
